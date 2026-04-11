@@ -1,0 +1,27 @@
+# systemd unit file for the SkyPilot Capital FastAPI backend.
+#
+# INSTALL:
+#   sudo cp deploy/skypilot-api.service /etc/systemd/system/
+#   sudo systemctl daemon-reload
+#   sudo systemctl enable skypilot-api
+#   sudo systemctl start skypilot-api
+#
+# USEFUL COMMANDS:
+#   sudo systemctl status skypilot-api     # check if running
+#   sudo journalctl -u skypilot-api -f     # follow live logs
+#   sudo systemctl restart skypilot-api    # restart after a git pull
+
+[Unit]
+Description=SkyPilot Capital API
+After=network.target postgresql.service
+
+[Service]
+User=root
+WorkingDirectory=/root/webapp
+EnvironmentFile=/root/webapp/api/.env
+ExecStart=/root/webapp/api/venv/bin/uvicorn api.main:app --host 0.0.0.0 --port 8000 --workers 2
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target

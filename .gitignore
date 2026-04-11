@@ -1,0 +1,29 @@
+# ── Credentials — never commit ──────────────────────────────────────────────
+.env
+api/.env
+
+# ── Python (backend) ─────────────────────────────────────────────────────────
+__pycache__/
+*.py[cod]
+*.egg-info/
+.eggs/
+dist/
+build/
+api/venv/
+venv/
+.venv/
+
+# ── Node / Next.js (frontend) ────────────────────────────────────────────────
+frontend/node_modules/
+frontend/.next/
+frontend/out/
+frontend/.env.local
+frontend/.env*.local
+
+# ── IDE ──────────────────────────────────────────────────────────────────────
+.vscode/
+.idea/
+
+# ── OS ───────────────────────────────────────────────────────────────────────
+.DS_Store
+Thumbs.db
