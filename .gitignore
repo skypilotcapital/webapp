@@ -1,6 +1,7 @@
 # ── Credentials — never commit ──────────────────────────────────────────────
 .env
 api/.env
+deploy/create_readonly_user.sql
 
 # ── Python (backend) ─────────────────────────────────────────────────────────
 __pycache__/
