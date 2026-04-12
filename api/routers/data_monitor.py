@@ -122,12 +122,20 @@ def table_status():
             for r in est_rows
         }
 
-        for schema, table, date_col, _ in MONITORED_TABLES:
-            max_row = conn.execute(
-                text(f"SELECT MAX({date_col})::text AS max_date FROM {schema}.{table}")
-            ).fetchone()
+        # Fetch all MAX(date) values in one round-trip using UNION ALL
+        union_sql = " UNION ALL ".join(
+            f"SELECT '{schema}' AS schema_name, '{table}' AS table_name,"
+            f" MAX({date_col})::text AS max_date"
+            f" FROM {schema}.{table}"
+            for schema, table, date_col, _ in MONITORED_TABLES
+        )
+        max_dates = {
+            (r.schema_name, r.table_name): r.max_date
+            for r in conn.execute(text(union_sql)).fetchall()
+        }
 
-            max_date_str = max_row.max_date if max_row else None
+        for schema, table, date_col, _ in MONITORED_TABLES:
+            max_date_str = max_dates.get((schema, table))
             row_count = row_count_map.get((schema, table), 0)
 
             lag_days = None
