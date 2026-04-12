@@ -14,9 +14,9 @@ export const metadata: Metadata = {
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
     <html lang="en" className={`${geistSans.variable} ${geistMono.variable} h-full antialiased`}>
-      <body className="min-h-full bg-slate-950 text-slate-100 selection:bg-teal-900 selection:text-teal-100 relative">
-        <div className="absolute top-0 w-full h-96 bg-teal-900/20 blur-[120px] -z-10 pointer-events-none"></div>
-        <header className="bg-slate-950/80 backdrop-blur-lg border-b border-white/5 sticky top-0 z-10 transition-colors">
+      <body className="min-h-full bg-navy-950 text-slate-100 selection:bg-teal-900 selection:text-teal-100 relative">
+        <div className="absolute top-0 w-full h-96 bg-teal-900/30 blur-[130px] -z-10 pointer-events-none"></div>
+        <header className="bg-navy-950/80 backdrop-blur-lg border-b border-white/5 sticky top-0 z-10 transition-colors">
           <div className="max-w-6xl mx-auto px-6 py-5 flex items-center justify-between">
             <Link href="/" className="text-xl font-semibold text-white hover:text-teal-400 transition-colors tracking-wide">
               SkyPilot Capital

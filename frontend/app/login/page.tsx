@@ -7,8 +7,8 @@ export default function LoginPage() {
   const [state, formAction, isPending] = useActionState(loginAction, null);
 
   return (
-    <div className="min-h-screen bg-slate-950 flex flex-col justify-center py-12 px-6 relative">
-      <div className="absolute inset-0 w-full h-full bg-teal-900/20 blur-[150px] -z-10 pointer-events-none"></div>
+    <div className="min-h-screen bg-navy-950 flex flex-col justify-center py-12 px-6 relative">
+      <div className="absolute inset-0 w-full h-full bg-teal-900/30 blur-[150px] -z-10 pointer-events-none"></div>
       <div className="sm:mx-auto sm:w-full sm:max-w-md z-10">
         <div className="border-b border-white/10 pb-8 mb-10 text-center sm:text-left">
           <h2 className="text-3xl font-bold text-white tracking-tight">

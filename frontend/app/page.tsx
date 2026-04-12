@@ -34,12 +34,12 @@ export default function HomePage() {
             <Link
               key={panel.title}
               href={panel.href}
-              className="block bg-white/5 backdrop-blur-md border border-white/10 p-8 rounded-xl hover:bg-white/10 hover:border-teal-500/50 hover:shadow-[0_0_20px_rgba(20,184,166,0.15)] transition-all duration-300 group"
+              className="block bg-navy-950/50 backdrop-blur-md border border-white/10 p-8 rounded-xl hover:bg-navy-800/40 hover:border-teal-500/50 hover:shadow-[0_0_20px_rgba(20,184,166,0.15)] transition-all duration-300 group"
             >
               <h2 className="text-xl font-semibold text-white border-b-2 border-transparent group-hover:border-teal-400/50 pb-1 inline-block mb-3 transition-colors">
                 {panel.title}
               </h2>
-              <p className="text-sm text-slate-300 leading-relaxed">{panel.description}</p>
+              <p className="text-sm text-slate-300 leading-relaxed font-medium">{panel.description}</p>
             </Link>
           ) : (
             <div
