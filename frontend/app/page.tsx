@@ -23,33 +23,32 @@ const panels = [
 
 export default function HomePage() {
   return (
-    <div className="space-y-8">
-      <div>
-        <h1 className="text-2xl font-bold text-gray-900">SkyPilot Capital</h1>
-        <p className="text-sm text-gray-500 mt-1">Internal dashboard</p>
+    <div className="space-y-12">
+      <div className="border-b border-black pb-6 mb-8 max-w-2xl">
+        <h1 className="text-4xl font-bold tracking-tight text-black">SkyPilot Capital</h1>
+        <p className="text-sm text-slate-500 mt-3 uppercase tracking-widest font-medium">Internal Dashboard Index</p>
       </div>
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-8">
         {panels.map((panel) =>
           panel.active ? (
             <Link
               key={panel.title}
               href={panel.href}
-              className="block bg-white border border-gray-200 rounded-lg shadow-sm p-6 hover:border-blue-400 hover:shadow-md transition-all group"
+              className="block bg-white border border-slate-300 p-8 hover:border-black transition-all group"
             >
-              <h2 className="text-base font-semibold text-gray-900 group-hover:text-blue-600">
+              <h2 className="text-xl font-bold text-black border-b-2 border-transparent group-hover:border-black pb-1 inline-block mb-3 transition-colors">
                 {panel.title}
               </h2>
-              <p className="text-sm text-gray-500 mt-2">{panel.description}</p>
-              <p className="text-xs text-blue-500 mt-4 font-medium">Open →</p>
+              <p className="text-sm text-slate-600 leading-relaxed">{panel.description}</p>
             </Link>
           ) : (
             <div
               key={panel.title}
-              className="bg-gray-50 border border-gray-200 rounded-lg p-6 opacity-60 cursor-not-allowed"
+              className="bg-slate-50 border border-slate-200 p-8 opacity-70 cursor-not-allowed"
             >
-              <h2 className="text-base font-semibold text-gray-500">{panel.title}</h2>
-              <p className="text-sm text-gray-400 mt-2">{panel.description}</p>
-              <p className="text-xs text-gray-400 mt-4 font-medium">Coming soon</p>
+              <h2 className="text-xl font-bold text-slate-400 mb-3">{panel.title}</h2>
+              <p className="text-sm text-slate-400 leading-relaxed">{panel.description}</p>
+              <p className="text-xs text-slate-400 mt-6 uppercase tracking-widest font-bold">Coming soon</p>
             </div>
           )
         )}

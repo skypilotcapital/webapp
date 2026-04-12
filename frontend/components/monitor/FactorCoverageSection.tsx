@@ -18,14 +18,14 @@ export function FactorCoverageSection() {
   return (
     <Card>
       <CardHeader>
-        <div className="flex items-center justify-between">
-          <h2 className="text-base font-semibold text-gray-900">Factor Coverage</h2>
+        <div className="flex items-center justify-between pb-3 border-b border-black mb-4">
+          <h2 className="text-lg font-bold text-black uppercase tracking-tight">Factor Coverage</h2>
           {updatedAt && (
-            <span className="text-xs text-gray-400">Updated {secondsAgo(updatedAt)}</span>
+            <span className="text-xs text-slate-500 uppercase tracking-widest font-semibold">Updated {secondsAgo(updatedAt)}</span>
           )}
         </div>
-        <p className="text-sm text-gray-500 mt-0.5">
-          % of current S&P 500 constituents with valid factor.scores at last month-end
+        <p className="text-sm text-slate-600 mb-6">
+          S&P 500 constituents with valid scores at latest month-end
         </p>
       </CardHeader>
       <CardContent>
