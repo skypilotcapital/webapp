@@ -7,14 +7,14 @@ export default function LoginPage() {
   const [state, formAction, isPending] = useActionState(loginAction, null);
 
   return (
-    <div className="min-h-screen bg-[#0B1527] flex flex-col justify-center py-12 px-6 relative">
-      <div className="absolute inset-0 w-full h-full bg-cyan-900/20 blur-[150px] -z-10 pointer-events-none"></div>
+    <div className="min-h-screen bg-slate-950 flex flex-col justify-center py-12 px-6 relative">
+      <div className="absolute inset-0 w-full h-full bg-teal-900/20 blur-[150px] -z-10 pointer-events-none"></div>
       <div className="sm:mx-auto sm:w-full sm:max-w-md z-10">
         <div className="border-b border-white/10 pb-8 mb-10 text-center sm:text-left">
           <h2 className="text-3xl font-bold text-white tracking-tight">
             SkyPilot Capital
           </h2>
-          <p className="mt-3 text-sm text-cyan-400/80 uppercase tracking-widest font-medium">
+          <p className="mt-3 text-sm text-teal-400/80 uppercase tracking-widest font-medium">
             Internal Dashboard Access
           </p>
         </div>
@@ -35,7 +35,7 @@ export default function LoginPage() {
                   type="password"
                   autoComplete="current-password"
                   required
-                  className="appearance-none block w-full px-4 py-3 border border-white/10 bg-white/5 rounded-lg text-white placeholder-slate-500 focus:outline-none focus:border-cyan-400 focus:ring-1 focus:ring-cyan-400 sm:text-sm transition-all shadow-inner"
+                  className="appearance-none block w-full px-4 py-3 border border-white/10 bg-white/5 rounded-lg text-white placeholder-slate-500 focus:outline-none focus:border-teal-400 focus:ring-1 focus:ring-teal-400 sm:text-sm transition-all shadow-inner"
                 />
               </div>
             </div>
@@ -50,7 +50,7 @@ export default function LoginPage() {
               <button
                 type="submit"
                 disabled={isPending}
-                className="w-full flex justify-center py-4 px-4 border border-transparent rounded-lg shadow-lg text-sm font-semibold text-white bg-cyan-600 hover:bg-cyan-500 transition-all focus:outline-none disabled:opacity-50"
+                className="w-full flex justify-center py-4 px-4 border border-transparent rounded-lg shadow-lg text-sm font-semibold text-white bg-teal-600 hover:bg-teal-500 transition-all focus:outline-none disabled:opacity-50"
               >
                 {isPending ? 'Authenticating...' : 'Enter System'}
               </button>
