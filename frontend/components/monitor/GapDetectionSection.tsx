@@ -21,7 +21,7 @@ export function GapDetectionSection() {
         <div className="flex items-center justify-between pb-3 border-b border-black/5/[0.03] mb-4">
           <h2 className="text-lg font-semibold text-[#0F172A] tracking-tight">Gap Detection</h2>
           {updatedAt && (
-            <span className="text-xs text-xs text-[#0F172A]/80 uppercase tracking-widest tracking-[0.2em] font-black font-medium">Updated {secondsAgo(updatedAt)}</span>
+            <span className="text-xs text-xs text-[#0F172A]/80 uppercase tracking-[0.1em] tracking-[0.2em] font-black font-medium">Updated {secondsAgo(updatedAt)}</span>
           )}
         </div>
         <p className="text-sm text-slate-300 mb-6">
