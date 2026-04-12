@@ -24,9 +24,9 @@ const panels = [
 export default function HomePage() {
   return (
     <div className="space-y-12">
-      <div className="border-b border-zinc-800 pb-6 mb-10 max-w-2xl">
-        <h1 className="text-4xl font-serif text-zinc-100 tracking-wide">SkyPilot Capital</h1>
-        <p className="text-sm text-amber-500/80 mt-3 uppercase tracking-widest font-medium">Internal Dashboard Index</p>
+      <div className="border-b border-white/10 pb-6 mb-10 max-w-2xl">
+        <h1 className="text-4xl font-bold text-white tracking-tight">SkyPilot Capital</h1>
+        <p className="text-sm text-cyan-400/80 mt-3 uppercase tracking-widest font-medium">Internal Dashboard Index</p>
       </div>
       <div className="grid grid-cols-1 md:grid-cols-3 gap-8">
         {panels.map((panel) =>
@@ -34,21 +34,21 @@ export default function HomePage() {
             <Link
               key={panel.title}
               href={panel.href}
-              className="block bg-zinc-900 border border-zinc-800 p-8 rounded-md hover:border-amber-500/50 hover:shadow-lg transition-all group"
+              className="block bg-white/5 backdrop-blur-md border border-white/10 p-8 rounded-xl hover:bg-white/10 hover:border-cyan-500/50 hover:shadow-[0_0_20px_rgba(34,211,238,0.15)] transition-all duration-300 group"
             >
-              <h2 className="text-xl font-serif text-zinc-200 border-b border-transparent group-hover:border-amber-500/30 pb-1 inline-block mb-3 transition-colors">
+              <h2 className="text-xl font-semibold text-white border-b-2 border-transparent group-hover:border-cyan-400/50 pb-1 inline-block mb-3 transition-colors">
                 {panel.title}
               </h2>
-              <p className="text-sm text-zinc-400 leading-relaxed font-mono">{panel.description}</p>
+              <p className="text-sm text-slate-300 leading-relaxed">{panel.description}</p>
             </Link>
           ) : (
             <div
               key={panel.title}
-              className="bg-zinc-900/50 border border-zinc-800/50 p-8 rounded-md opacity-60 cursor-not-allowed"
+              className="bg-white/5 border border-white/5 p-8 rounded-xl opacity-50 cursor-not-allowed"
             >
-              <h2 className="text-xl font-serif text-zinc-500 mb-3">{panel.title}</h2>
-              <p className="text-sm text-zinc-600 leading-relaxed font-mono">{panel.description}</p>
-              <p className="text-xs text-zinc-700 mt-6 uppercase tracking-widest font-bold">Coming soon</p>
+              <h2 className="text-xl font-semibold text-slate-400 mb-3">{panel.title}</h2>
+              <p className="text-sm text-slate-500 leading-relaxed">{panel.description}</p>
+              <p className="text-xs text-slate-500/80 mt-6 uppercase tracking-widest font-bold">Coming soon</p>
             </div>
           )
         )}

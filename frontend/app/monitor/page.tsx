@@ -6,9 +6,9 @@ import { GapDetectionSection } from '@/components/monitor/GapDetectionSection';
 export default function MonitorPage() {
   return (
     <div className="space-y-8">
-      <div className="border-b border-zinc-800 pb-6 mb-10 max-w-2xl">
-        <h1 className="text-4xl font-serif text-zinc-100 tracking-wide">Data Monitor</h1>
-        <p className="text-sm text-amber-500/80 mt-3 font-medium uppercase tracking-widest">
+      <div className="border-b border-white/10 pb-6 mb-10 max-w-2xl">
+        <h1 className="text-4xl font-bold text-white tracking-tight">Data Monitor</h1>
+        <p className="text-sm text-cyan-400/80 mt-3 font-medium uppercase tracking-widest">
           Pipeline health, data freshness, and factor coverage
         </p>
       </div>
