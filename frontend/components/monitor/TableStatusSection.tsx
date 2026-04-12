@@ -24,17 +24,17 @@ export function TableStatusSection() {
             <span className="text-xs text-xs text-[#0F172A]/80 uppercase tracking-[0.1em] tracking-[0.2em] font-black font-medium">Updated {secondsAgo(updatedAt)}</span>
           )}
         </div>
-        <p className="text-sm text-slate-300 mb-6">
+        <p className="text-sm text-slate-600 mb-6">
           Latest date and row counts across all pipeline tables
         </p>
       </CardHeader>
       <CardContent className="p-0">
-        {isLoading && <p className="text-sm text-slate-300 px-6 py-4">Loading…</p>}
+        {isLoading && <p className="text-sm text-slate-600 px-6 py-4">Loading…</p>}
         {error     && <p className="text-sm text-red-500 px-6 py-4">Failed to load</p>}
         {data && (
           <table className="w-full text-sm">
             <thead>
-              <tr className="border-b border-black/5/[0.03] text-left text-xs text-slate-300 font-medium tracking-wide">
+              <tr className="border-b border-black/5/[0.03] text-left text-xs text-slate-600 font-medium tracking-wide">
                 <th className="px-6 py-4">Table</th>
                 <th className="px-6 py-4">Max Date</th>
                 <th className="px-6 py-4 text-right">Row Count</th>
@@ -45,7 +45,7 @@ export function TableStatusSection() {
               {data.map((row) => (
                 <tr key={`${row.schema_name}.${row.table_name}`} className="hover:bg-white/60 backdrop-blur-xl/[0.02] transition-colors">
                   <td className="px-6 py-4 font-mono text-[#0F172A] font-mono">
-                    <span className="text-slate-300">{row.schema_name}.</span>
+                    <span className="text-slate-600">{row.schema_name}.</span>
                     {row.table_name}
                   </td>
                   <td className="px-6 py-3 tabular-nums text-[#0F172A]">

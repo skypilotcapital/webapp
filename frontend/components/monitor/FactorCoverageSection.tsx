@@ -24,12 +24,12 @@ export function FactorCoverageSection() {
             <span className="text-xs text-xs text-[#0F172A]/80 uppercase tracking-[0.1em] tracking-[0.2em] font-black font-medium">Updated {secondsAgo(updatedAt)}</span>
           )}
         </div>
-        <p className="text-sm text-slate-300 mb-6">
+        <p className="text-sm text-slate-600 mb-6">
           S&P 500 constituents with valid scores at latest month-end
         </p>
       </CardHeader>
       <CardContent>
-        {isLoading && <p className="text-sm text-slate-300">Loading…</p>}
+        {isLoading && <p className="text-sm text-slate-600">Loading…</p>}
         {error   && <p className="text-sm text-red-500">Failed to load</p>}
         {data && (
           <div className="flex items-end gap-6">
@@ -38,7 +38,7 @@ export function FactorCoverageSection() {
                 {data.coverage_pct !== null ? `${data.coverage_pct}%` : '—'}
               </span>
             </div>
-            <div className="text-sm text-slate-300 pb-1">
+            <div className="text-sm text-slate-600 pb-1">
               <p>{data.covered_count} / {data.universe_count} stocks covered</p>
               <p>As of {data.as_of_date ?? '—'}</p>
             </div>
