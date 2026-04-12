@@ -14,18 +14,25 @@ export const metadata: Metadata = {
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
     <html lang="en" className={`${geistSans.variable} ${geistMono.variable} h-full antialiased`}>
-      <body className="min-h-full text-slate-900 selection:bg-sky-100 selection:text-sky-900 relative" style={{ backgroundColor: '#F8FAFC' }}>
-        <header className="bg-white/80 backdrop-blur-xl border-b border-slate-200 sticky top-0 z-50">
+      <body className="min-h-full text-slate-900 selection:bg-indigo-100 selection:text-indigo-900 relative" style={{ backgroundColor: '#FDFCFB' }}>
+        {/* Natural Sophistication Glows */}
+        <div className="fixed inset-0 -z-10 pointer-events-none">
+          <div className="absolute top-[-5%] left-[-5%] w-[40%] h-[40%] bg-indigo-500/5 blur-[120px] rounded-full"></div>
+          <div className="absolute bottom-[10%] right-[10%] w-[30%] h-[30%] bg-amber-500/5 blur-[100px] rounded-full"></div>
+        </div>
+
+        <header className="bg-white/40 backdrop-blur-xl border-b border-black/5 sticky top-0 z-50">
           <div className="max-w-7xl mx-auto px-8 py-6 flex items-center justify-between">
             <Link href="/" className="flex items-center gap-3 group">
-              <div className="w-8 h-8 bg-[#0F172A] text-white flex items-center justify-center font-bold rounded-md group-hover:bg-[#0284C7] transition-colors">S</div>
+              <div className="w-8 h-8 bg-[#4F46E5] text-white flex items-center justify-center font-bold rounded-lg group-hover:bg-[#4338CA] transition-all group-hover:scale-105">S</div>
               <span className="text-xl font-bold tracking-tight text-[#0F172A]">
                 SkyPilot Capital
               </span>
             </Link>
             <nav className="flex items-center gap-10 text-sm font-semibold tracking-wide">
-              <Link href="/monitor" className="text-slate-500 hover:text-[#0F172A] transition-colors">
+              <Link href="/monitor" className="text-slate-500 hover:text-[#4F46E5] transition-colors relative group/link">
                 Data Monitor
+                <span className="absolute -bottom-1 left-0 w-0 h-0.5 bg-[#4F46E5] transition-all group-hover/link:w-full"></span>
               </Link>
               <span className="text-slate-300 cursor-not-allowed">
                 Research
@@ -37,7 +44,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
           </div>
         </header>
 
-        <main className="max-w-7xl mx-auto px-8 py-16" style={{ backgroundColor: '#F8FAFC' }}>
+        <main className="max-w-7xl mx-auto px-8 py-16" style={{ backgroundColor: '#FDFCFB' }}>
           {children}
         </main>
       </body>

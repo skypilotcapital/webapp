@@ -18,10 +18,10 @@ export function FactorCoverageSection() {
   return (
     <Card>
       <CardHeader>
-        <div className="flex items-center justify-between pb-3 border-b border-slate-200/[0.03] mb-4">
+        <div className="flex items-center justify-between pb-3 border-b border-black/5/[0.03] mb-4">
           <h2 className="text-lg font-semibold text-[#0F172A] tracking-tight">Factor Coverage</h2>
           {updatedAt && (
-            <span className="text-xs text-xs text-[#0F172A]/80 uppercase tracking-[0.2em] font-black font-medium">Updated {secondsAgo(updatedAt)}</span>
+            <span className="text-xs text-xs text-[#0F172A]/80 uppercase tracking-widest tracking-[0.2em] font-black font-medium">Updated {secondsAgo(updatedAt)}</span>
           )}
         </div>
         <p className="text-sm text-slate-300 mb-6">
@@ -34,7 +34,7 @@ export function FactorCoverageSection() {
         {data && (
           <div className="flex items-end gap-6">
             <div>
-              <span className={`text-6xl font-black uppercase tracking-tighter tabular-nums ${coverageColor(data.coverage_pct)}`}>
+              <span className={`text-6xl font-black uppercase tracking-widest tracking-tighter tabular-nums ${coverageColor(data.coverage_pct)}`}>
                 {data.coverage_pct !== null ? `${data.coverage_pct}%` : '—'}
               </span>
             </div>
