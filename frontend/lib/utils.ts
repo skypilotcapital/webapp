@@ -10,11 +10,11 @@ const MONTH_END_TABLES = new Set(['scores', 'forward_returns']);
  * Month-end tables are not color-coded (lag is expected to be 30+ days).
  */
 export function lagColor(lagDays: number | null, tableName: string): string {
-  if (lagDays === null) return 'text-gray-400';
-  if (MONTH_END_TABLES.has(tableName)) return 'text-gray-600';
-  if (lagDays <= 3)  return 'text-green-600';
+  if (lagDays === null) return 'text-zinc-500';
+  if (MONTH_END_TABLES.has(tableName)) return 'text-zinc-400';
+  if (lagDays <= 3)  return 'text-emerald-400';
   if (lagDays <= 7)  return 'text-amber-500';
-  return 'text-red-600';
+  return 'text-rose-500';
 }
 
 /**
@@ -22,10 +22,10 @@ export function lagColor(lagDays: number | null, tableName: string): string {
  */
 export function statusBadgeClass(status: string): string {
   switch (status) {
-    case 'complete': return 'bg-green-100 text-green-800';
-    case 'running':  return 'bg-amber-100 text-amber-800';
-    case 'error':    return 'bg-red-100 text-red-800';
-    default:         return 'bg-gray-100 text-gray-700';
+    case 'complete': return 'bg-emerald-950 border border-emerald-900 text-emerald-400';
+    case 'running':  return 'bg-amber-950 border border-amber-900 text-amber-500';
+    case 'error':    return 'bg-rose-950 border border-rose-900 text-rose-400';
+    default:         return 'bg-zinc-800 text-zinc-400 border border-zinc-700';
   }
 }
 
@@ -33,10 +33,10 @@ export function statusBadgeClass(status: string): string {
  * Tailwind text color class for a factor coverage percentage.
  */
 export function coverageColor(pct: number | null): string {
-  if (pct === null) return 'text-gray-400';
-  if (pct >= 95) return 'text-green-600';
+  if (pct === null) return 'text-zinc-500';
+  if (pct >= 95) return 'text-emerald-400';
   if (pct >= 90) return 'text-amber-500';
-  return 'text-red-600';
+  return 'text-rose-500';
 }
 
 // ── Formatters ───────────────────────────────────────────────────────────────

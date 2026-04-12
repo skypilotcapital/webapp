@@ -18,18 +18,18 @@ export function FactorCoverageSection() {
   return (
     <Card>
       <CardHeader>
-        <div className="flex items-center justify-between pb-3 border-b border-black mb-4">
-          <h2 className="text-lg font-bold text-black uppercase tracking-tight">Factor Coverage</h2>
+        <div className="flex items-center justify-between pb-3 border-b border-zinc-800 mb-4">
+          <h2 className="text-xl font-serif text-zinc-200 tracking-wide">Factor Coverage</h2>
           {updatedAt && (
-            <span className="text-xs text-slate-500 uppercase tracking-widest font-semibold">Updated {secondsAgo(updatedAt)}</span>
+            <span className="text-xs text-xs text-amber-500/80 uppercase tracking-widest font-mono">Updated {secondsAgo(updatedAt)}</span>
           )}
         </div>
-        <p className="text-sm text-slate-600 mb-6">
+        <p className="text-sm text-zinc-400 mb-6">
           S&P 500 constituents with valid scores at latest month-end
         </p>
       </CardHeader>
       <CardContent>
-        {isLoading && <p className="text-sm text-gray-400">Loading…</p>}
+        {isLoading && <p className="text-sm text-zinc-500">Loading…</p>}
         {error   && <p className="text-sm text-red-500">Failed to load</p>}
         {data && (
           <div className="flex items-end gap-6">
@@ -38,7 +38,7 @@ export function FactorCoverageSection() {
                 {data.coverage_pct !== null ? `${data.coverage_pct}%` : '—'}
               </span>
             </div>
-            <div className="text-sm text-gray-500 pb-1">
+            <div className="text-sm text-zinc-400 pb-1">
               <p>{data.covered_count} / {data.universe_count} stocks covered</p>
               <p>As of {data.as_of_date ?? '—'}</p>
             </div>

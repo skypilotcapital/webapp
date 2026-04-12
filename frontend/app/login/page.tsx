@@ -7,25 +7,25 @@ export default function LoginPage() {
   const [state, formAction, isPending] = useActionState(loginAction, null);
 
   return (
-    <div className="min-h-screen bg-white flex flex-col justify-center py-12 px-6">
+    <div className="min-h-screen bg-zinc-950 flex flex-col justify-center py-12 px-6">
       <div className="sm:mx-auto sm:w-full sm:max-w-md">
-        <div className="border-b border-black pb-8 mb-8 text-center sm:text-left">
-          <h2 className="text-3xl font-bold tracking-tight text-black uppercase">
+        <div className="border-b border-zinc-800 pb-8 mb-10 text-center sm:text-left">
+          <h2 className="text-3xl font-serif text-zinc-100 tracking-wide">
             SkyPilot Capital
           </h2>
-          <p className="mt-3 text-sm text-slate-500 uppercase tracking-widest font-medium">
+          <p className="mt-3 text-sm text-amber-500/80 uppercase tracking-widest font-medium">
             Internal Dashboard Access
           </p>
         </div>
 
-        <div className="bg-white border border-slate-300 p-8">
+        <div className="bg-zinc-900 border border-zinc-800 p-8 rounded-md shadow-2xl shadow-black/50">
           <form className="space-y-6" action={formAction}>
             <div>
               <label
                 htmlFor="password"
-                className="block text-sm font-bold text-black uppercase tracking-wide mb-2"
+                className="block text-sm font-serif text-zinc-300 tracking-wide mb-2"
               >
-                Password
+                Passcode
               </label>
               <div>
                 <input
@@ -34,24 +34,24 @@ export default function LoginPage() {
                   type="password"
                   autoComplete="current-password"
                   required
-                  className="appearance-none block w-full px-4 py-3 border border-slate-300 bg-slate-50 rounded-none placeholder-slate-400 focus:outline-none focus:border-black focus:ring-1 focus:ring-black sm:text-sm transition-colors"
+                  className="appearance-none block w-full px-4 py-3 border border-zinc-700 bg-zinc-950 rounded-sm text-zinc-300 placeholder-zinc-600 focus:outline-none focus:border-amber-500 focus:ring-1 focus:ring-amber-500 sm:text-sm transition-colors"
                 />
               </div>
             </div>
 
             {state?.error && (
-              <div className="text-red-600 text-sm font-bold tracking-wide uppercase border-l-4 border-red-600 pl-3">
+              <div className="text-red-400 text-sm font-bold tracking-wide uppercase border-l-2 border-red-400 pl-3">
                 {state.error}
               </div>
             )}
 
-            <div className="pt-2">
+            <div className="pt-4">
               <button
                 type="submit"
                 disabled={isPending}
-                className="w-full flex justify-center py-4 px-4 border border-black rounded-none shadow-none text-sm font-bold uppercase tracking-wider text-white bg-black hover:bg-white hover:text-black transition-colors focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-black disabled:opacity-50"
+                className="w-full flex justify-center py-4 px-4 border border-zinc-700 rounded-sm shadow-none text-sm font-serif uppercase tracking-wider text-amber-500 bg-zinc-950 hover:bg-zinc-800 hover:text-amber-400 hover:border-amber-500/50 transition-all focus:outline-none disabled:opacity-50"
               >
-                {isPending ? 'Authenticating...' : 'Sign in'}
+                {isPending ? 'Authenticating...' : 'Enter System'}
               </button>
             </div>
           </form>
