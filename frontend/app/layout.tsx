@@ -26,7 +26,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
           <div className="absolute bottom-[-1px] left-0 right-0 h-[2px] bg-gradient-to-r from-transparent via-[#4F46E5]/40 to-transparent"></div>
           <div className="max-w-7xl mx-auto px-8 py-6 flex items-center justify-between">
             <Link href="/" className="flex items-center gap-5 group">
-              <div className="w-11 h-11 bg-gradient-to-br from-[#4F46E5] to-[#4338CA] text-white flex items-center justify-center font-black rounded-2xl group-hover:scale-110 group-hover:rotate-6 transition-all duration-700 shadow-xl shadow-indigo-500/30">S</div>
+              <div className="w-11 h-11 bg-[#4F46E5] text-white flex items-center justify-center font-black rounded-2xl group-hover:bg-white group-hover:text-[#4F46E5] group-hover:shadow-[0_0_20px_rgba(79,70,229,0.4)] border border-transparent group-hover:border-[#4F46E5]/20 transition-all duration-500">S</div>
               <span className="text-xl font-bold tracking-tight text-[#0F172A] group-hover:text-[#4F46E5] transition-colors">
                 SkyPilot Capital
               </span>
