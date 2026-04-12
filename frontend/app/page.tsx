@@ -23,10 +23,14 @@ const panels = [
 
 export default function HomePage() {
   return (
-    <div className="space-y-12">
-      <div className="border-b border-white/10 pb-6 mb-10 max-w-2xl">
-        <h1 className="text-4xl font-bold text-white tracking-tight">SkyPilot Capital</h1>
-        <p className="text-sm text-teal-400/80 mt-3 uppercase tracking-widest font-medium">Fund Operating Dashboard</p>
+    <div className="space-y-16">
+      <div className="border-b border-slate-200 pb-10 mb-12 max-w-4xl">
+        <h1 className="text-5xl font-bold text-[#0F172A] tracking-tight">
+          Operating Dashboard
+        </h1>
+        <p className="text-sm text-slate-500 mt-4 uppercase tracking-[0.3em] font-bold">
+          SkyPilot Capital Internal Systems
+        </p>
       </div>
       <div className="grid grid-cols-1 md:grid-cols-3 gap-8">
         {panels.map((panel) =>
@@ -34,21 +38,30 @@ export default function HomePage() {
             <Link
               key={panel.title}
               href={panel.href}
-              className="block bg-navy-950/50 backdrop-blur-md border border-white/10 p-8 rounded-xl hover:bg-navy-800/40 hover:border-teal-500/50 hover:shadow-[0_0_20px_rgba(20,184,166,0.15)] transition-all duration-300 group"
+              className="group relative block bg-white border border-slate-200 p-10 rounded-3xl hover:border-[#0284C7] hover:shadow-[0_20px_40px_-15px_rgba(0,0,0,0.05)] transition-all duration-500 overflow-hidden"
             >
-              <h2 className="text-xl font-semibold text-white border-b-2 border-transparent group-hover:border-teal-400/50 pb-1 inline-block mb-3 transition-colors">
+              <div className="absolute top-0 right-0 w-32 h-32 bg-sky-50 rounded-full blur-3xl -mr-10 -mt-10 opacity-0 group-hover:opacity-100 transition-opacity"></div>
+              <h2 className="text-2xl font-bold text-[#0F172A] mb-4 group-hover:text-[#0284C7] transition-colors">
                 {panel.title}
               </h2>
-              <p className="text-sm text-slate-300 leading-relaxed font-medium">{panel.description}</p>
+              <p className="text-sm text-slate-500 leading-relaxed font-medium group-hover:text-slate-800 transition-colors">
+                {panel.description}
+              </p>
+              <div className="mt-10 flex items-center text-[10px] font-bold uppercase tracking-[0.2em] text-[#0284C7]">
+                <span>Access Module</span>
+                <svg className="ml-2 w-4 h-4 transform group-hover:translate-x-1 transition-transform" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 7l5 5m0 0l-5 5m5-5H6" />
+                </svg>
+              </div>
             </Link>
           ) : (
             <div
               key={panel.title}
-              className="bg-white/5 border border-white/5 p-8 rounded-xl opacity-50 cursor-not-allowed"
+              className="bg-slate-50 border border-slate-100 p-10 rounded-3xl opacity-60"
             >
-              <h2 className="text-xl font-semibold text-slate-400 mb-3">{panel.title}</h2>
-              <p className="text-sm text-slate-500 leading-relaxed">{panel.description}</p>
-              <p className="text-xs text-slate-500/80 mt-6 uppercase tracking-widest font-bold">Coming soon</p>
+              <h2 className="text-2xl font-bold text-slate-400 mb-4">{panel.title}</h2>
+              <p className="text-sm text-slate-400 leading-relaxed font-medium">{panel.description}</p>
+              <p className="text-[10px] text-slate-400 mt-10 uppercase tracking-[0.2em] font-bold">Planned Feature</p>
             </div>
           )
         )}

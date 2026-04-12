@@ -18,27 +18,27 @@ export function FactorCoverageSection() {
   return (
     <Card>
       <CardHeader>
-        <div className="flex items-center justify-between pb-3 border-b border-white/10 mb-4">
-          <h2 className="text-lg font-semibold text-white tracking-tight">Factor Coverage</h2>
+        <div className="flex items-center justify-between pb-3 border-b border-slate-200/[0.03] mb-4">
+          <h2 className="text-lg font-semibold text-[#0F172A] tracking-tight">Factor Coverage</h2>
           {updatedAt && (
-            <span className="text-xs text-xs text-cyan-400/80 uppercase tracking-widest font-medium">Updated {secondsAgo(updatedAt)}</span>
+            <span className="text-xs text-xs text-[#0F172A]/80 uppercase tracking-[0.2em] font-black font-medium">Updated {secondsAgo(updatedAt)}</span>
           )}
         </div>
-        <p className="text-sm text-slate-400 mb-6">
+        <p className="text-sm text-slate-300 mb-6">
           S&P 500 constituents with valid scores at latest month-end
         </p>
       </CardHeader>
       <CardContent>
-        {isLoading && <p className="text-sm text-slate-500">Loading…</p>}
+        {isLoading && <p className="text-sm text-slate-300">Loading…</p>}
         {error   && <p className="text-sm text-red-500">Failed to load</p>}
         {data && (
           <div className="flex items-end gap-6">
             <div>
-              <span className={`text-4xl font-bold tabular-nums ${coverageColor(data.coverage_pct)}`}>
+              <span className={`text-6xl font-black uppercase tracking-tighter tabular-nums ${coverageColor(data.coverage_pct)}`}>
                 {data.coverage_pct !== null ? `${data.coverage_pct}%` : '—'}
               </span>
             </div>
-            <div className="text-sm text-slate-400 pb-1">
+            <div className="text-sm text-slate-300 pb-1">
               <p>{data.covered_count} / {data.universe_count} stocks covered</p>
               <p>As of {data.as_of_date ?? '—'}</p>
             </div>

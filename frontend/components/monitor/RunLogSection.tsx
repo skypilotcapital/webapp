@@ -19,26 +19,26 @@ export function RunLogSection() {
   return (
     <Card>
       <CardHeader>
-        <div className="flex items-center justify-between pb-3 border-b border-white/10 mb-4">
-          <h2 className="text-lg font-semibold text-white tracking-tight">Pipeline Run Log</h2>
+        <div className="flex items-center justify-between pb-3 border-b border-slate-200/[0.03] mb-4">
+          <h2 className="text-lg font-semibold text-[#0F172A] tracking-tight">Pipeline Run Log</h2>
           {updatedAt && (
-            <span className="text-xs text-xs text-cyan-400/80 uppercase tracking-widest font-medium">Updated {secondsAgo(updatedAt)}</span>
+            <span className="text-xs text-xs text-[#0F172A]/80 uppercase tracking-[0.2em] font-black font-medium">Updated {secondsAgo(updatedAt)}</span>
           )}
         </div>
-        <p className="text-sm text-slate-400 mb-6">
+        <p className="text-sm text-slate-300 mb-6">
           Latest pipeline step executions and their completion status
         </p>
       </CardHeader>
       <CardContent className="p-0">
-        {isLoading && <p className="text-sm text-slate-500 px-6 py-4">Loading…</p>}
+        {isLoading && <p className="text-sm text-slate-300 px-6 py-4">Loading…</p>}
         {error     && <p className="text-sm text-red-500 px-6 py-4">Failed to load</p>}
         {data && data.length === 0 && (
-          <p className="text-sm text-slate-500 px-6 py-4">No run log entries yet.</p>
+          <p className="text-sm text-slate-300 px-6 py-4">No run log entries yet.</p>
         )}
         {data && data.length > 0 && (
           <table className="w-full text-sm">
             <thead>
-              <tr className="border-b border-white/10 text-left text-xs text-slate-300 font-medium tracking-wide">
+              <tr className="border-b border-slate-200/[0.03] text-left text-xs text-slate-300 font-medium tracking-wide">
                 <th className="px-6 py-4">Flow</th>
                 <th className="px-6 py-4">Step</th>
                 <th className="px-6 py-4 text-center">Mode</th>
@@ -48,11 +48,11 @@ export function RunLogSection() {
                 <th className="px-6 py-4 text-right">Rows</th>
               </tr>
             </thead>
-            <tbody className="divide-y divide-white/5">
+            <tbody className="divide-y divide-slate-200">
               {data.map((row) => (
-                <tr key={`${row.flow}.${row.step}`} className="hover:bg-white/5 transition-colors">
-                  <td className="px-6 py-4 font-mono text-slate-400 text-xs">{row.flow}</td>
-                  <td className="px-6 py-4 font-mono text-slate-200 font-mono text-xs">{row.step}</td>
+                <tr key={`${row.flow}.${row.step}`} className="hover:bg-white/[0.02] transition-colors">
+                  <td className="px-6 py-4 font-mono text-slate-300 text-xs">{row.flow}</td>
+                  <td className="px-6 py-4 font-mono text-[#0F172A] font-mono text-xs">{row.step}</td>
                   <td className="px-6 py-3">
                     <Badge className={statusBadgeClass(row.status)}>
                       {row.status}
@@ -63,13 +63,13 @@ export function RunLogSection() {
                       </p>
                     )}
                   </td>
-                  <td className="px-6 py-3 text-slate-400 text-xs tabular-nums">
+                  <td className="px-6 py-3 text-slate-300 text-xs tabular-nums">
                     {formatDatetime(row.started_at)}
                   </td>
-                  <td className="px-6 py-3 text-slate-400 text-xs tabular-nums text-right">
+                  <td className="px-6 py-3 text-slate-300 text-xs tabular-nums text-right">
                     {formatDuration(row.started_at, row.completed_at)}
                   </td>
-                  <td className="px-6 py-3 text-slate-200 text-xs tabular-nums text-right">
+                  <td className="px-6 py-3 text-[#0F172A] text-xs tabular-nums text-right">
                     {row.rows_affected !== null ? row.rows_affected.toLocaleString() : '—'}
                   </td>
                 </tr>
