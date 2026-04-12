@@ -7,7 +7,7 @@ export default function MonitorPage() {
   return (
     <div className="space-y-12">
       <div className="border-b border-black/5 pb-10 mb-12 max-w-2xl">
-        <h1 className="text-4xl font-black text-[#0F172A] tracking-tighter">
+        <h1 className="text-4xl font-bold text-[#0F172A] tracking-tight">
           Data Monitor
         </h1>
         <p className="text-sm text-slate-500 mt-4 leading-relaxed font-medium">

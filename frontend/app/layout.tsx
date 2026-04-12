@@ -31,7 +31,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
                 SkyPilot Capital
               </span>
             </Link>
-            <nav className="flex items-center gap-14 text-sm font-black uppercase tracking-widest">
+            <nav className="flex items-center gap-14 text-sm font-semibold tracking-tight">
               <Link href="/monitor" className="text-slate-500 hover:text-[#4F46E5] transition-all relative group/link">
                 Data Monitor
                 <span className="absolute -bottom-1 left-0 w-0 h-0.5 bg-[#4F46E5] transition-all group-hover/link:w-full"></span>
