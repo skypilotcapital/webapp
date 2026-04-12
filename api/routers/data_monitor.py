@@ -98,22 +98,37 @@ class FactorCoverage(BaseModel):
 def table_status():
     """
     Returns MAX(date), row count, and staleness (lag_days) for each monitored table.
-    lag_days = calendar days between the table's latest date and today.
+
+    Row counts use pg_stat_user_tables (PostgreSQL live statistics) instead of
+    COUNT(*) — returns instantly even on 46M-row tables. Counts are approximate
+    but accurate enough for a health dashboard (updated by VACUUM/ANALYZE).
+
+    MAX(date) is an exact query but is fast because all date columns are indexed
+    as primary key components.
     """
     today = date.today()
     results = []
 
     with get_db() as conn:
+        # Fetch all row count estimates in one query
+        est_rows = conn.execute(
+            text("""
+                SELECT schemaname, relname, n_live_tup
+                FROM pg_stat_user_tables
+            """)
+        ).fetchall()
+        row_count_map = {
+            (r.schemaname, r.relname): r.n_live_tup
+            for r in est_rows
+        }
+
         for schema, table, date_col, _ in MONITORED_TABLES:
-            row = conn.execute(
-                text(
-                    f"SELECT MAX({date_col})::text AS max_date, COUNT(*) AS row_count"
-                    f" FROM {schema}.{table}"
-                )
+            max_row = conn.execute(
+                text(f"SELECT MAX({date_col})::text AS max_date FROM {schema}.{table}")
             ).fetchone()
 
-            max_date_str = row.max_date if row else None
-            row_count = row.row_count if row else 0
+            max_date_str = max_row.max_date if max_row else None
+            row_count = row_count_map.get((schema, table), 0)
 
             lag_days = None
             if max_date_str:
