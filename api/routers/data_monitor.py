@@ -26,30 +26,38 @@ router = APIRouter(prefix="/api/v1/data-monitor", tags=["data-monitor"])
 
 # ---------------------------------------------------------------------------
 # Config — tables monitored by the data monitor
-# Each entry: (schema, table, date_column, check_gaps)
-# check_gaps=True  → daily table, gap detection is meaningful
-# check_gaps=False → monthly/event-driven table, skip gap detection
 # ---------------------------------------------------------------------------
 
 MONITORED_TABLES = [
-    ("raw",    "prices",             "date",    True),
-    ("raw",    "fundamentals",       "datekey", False),  # quarterly filings
-    ("raw",    "daily_metrics",      "date",    True),
-    ("raw",    "benchmarks",         "date",    True),
-    ("raw",    "macro",              "date",    True),
-    ("clean",  "prices",             "date",    True),
-    ("clean",  "fundamentals",       "datekey", False),
-    ("factor", "momentum_factors",   "date",    True),
-    ("factor", "technical_factors",  "date",    True),
-    ("factor", "scores",             "date",    False),  # month-end only
-    ("targets","forward_returns",    "date",    False),  # month-end only
+    {"schema": "secmaster", "table": "securities", "date_col": "figi_loaded_at", "check_gaps": False, "description": "Identifier resolution layer. Maps every security to a permanent ISIN."},
+    {"schema": "secmaster", "table": "ticker_history", "date_col": "valid_from", "check_gaps": False, "description": "SCD Type 2 mapping of ticker to ISIN over time."},
+    {"schema": "secmaster", "table": "constituents", "date_col": "start_date", "check_gaps": False, "description": "S&P 500 membership intervals without survivorship bias."},
+    {"schema": "raw", "table": "prices", "date_col": "date", "check_gaps": True, "description": "Unadjusted daily equity prices, directly from Sharadar SEP."},
+    {"schema": "raw", "table": "fundamentals", "date_col": "datekey", "check_gaps": False, "description": "Sharadar fundamental filings across ARQ and ART dimensions."},
+    {"schema": "raw", "table": "daily_metrics", "date_col": "date", "check_gaps": True, "description": "Pre-computed valuation metrics from Sharadar DAILY."},
+    {"schema": "raw", "table": "ticker_metadata", "date_col": "lastpricedate", "check_gaps": False, "description": "Sharadar active TICKERS snapshot."},
+    {"schema": "raw", "table": "sp500_changes", "date_col": "date", "check_gaps": False, "description": "Constituent add/remove events from Sharadar."},
+    {"schema": "raw", "table": "actions", "date_col": "date", "check_gaps": False, "description": "Corporate actions (splits, dividends, etc)."},
+    {"schema": "raw", "table": "benchmarks", "date_col": "date", "check_gaps": True, "description": "yfinance benchmark data for ^SP500TR and ^VIX."},
+    {"schema": "raw", "table": "macro", "date_col": "date", "check_gaps": True, "description": "Daily FRED macroeconomic series (Yields, OAS spreads)."},
+    {"schema": "raw", "table": "ff_factors", "date_col": "date", "check_gaps": False, "description": "Fama-French research factors."},
+    {"schema": "clean", "table": "prices", "date_col": "date", "check_gaps": True, "description": "Canonical, fully adjusted prices with daily returns."},
+    {"schema": "clean", "table": "fundamentals", "date_col": "datekey", "check_gaps": False, "description": "PIT-validated fundamental data with proper lag enforcement."},
+    {"schema": "clean", "table": "daily_metrics_sharadar", "date_col": "date", "check_gaps": True, "description": "Validation-only daily valuation metrics."},
+    {"schema": "factor", "table": "momentum_factors", "date_col": "date", "check_gaps": True, "description": "Daily momentum and volatility factor signals."},
+    {"schema": "factor", "table": "technical_factors", "date_col": "date", "check_gaps": True, "description": "Daily moving averages, RSI, and technicals."},
+    {"schema": "factor", "table": "quality_factors", "date_col": "date", "check_gaps": False, "description": "Monthly fundamental quality factor signals."},
+    {"schema": "factor", "table": "valuation_factors", "date_col": "date", "check_gaps": False, "description": "Monthly fundamental valuation factor signals."},
+    {"schema": "factor", "table": "growth_factors", "date_col": "date", "check_gaps": False, "description": "Monthly fundamental growth factor signals."},
+    {"schema": "factor", "table": "scores", "date_col": "date", "check_gaps": False, "description": "Z-scored comprehensive alpha model inputs (S&P 500 only)."},
+    {"schema": "targets", "table": "forward_returns", "date_col": "date", "check_gaps": False, "description": "Forward-looking returns strictly for model training."},
 ]
 
 # Tables included in gap detection (check_gaps=True above, daily frequency)
 GAP_TABLES = [
-    (schema, table, date_col)
-    for schema, table, date_col, check_gaps in MONITORED_TABLES
-    if check_gaps
+    (t["schema"], t["table"], t["date_col"])
+    for t in MONITORED_TABLES
+    if t["check_gaps"]
 ]
 
 
@@ -60,6 +68,7 @@ GAP_TABLES = [
 class TableStatus(BaseModel):
     schema_name: str
     table_name: str
+    description: str
     max_date: Optional[str]
     row_count: int
     lag_days: Optional[int]   # calendar days between max_date and today; None if empty
@@ -124,30 +133,35 @@ def table_status():
 
         # Fetch all MAX(date) values in one round-trip using UNION ALL
         union_sql = " UNION ALL ".join(
-            f"SELECT '{schema}' AS schema_name, '{table}' AS table_name,"
-            f" MAX({date_col})::text AS max_date"
-            f" FROM {schema}.{table}"
-            for schema, table, date_col, _ in MONITORED_TABLES
+            f"SELECT '{t['schema']}' AS schema_name, '{t['table']}' AS table_name,"
+            f" MAX({t['date_col']})::text AS max_date"
+            f" FROM {t['schema']}.{t['table']}"
+            for t in MONITORED_TABLES
         )
         max_dates = {
             (r.schema_name, r.table_name): r.max_date
             for r in conn.execute(text(union_sql)).fetchall()
         }
 
-        for schema, table, date_col, _ in MONITORED_TABLES:
+        for t in MONITORED_TABLES:
+            schema = t["schema"]
+            table = t["table"]
             max_date_str = max_dates.get((schema, table))
             row_count = row_count_map.get((schema, table), 0)
 
             lag_days = None
+            max_date_fmt = None
             if max_date_str:
-                max_dt = date.fromisoformat(max_date_str)
+                max_date_fmt = max_date_str[:10]
+                max_dt = date.fromisoformat(max_date_fmt)
                 lag_days = (today - max_dt).days
 
             results.append(
                 TableStatus(
                     schema_name=schema,
                     table_name=table,
-                    max_date=max_date_str,
+                    description=t["description"],
+                    max_date=max_date_fmt,
                     row_count=row_count,
                     lag_days=lag_days,
                 )
