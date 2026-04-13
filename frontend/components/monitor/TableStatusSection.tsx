@@ -41,25 +41,36 @@ export function TableStatusSection() {
                 <th className="px-6 py-4 text-right">Lag</th>
               </tr>
             </thead>
-            <tbody className="divide-y divide-slate-200">
-              {data.map((row) => (
-                <tr key={`${row.schema_name}.${row.table_name}`} className="hover:bg-white/60 backdrop-blur-xl/[0.02] transition-colors">
-                  <td className="px-6 py-4 font-mono text-[#0F172A] font-mono">
-                    <span className="text-slate-600">{row.schema_name}.</span>
-                    {row.table_name}
-                  </td>
-                  <td className="px-6 py-3 tabular-nums text-[#0F172A]">
-                    {row.max_date ?? '—'}
-                  </td>
-                  <td className="px-6 py-3 tabular-nums text-[#0F172A] text-right">
-                    {formatRowCount(row.row_count)}
-                  </td>
-                  <td className={`px-6 py-3 tabular-nums text-right font-medium ${lagColor(row.lag_days, row.table_name)}`}>
-                    {row.lag_days !== null ? `${row.lag_days}d` : '—'}
-                  </td>
-                </tr>
-              ))}
-            </tbody>
+            {['raw', 'clean', 'factor', 'targets'].map((layer) => {
+              const layerData = data.filter((row) => row.schema_name === layer);
+              if (layerData.length === 0) return null;
+              
+              return (
+                <tbody key={layer} className="divide-y divide-slate-100/50">
+                  <tr>
+                    <td colSpan={4} className="px-6 pt-6 pb-2 text-[10px] font-black text-indigo-500 uppercase tracking-widest bg-slate-50/30">
+                      {layer} Layer
+                    </td>
+                  </tr>
+                  {layerData.map((row) => (
+                    <tr key={`${row.schema_name}.${row.table_name}`} className="hover:bg-white/60 backdrop-blur-xl/[0.02] transition-colors">
+                      <td className="px-6 py-4 font-mono text-[#0F172A] text-xs">
+                        {row.table_name}
+                      </td>
+                      <td className="px-6 py-3 tabular-nums text-slate-600 text-xs">
+                        {row.max_date ?? '—'}
+                      </td>
+                      <td className="px-6 py-3 tabular-nums text-slate-600 text-xs text-right">
+                        {formatRowCount(row.row_count)}
+                      </td>
+                      <td className={`px-6 py-3 tabular-nums text-right text-xs font-medium ${lagColor(row.lag_days, row.table_name)}`}>
+                        {row.lag_days !== null ? `${row.lag_days}d` : '—'}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              );
+            })}
           </table>
         )}
       </CardContent>

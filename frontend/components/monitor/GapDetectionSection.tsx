@@ -40,29 +40,40 @@ export function GapDetectionSection() {
                 <th className="px-6 py-4 text-right">Count</th>
               </tr>
             </thead>
-            <tbody className="divide-y divide-slate-200">
-              {data.map((row) => (
-                <tr key={`${row.schema_name}.${row.table_name}`} className="hover:bg-white/60 backdrop-blur-xl/[0.02] transition-colors">
-                  <td className="px-6 py-4 font-mono text-[#0F172A] font-mono">
-                    <span className="text-slate-600">{row.schema_name}.</span>
-                    {row.table_name}
-                  </td>
-                  <td className="px-6 py-3">
-                    {row.gap_count === 0 ? (
-                      <span className="text-green-600 font-medium text-xs">✓ No gaps</span>
-                    ) : (
-                      <span className="text-red-600 font-medium text-xs">✗ {row.gap_count} gap{row.gap_count > 1 ? 's' : ''}</span>
-                    )}
-                  </td>
-                  <td className="px-6 py-3 text-slate-600 text-xs font-mono">
-                    {row.gap_count === 0
-                      ? '—'
-                      : row.missing_dates.slice(0, 5).join(', ') + (row.missing_dates.length > 5 ? ` +${row.missing_dates.length - 5} more` : '')
-                    }
-                  </td>
-                </tr>
-              ))}
-            </tbody>
+            {['raw', 'clean', 'factor'].map((layer) => {
+              const layerData = data.filter((row) => row.schema_name === layer);
+              if (layerData.length === 0) return null;
+              
+              return (
+                <tbody key={layer} className="divide-y divide-slate-100/50">
+                  <tr>
+                    <td colSpan={3} className="px-6 pt-6 pb-2 text-[10px] font-black text-indigo-500 uppercase tracking-widest bg-slate-50/30">
+                      {layer} Layer
+                    </td>
+                  </tr>
+                  {layerData.map((row) => (
+                    <tr key={`${row.schema_name}.${row.table_name}`} className="hover:bg-white/60 backdrop-blur-xl/[0.02] transition-colors">
+                      <td className="px-6 py-4 font-mono text-[#0F172A] text-xs">
+                        {row.table_name}
+                      </td>
+                      <td className="px-6 py-3">
+                        {row.gap_count === 0 ? (
+                          <span className="text-emerald-600 font-semibold text-xs">✓ No gaps</span>
+                        ) : (
+                          <span className="text-rose-600 font-bold text-xs">✗ {row.gap_count} gap{row.gap_count > 1 ? 's' : ''}</span>
+                        )}
+                      </td>
+                      <td className="px-6 py-3 text-slate-600 text-xs font-mono text-right">
+                        {row.gap_count === 0
+                          ? '—'
+                          : row.missing_dates.slice(0, 3).join(', ') + (row.missing_dates.length > 3 ? ` +${row.missing_dates.length - 3} more` : '')
+                        }
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              );
+            })}
           </table>
         )}
       </CardContent>
