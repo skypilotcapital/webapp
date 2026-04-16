@@ -6,7 +6,18 @@
 // In local dev, NEXT_PUBLIC_API_BASE defaults to empty string so requests go to
 // /api-proxy/... and are proxied via next.config.ts rewrites to localhost:8000.
 
-import type { TableStatus, RunLogEntry, TableGap, FactorCoverage } from '@/types/api';
+import type {
+  TableStatus,
+  RunLogEntry,
+  TableGap,
+  FactorCoverage,
+  LatestSignal,
+  SignalHistoryPoint,
+  LatestInputs,
+  RegimeRow,
+  RegimeStats,
+  MacroBetaHealth,
+} from '@/types/api';
 
 const API_BASE = '/api-proxy';
 
@@ -20,3 +31,9 @@ export const fetchTableStatus   = () => apiFetch<TableStatus[]>('/api/v1/data-mo
 export const fetchRunLog        = () => apiFetch<RunLogEntry[]>('/api/v1/data-monitor/run-log');
 export const fetchGapDetection  = () => apiFetch<TableGap[]>('/api/v1/data-monitor/gap-detection');
 export const fetchFactorCoverage = () => apiFetch<FactorCoverage>('/api/v1/data-monitor/factor-coverage');
+export const fetchLatestMacroBetaSignal = () => apiFetch<LatestSignal>('/api/v1/macro-beta/latest-signal');
+export const fetchMacroBetaHistory = () => apiFetch<SignalHistoryPoint[]>('/api/v1/macro-beta/history');
+export const fetchMacroBetaLatestInputs = () => apiFetch<LatestInputs>('/api/v1/macro-beta/latest-inputs');
+export const fetchMacroBetaRegimes = () => apiFetch<RegimeRow[]>('/api/v1/macro-beta/regimes');
+export const fetchMacroBetaRegimeStats = () => apiFetch<RegimeStats[]>('/api/v1/macro-beta/regime-stats');
+export const fetchMacroBetaHealth = () => apiFetch<MacroBetaHealth>('/api/v1/macro-beta/health');

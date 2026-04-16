@@ -4,6 +4,7 @@
 export interface TableStatus {
   schema_name: string;
   table_name: string;
+  description?: string;
   max_date: string | null;
   row_count: number;
   lag_days: number | null;
@@ -32,4 +33,77 @@ export interface FactorCoverage {
   covered_count: number;
   universe_count: number;
   coverage_pct: number | null;
+}
+
+export interface LatestSignal {
+  signal_date: string;
+  final_beta_target: string;
+  tier1_result: string | null;
+  tier2_rsi: string | null;
+  tier2_credit: string | null;
+  sp500_50_200_spread_raw: number | null;
+  sp500_50_200_spread_pct: number | null;
+  pmi_3m12m_diff: number | null;
+  cpi_mom_z3m60m: number | null;
+  rsi_20: number | null;
+  bbb_4_12_diff: number | null;
+}
+
+export interface SignalHistoryPoint {
+  signal_date: string;
+  final_beta_target: string;
+  sp500_level: number | null;
+  sp500_50_200_spread_pct: number | null;
+}
+
+export interface LatestInputs {
+  signal_date: string;
+  pmi_data_date: string | null;
+  pmi_release_date: string | null;
+  mfg_pmi: number | null;
+  cpi_data_date: string | null;
+  cpi_release_date: string | null;
+  cpi_level: number | null;
+  sp500_date: string | null;
+  sp500_level: number | null;
+  credit_date: string | null;
+  bbb_oas_decimal: number | null;
+}
+
+export interface RegimeRow {
+  final_beta_target: string;
+  start_date: string;
+  end_date: string;
+  trading_days: number;
+  sp500_total_return: number | null;
+  sp500_annualized_return: number | null;
+}
+
+export interface RegimeStats {
+  final_beta_target: string;
+  regime_count: number;
+  avg_trading_days: number | null;
+  avg_annualized_return: number | null;
+}
+
+export interface HealthItem {
+  label: string;
+  max_date: string | null;
+  lag_days: number | null;
+  status: string;
+}
+
+export interface RunStatus {
+  flow: string;
+  step: string;
+  status: 'running' | 'complete' | 'error' | string;
+  started_at: string;
+  completed_at: string | null;
+  rows_affected: number | null;
+  error_msg: string | null;
+}
+
+export interface MacroBetaHealth {
+  freshness: HealthItem[];
+  runs: RunStatus[];
 }

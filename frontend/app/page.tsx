@@ -8,6 +8,12 @@ const panels = [
     active: true,
   },
   {
+    title: 'Macro Beta Signal',
+    description: 'Macro regime signal, latest inputs used, state history, and compact model health.',
+    href: '/macro-beta',
+    active: true,
+  },
+  {
     title: 'Model Research',
     description: 'Quintile IC charts, factor scores, SHAP importance, and model version history.',
     href: '#',
@@ -29,7 +35,7 @@ export default function HomePage() {
           Fund Operating Dashboard
         </h1>
       </div>
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-10">
+      <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-10">
         {panels.map((panel) =>
           panel.active ? (
             <Link
