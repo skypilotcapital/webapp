@@ -93,7 +93,18 @@ export function BenchmarkRegimeChart() {
   const xTickIndexes = useMemo(() => {
     if (chartData.length <= 1) return [0];
     if (chartData.length === 2) return [0, 1];
-    return [0, Math.floor((chartData.length - 1) / 2), chartData.length - 1];
+
+    const targetTicks =
+      chartData.length <= 90 ? 4 :
+      chartData.length <= 260 ? 5 :
+      chartData.length <= 520 ? 6 :
+      7;
+
+    const indexes = Array.from({ length: targetTicks }, (_, index) =>
+      Math.round((index / (targetTicks - 1)) * (chartData.length - 1))
+    );
+
+    return [...new Set(indexes)];
   }, [chartData.length]);
 
   const currentWindowLabel = WINDOW_OPTIONS.find((option) => option.value === windowSize)?.label ?? 'Custom';
