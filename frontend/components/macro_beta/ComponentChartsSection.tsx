@@ -57,7 +57,7 @@ function latestPoint(series: ComponentPoint[]) {
 function SeriesCard({ title, subtitle, series, color, formatter = (value) => value.toFixed(2), referenceLines = [] }: SeriesCardProps) {
   const width = 420;
   const height = 210;
-  const padding = { top: 12, right: 14, bottom: 42, left: 14 };
+  const padding = { top: 12, right: 28, bottom: 44, left: 28 };
   const { path, min, max } = buildPath(series, width, height, padding);
   const innerHeight = height - padding.top - padding.bottom;
   const latest = latestPoint(series);
@@ -67,7 +67,9 @@ function SeriesCard({ title, subtitle, series, color, formatter = (value) => val
       ? [0]
       : validSeries.length <= 2
         ? [0, validSeries.length - 1]
-        : [0, Math.floor((validSeries.length - 1) / 2), validSeries.length - 1];
+        : validSeries.length <= 24
+          ? [0, Math.floor((validSeries.length - 1) / 3), Math.floor((2 * (validSeries.length - 1)) / 3), validSeries.length - 1]
+          : [0, Math.floor((validSeries.length - 1) / 4), Math.floor((validSeries.length - 1) / 2), Math.floor((3 * (validSeries.length - 1)) / 4), validSeries.length - 1];
 
   return (
     <div className="rounded-2xl border border-slate-100 bg-white p-4">
@@ -94,10 +96,11 @@ function SeriesCard({ title, subtitle, series, color, formatter = (value) => val
             const point = validSeries[index];
             if (!point) return null;
             const x = padding.left + (index / Math.max(validSeries.length - 1, 1)) * (width - padding.left - padding.right);
+            const textAnchor = index === 0 ? 'start' : index === validSeries.length - 1 ? 'end' : 'middle';
             return (
               <g key={`${title}-${point.date}`}>
                 <line x1={x} y1={height - padding.bottom} x2={x} y2={height - padding.bottom + 6} stroke="#94a3b8" strokeWidth="1" />
-                <text x={x} y={height - 8} textAnchor="middle" fontSize="11" fill="#64748b">
+                <text x={x} y={height - 8} textAnchor={textAnchor} fontSize="11" fill="#64748b">
                   {formatDateLabel(point.date)}
                 </text>
               </g>
