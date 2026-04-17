@@ -30,11 +30,25 @@ function buildPath(points: Array<{ x: number; y: number }>) {
   return points.map((point, index) => `${index === 0 ? 'M' : 'L'} ${point.x.toFixed(2)} ${point.y.toFixed(2)}`).join(' ');
 }
 
-function formatDateLabel(date: string) {
-  return new Date(`${date}T00:00:00`).toLocaleDateString('en-US', {
-    month: 'short',
-    day: 'numeric',
-    year: '2-digit',
+function formatDateLabel(date: string, windowSize: number) {
+  const parsed = new Date(`${date}T00:00:00`);
+
+  if (windowSize <= 126) {
+    return parsed.toLocaleDateString('en-US', {
+      month: 'short',
+      day: 'numeric',
+    });
+  }
+
+  if (windowSize <= 520) {
+    return parsed.toLocaleDateString('en-US', {
+      month: 'short',
+      year: '2-digit',
+    });
+  }
+
+  return parsed.toLocaleDateString('en-US', {
+    year: 'numeric',
   });
 }
 
@@ -199,7 +213,7 @@ export function BenchmarkRegimeChart() {
                   <g key={point.signal_date}>
                     <line x1={x} y1={padding.top + innerHeight} x2={x} y2={padding.top + innerHeight + 6} stroke="#94a3b8" strokeWidth="1" />
                     <text x={x} y={padding.top + innerHeight + 20} textAnchor="middle" fontSize="11" fill="#64748b">
-                      {formatDateLabel(point.signal_date)}
+                      {formatDateLabel(point.signal_date, effectiveWindowSize)}
                     </text>
                   </g>
                 );
