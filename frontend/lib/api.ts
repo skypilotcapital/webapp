@@ -13,6 +13,7 @@ import type {
   FactorCoverage,
   LatestSignal,
   SignalHistoryPoint,
+  ChartPoint,
   LatestInputs,
   RegimeRow,
   RegimeStats,
@@ -33,6 +34,7 @@ export const fetchGapDetection  = () => apiFetch<TableGap[]>('/api/v1/data-monit
 export const fetchFactorCoverage = () => apiFetch<FactorCoverage>('/api/v1/data-monitor/factor-coverage');
 export const fetchLatestMacroBetaSignal = () => apiFetch<LatestSignal>('/api/v1/macro-beta/latest-signal');
 export const fetchMacroBetaHistory = () => apiFetch<SignalHistoryPoint[]>('/api/v1/macro-beta/history');
+export const fetchMacroBetaChart = () => apiFetch<ChartPoint[]>('/api/v1/macro-beta/chart');
 export const fetchMacroBetaLatestInputs = () => apiFetch<LatestInputs>('/api/v1/macro-beta/latest-inputs');
 export const fetchMacroBetaRegimes = () => apiFetch<RegimeRow[]>('/api/v1/macro-beta/regimes');
 export const fetchMacroBetaRegimeStats = () => apiFetch<RegimeStats[]>('/api/v1/macro-beta/regime-stats');

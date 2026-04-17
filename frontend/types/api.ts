@@ -52,8 +52,16 @@ export interface LatestSignal {
 export interface SignalHistoryPoint {
   signal_date: string;
   final_beta_target: string;
-  sp500_level: number | null;
+  sp500_spot_date: string | null;
+  sp500_spot_level: number | null;
   sp500_50_200_spread_pct: number | null;
+  bbb_oas_bps: number | null;
+}
+
+export interface ChartPoint {
+  signal_date: string;
+  final_beta_target: string;
+  sp500_spot_level: number | null;
 }
 
 export interface LatestInputs {
@@ -66,8 +74,11 @@ export interface LatestInputs {
   cpi_level: number | null;
   sp500_date: string | null;
   sp500_level: number | null;
+  sp500_spot_date: string | null;
+  sp500_spot_level: number | null;
   credit_date: string | null;
   bbb_oas_decimal: number | null;
+  bbb_oas_bps: number | null;
 }
 
 export interface RegimeRow {
@@ -82,8 +93,9 @@ export interface RegimeRow {
 export interface RegimeStats {
   final_beta_target: string;
   regime_count: number;
-  avg_trading_days: number | null;
-  avg_annualized_return: number | null;
+  days_in_state: number;
+  cumulative_return: number | null;
+  annualized_return: number | null;
 }
 
 export interface HealthItem {

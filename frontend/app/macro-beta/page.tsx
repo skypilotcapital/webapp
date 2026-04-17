@@ -1,3 +1,4 @@
+import { BenchmarkRegimeChart } from '@/components/macro_beta/BenchmarkRegimeChart';
 import { HealthSection } from '@/components/macro_beta/HealthSection';
 import { HistorySection } from '@/components/macro_beta/HistorySection';
 import { LatestInputsSection } from '@/components/macro_beta/LatestInputsSection';
@@ -15,6 +16,7 @@ export default function MacroBetaPage() {
       </div>
       <LatestSignalSection />
       <LatestInputsSection />
+      <BenchmarkRegimeChart />
       <HistorySection />
       <RegimeAnalyticsSection />
       <HealthSection />
