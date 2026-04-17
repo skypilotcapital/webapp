@@ -1,5 +1,6 @@
 'use client';
 
+import { useEffect, useMemo, useState } from 'react';
 import useSWR from 'swr';
 import { fetchMacroBetaChart } from '@/lib/api';
 import { Card, CardContent, CardHeader } from '@/components/ui/card';
@@ -16,6 +17,14 @@ const LINE_COLORS = {
   ma200: '#b45309',
 };
 
+const WINDOW_OPTIONS = [
+  { label: '6M', value: 126 },
+  { label: '1Y', value: 260 },
+  { label: '2Y', value: 520 },
+  { label: '5Y', value: 1260 },
+  { label: 'All', value: Number.MAX_SAFE_INTEGER },
+];
+
 function buildPath(points: Array<{ x: number; y: number }>) {
   if (points.length === 0) return '';
   return points.map((point, index) => `${index === 0 ? 'M' : 'L'} ${point.x.toFixed(2)} ${point.y.toFixed(2)}`).join(' ');
@@ -31,7 +40,22 @@ function formatDateLabel(date: string) {
 
 export function BenchmarkRegimeChart() {
   const { data, error, isLoading } = useSWR('macro-beta-chart', fetchMacroBetaChart, { refreshInterval: 120_000 });
-  const chartData = (data ?? []).filter((point) => point.sp500_spot_level != null);
+  const fullData = (data ?? []).filter((point) => point.sp500_spot_level != null);
+
+  const [windowSize, setWindowSize] = useState(260);
+  const [windowEnd, setWindowEnd] = useState(0);
+
+  useEffect(() => {
+    if (!fullData.length) return;
+    setWindowEnd(fullData.length - 1);
+  }, [fullData.length]);
+
+  const effectiveWindowSize = Math.min(windowSize, Math.max(fullData.length, 1));
+  const maxWindowEnd = Math.max(fullData.length - 1, 0);
+  const minWindowEnd = Math.max(effectiveWindowSize - 1, 0);
+  const clampedWindowEnd = Math.min(Math.max(windowEnd, minWindowEnd), maxWindowEnd);
+  const windowStart = Math.max(clampedWindowEnd - effectiveWindowSize + 1, 0);
+  const chartData = fullData.slice(windowStart, clampedWindowEnd + 1);
 
   const width = 920;
   const height = 360;
@@ -66,14 +90,20 @@ export function BenchmarkRegimeChart() {
     return { value, y };
   });
 
-  const xTickIndexes = chartData.length > 2 ? [0, Math.floor((chartData.length - 1) / 2), chartData.length - 1] : chartData.map((_, index) => index);
+  const xTickIndexes = useMemo(() => {
+    if (chartData.length <= 1) return [0];
+    if (chartData.length === 2) return [0, 1];
+    return [0, Math.floor((chartData.length - 1) / 2), chartData.length - 1];
+  }, [chartData.length]);
+
+  const currentWindowLabel = WINDOW_OPTIONS.find((option) => option.value === windowSize)?.label ?? 'Custom';
 
   return (
     <Card>
       <CardHeader>
         <h2 className="text-xl font-bold text-[#0F172A] tracking-tight">S&amp;P 500 Regime Chart</h2>
         <p className="text-sm text-slate-500 mt-2">
-          Trailing 1Y spot S&amp;P 500 path with display-only 50d and 200d moving averages, plus background regime shading.
+          Zoomable spot S&amp;P 500 path with display-only 50d and 200d moving averages, plus background regime shading.
         </p>
       </CardHeader>
       <CardContent className="space-y-4">
@@ -81,6 +111,44 @@ export function BenchmarkRegimeChart() {
         {error && <p className="text-sm text-red-500">Failed to load chart.</p>}
         {chartData.length > 0 && (
           <div className="rounded-2xl border border-slate-100 bg-white p-4">
+            <div className="mb-4 flex flex-col gap-3">
+              <div className="flex flex-wrap items-center gap-2">
+                <span className="text-xs font-semibold uppercase tracking-wide text-slate-500">Zoom</span>
+                {WINDOW_OPTIONS.map((option) => (
+                  <button
+                    key={option.label}
+                    type="button"
+                    onClick={() => setWindowSize(option.value)}
+                    className={`rounded-full border px-3 py-1 text-xs font-medium transition ${
+                      windowSize === option.value
+                        ? 'border-slate-900 bg-slate-900 text-white'
+                        : 'border-slate-200 bg-white text-slate-600 hover:border-slate-300'
+                    }`}
+                  >
+                    {option.label}
+                  </button>
+                ))}
+              </div>
+
+              <div className="space-y-2">
+                <div className="flex items-center justify-between text-xs text-slate-500">
+                  <span>Scroll through history</span>
+                  <span>
+                    {chartData[0]?.signal_date} to {chartData[chartData.length - 1]?.signal_date}
+                  </span>
+                </div>
+                <input
+                  type="range"
+                  min={minWindowEnd}
+                  max={maxWindowEnd}
+                  step={1}
+                  value={clampedWindowEnd}
+                  onChange={(event) => setWindowEnd(Number(event.target.value))}
+                  className="w-full accent-slate-800"
+                />
+              </div>
+            </div>
+
             <svg viewBox={`0 0 ${width} ${height}`} className="w-full h-auto">
               {chartData.map((point, index) => {
                 const currentX = padding.left + (index / Math.max(chartData.length, 1)) * innerWidth;
@@ -142,7 +210,7 @@ export function BenchmarkRegimeChart() {
             </svg>
 
             <div className="mt-3 flex flex-wrap items-center gap-4 text-xs text-slate-600">
-              <span>Window: trailing ~1Y</span>
+              <span>Window: {currentWindowLabel}</span>
               <span>Range: {minLevel.toFixed(0)} to {maxLevel.toFixed(0)}</span>
               <span>Start: {chartData[0]?.signal_date}</span>
               <span>End: {chartData[chartData.length - 1]?.signal_date}</span>

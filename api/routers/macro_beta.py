@@ -191,22 +191,12 @@ def chart():
         rows = conn.execute(
             text(
                 """
-                WITH signal_window AS (
-                    SELECT signal_date, final_beta_target
-                    FROM macro_signal.beta_signal_daily
-                    ORDER BY signal_date DESC
-                    LIMIT 520
-                ),
-                spot_history AS (
+                WITH spot_history AS (
                     SELECT
                         s.signal_date,
                         s.final_beta_target,
                         spot.value::float AS sp500_spot_level
-                    FROM (
-                        SELECT *
-                        FROM signal_window
-                        ORDER BY signal_date
-                    ) s
+                    FROM macro_signal.beta_signal_daily s
                     LEFT JOIN LATERAL (
                         SELECT value
                         FROM raw.macro
@@ -231,18 +221,13 @@ def chart():
                         )::float AS sp500_spot_ma200
                     FROM spot_history
                 )
-                SELECT *
-                FROM (
-                    SELECT
-                        signal_date::text,
-                        final_beta_target,
-                        sp500_spot_level,
-                        sp500_spot_ma50,
-                        sp500_spot_ma200
-                    FROM spot_ma
-                    ORDER BY signal_date DESC
-                    LIMIT 260
-                ) final
+                SELECT
+                    signal_date::text,
+                    final_beta_target,
+                    sp500_spot_level,
+                    sp500_spot_ma50,
+                    sp500_spot_ma200
+                FROM spot_ma
                 ORDER BY signal_date
                 """
             )
