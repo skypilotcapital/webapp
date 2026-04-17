@@ -133,3 +133,55 @@ export interface MacroBetaComponents {
   rsi: ComponentPoint[];
   bbb_oas_bps: ComponentPoint[];
 }
+
+// ---------------------------------------------------------------------------
+// P01 Factor Quintile Analysis
+// ---------------------------------------------------------------------------
+
+export interface P01ScorecardRow {
+  factor: string;
+  factor_label: string;
+  factor_family: 'Momentum' | 'Quality' | 'Valuation' | 'Growth' | 'Risk';
+  direction: 1 | -1;
+  n_months: number;
+  date_from: string | null;
+  date_to: string | null;
+  // Full-universe stats
+  full_mean_ic: number | null;
+  full_ic_std: number | null;
+  full_ic_tstat: number | null;
+  full_ic_pvalue: number | null;
+  full_q5q1_spread_ann: number | null;
+  full_monotonicity: number | null;
+  full_signal_quality: 'Strong' | 'Moderate' | 'Weak' | 'Investigate' | null;
+  // Within-sector stats
+  ws_mean_ic: number | null;
+  ws_ic_std: number | null;
+  ws_ic_tstat: number | null;
+  ws_ic_pvalue: number | null;
+  ws_q5q1_spread_ann: number | null;
+  ws_monotonicity: number | null;
+  ws_signal_quality: 'Strong' | 'Moderate' | 'Weak' | 'Investigate' | null;
+}
+
+export interface P01ICPoint {
+  date: string;
+  ic_full: number | null;
+  ic_within: number | null;
+}
+
+export interface P01QuintilePoint {
+  date: string;
+  q1: number | null;
+  q2: number | null;
+  q3: number | null;
+  q4: number | null;
+  q5: number | null;
+}
+
+export interface P01FactorDetail {
+  factor: string;
+  ic_series: P01ICPoint[];
+  quintile_returns_full: P01QuintilePoint[];
+  quintile_returns_within: P01QuintilePoint[];
+}

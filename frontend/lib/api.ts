@@ -19,6 +19,8 @@ import type {
   RegimeStats,
   MacroBetaHealth,
   MacroBetaComponents,
+  P01ScorecardRow,
+  P01FactorDetail,
 } from '@/types/api';
 
 const API_BASE = '/api-proxy';
@@ -41,3 +43,8 @@ export const fetchMacroBetaRegimes = () => apiFetch<RegimeRow[]>('/api/v1/macro-
 export const fetchMacroBetaRegimeStats = () => apiFetch<RegimeStats[]>('/api/v1/macro-beta/regime-stats');
 export const fetchMacroBetaHealth = () => apiFetch<MacroBetaHealth>('/api/v1/macro-beta/health');
 export const fetchMacroBetaComponents = () => apiFetch<MacroBetaComponents>('/api/v1/macro-beta/components');
+
+// P01 Factor Quintile Analysis
+export const fetchP01Scorecard = () => apiFetch<P01ScorecardRow[]>('/api/v1/research/p01/scorecard');
+export const fetchP01FactorDetail = (factor: string) =>
+  apiFetch<P01FactorDetail>(`/api/v1/research/p01/factor/${encodeURIComponent(factor)}/detail`);
