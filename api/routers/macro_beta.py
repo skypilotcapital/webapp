@@ -41,6 +41,20 @@ class ChartPoint(BaseModel):
     signal_date: str
     final_beta_target: str
     sp500_spot_level: Optional[float]
+    sp500_spot_ma50: Optional[float]
+    sp500_spot_ma200: Optional[float]
+
+
+class ComponentPoint(BaseModel):
+    date: str
+    value: Optional[float]
+
+
+class MacroBetaComponents(BaseModel):
+    pmi: List[ComponentPoint]
+    cpi_yoy: List[ComponentPoint]
+    rsi: List[ComponentPoint]
+    bbb_oas_bps: List[ComponentPoint]
 
 
 class LatestInputs(BaseModel):
@@ -177,30 +191,59 @@ def chart():
         rows = conn.execute(
             text(
                 """
-                WITH history AS (
+                WITH signal_window AS (
                     SELECT signal_date, final_beta_target
                     FROM macro_signal.beta_signal_daily
                     ORDER BY signal_date DESC
-                    LIMIT 260
+                    LIMIT 520
+                ),
+                spot_history AS (
+                    SELECT
+                        s.signal_date,
+                        s.final_beta_target,
+                        spot.value::float AS sp500_spot_level
+                    FROM (
+                        SELECT *
+                        FROM signal_window
+                        ORDER BY signal_date
+                    ) s
+                    LEFT JOIN LATERAL (
+                        SELECT value
+                        FROM raw.macro
+                        WHERE series_id = 'SP500'
+                          AND date <= s.signal_date
+                        ORDER BY date DESC
+                        LIMIT 1
+                    ) spot ON TRUE
+                ),
+                spot_ma AS (
+                    SELECT
+                        signal_date,
+                        final_beta_target,
+                        sp500_spot_level,
+                        AVG(sp500_spot_level) OVER (
+                            ORDER BY signal_date
+                            ROWS BETWEEN 49 PRECEDING AND CURRENT ROW
+                        )::float AS sp500_spot_ma50,
+                        AVG(sp500_spot_level) OVER (
+                            ORDER BY signal_date
+                            ROWS BETWEEN 199 PRECEDING AND CURRENT ROW
+                        )::float AS sp500_spot_ma200
+                    FROM spot_history
                 )
-                SELECT
-                    h.signal_date::text,
-                    h.final_beta_target,
-                    spot.value::float AS sp500_spot_level
+                SELECT *
                 FROM (
-                    SELECT *
-                    FROM history
-                    ORDER BY signal_date
-                ) h
-                LEFT JOIN LATERAL (
-                    SELECT value
-                    FROM raw.macro
-                    WHERE series_id = 'SP500'
-                      AND date <= h.signal_date
-                    ORDER BY date DESC
-                    LIMIT 1
-                ) spot ON TRUE
-                ORDER BY h.signal_date
+                    SELECT
+                        signal_date::text,
+                        final_beta_target,
+                        sp500_spot_level,
+                        sp500_spot_ma50,
+                        sp500_spot_ma200
+                    FROM spot_ma
+                    ORDER BY signal_date DESC
+                    LIMIT 260
+                ) final
+                ORDER BY signal_date
                 """
             )
         ).mappings().all()
@@ -280,6 +323,21 @@ def regime_stats():
                     FROM macro_signal.beta_regimes
                     GROUP BY final_beta_target
                 ),
+                signal_spot AS (
+                    SELECT
+                        s.signal_date,
+                        s.final_beta_target,
+                        spot.value::float AS sp500_spot_level
+                    FROM macro_signal.beta_signal_daily s
+                    LEFT JOIN LATERAL (
+                        SELECT value
+                        FROM raw.macro
+                        WHERE series_id = 'SP500'
+                          AND date <= s.signal_date
+                        ORDER BY date DESC
+                        LIMIT 1
+                    ) spot ON TRUE
+                ),
                 state_days AS (
                     SELECT
                         final_beta_target,
@@ -296,9 +354,9 @@ def regime_stats():
                             SELECT
                                 signal_date,
                                 final_beta_target,
-                                sp500_level,
-                                LAG(sp500_level) OVER (ORDER BY signal_date) AS prev_level
-                            FROM macro_signal.beta_signal_daily
+                                sp500_spot_level AS sp500_level,
+                                LAG(sp500_spot_level) OVER (ORDER BY signal_date) AS prev_level
+                            FROM signal_spot
                         ) base
                     ) x
                     WHERE daily_return IS NOT NULL
@@ -321,6 +379,58 @@ def regime_stats():
             )
         ).mappings().all()
     return [RegimeStats(**row) for row in rows]
+
+
+@router.get("/components", response_model=MacroBetaComponents)
+def components():
+    with get_db() as conn:
+        pmi_rows = conn.execute(
+            text(
+                """
+                SELECT data_date::text AS date, mfg_pmi::float AS value
+                FROM clean.pmi_manufacturing_us
+                ORDER BY data_date DESC
+                LIMIT 60
+                """
+            )
+        ).mappings().all()
+        cpi_rows = conn.execute(
+            text(
+                """
+                SELECT data_date::text AS date, (cpi_yoy * 100)::float AS value
+                FROM clean.cpi_us
+                ORDER BY data_date DESC
+                LIMIT 60
+                """
+            )
+        ).mappings().all()
+        rsi_rows = conn.execute(
+            text(
+                """
+                SELECT date::text AS date, rsi_20::float AS value
+                FROM clean.beta_sp500_daily
+                ORDER BY date DESC
+                LIMIT 260
+                """
+            )
+        ).mappings().all()
+        bbb_rows = conn.execute(
+            text(
+                """
+                SELECT date::text AS date, bbb_oas_bps::float AS value
+                FROM clean.beta_credit_daily
+                ORDER BY date DESC
+                LIMIT 260
+                """
+            )
+        ).mappings().all()
+
+    return MacroBetaComponents(
+        pmi=[ComponentPoint(**row) for row in reversed(pmi_rows)],
+        cpi_yoy=[ComponentPoint(**row) for row in reversed(cpi_rows)],
+        rsi=[ComponentPoint(**row) for row in reversed(rsi_rows)],
+        bbb_oas_bps=[ComponentPoint(**row) for row in reversed(bbb_rows)],
+    )
 
 
 @router.get("/health", response_model=MacroBetaHealth)

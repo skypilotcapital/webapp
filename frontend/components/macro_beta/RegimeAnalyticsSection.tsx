@@ -16,7 +16,7 @@ export function RegimeAnalyticsSection() {
     <Card>
       <CardHeader>
         <h2 className="text-xl font-bold text-[#0F172A] tracking-tight">Regime Analytics</h2>
-        <p className="text-sm text-slate-500 mt-2">Contiguous beta regimes and pooled benchmark performance by state.</p>
+        <p className="text-sm text-slate-500 mt-2">Contiguous beta regimes and pooled spot S&amp;P 500 performance by state.</p>
       </CardHeader>
       <CardContent className="space-y-6">
         {stats && (
@@ -27,10 +27,10 @@ export function RegimeAnalyticsSection() {
                 <p className="text-slate-600 mt-1">Regimes: {row.regime_count}</p>
                 <p className="text-slate-600">Days in state: {row.days_in_state}</p>
                 <p className="text-slate-600">
-                  Cumulative return: {row.cumulative_return != null ? `${(row.cumulative_return * 100).toFixed(2)}%` : '-'}
+                  Spot cumulative return: {row.cumulative_return != null ? `${(row.cumulative_return * 100).toFixed(2)}%` : '-'}
                 </p>
                 <p className="text-slate-600">
-                  Annualized return: {row.annualized_return != null ? `${(row.annualized_return * 100).toFixed(2)}%` : '-'}
+                  Spot annualized return: {row.annualized_return != null ? `${(row.annualized_return * 100).toFixed(2)}%` : '-'}
                 </p>
               </div>
             ))}

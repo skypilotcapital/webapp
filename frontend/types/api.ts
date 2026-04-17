@@ -62,6 +62,8 @@ export interface ChartPoint {
   signal_date: string;
   final_beta_target: string;
   sp500_spot_level: number | null;
+  sp500_spot_ma50: number | null;
+  sp500_spot_ma200: number | null;
 }
 
 export interface LatestInputs {
@@ -118,4 +120,16 @@ export interface RunStatus {
 export interface MacroBetaHealth {
   freshness: HealthItem[];
   runs: RunStatus[];
+}
+
+export interface ComponentPoint {
+  date: string;
+  value: number | null;
+}
+
+export interface MacroBetaComponents {
+  pmi: ComponentPoint[];
+  cpi_yoy: ComponentPoint[];
+  rsi: ComponentPoint[];
+  bbb_oas_bps: ComponentPoint[];
 }

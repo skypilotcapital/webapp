@@ -18,6 +18,7 @@ import type {
   RegimeRow,
   RegimeStats,
   MacroBetaHealth,
+  MacroBetaComponents,
 } from '@/types/api';
 
 const API_BASE = '/api-proxy';
@@ -39,3 +40,4 @@ export const fetchMacroBetaLatestInputs = () => apiFetch<LatestInputs>('/api/v1/
 export const fetchMacroBetaRegimes = () => apiFetch<RegimeRow[]>('/api/v1/macro-beta/regimes');
 export const fetchMacroBetaRegimeStats = () => apiFetch<RegimeStats[]>('/api/v1/macro-beta/regime-stats');
 export const fetchMacroBetaHealth = () => apiFetch<MacroBetaHealth>('/api/v1/macro-beta/health');
+export const fetchMacroBetaComponents = () => apiFetch<MacroBetaComponents>('/api/v1/macro-beta/components');
