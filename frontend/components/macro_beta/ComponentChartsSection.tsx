@@ -42,6 +42,13 @@ function buildPath(
   return { path, min, max };
 }
 
+function formatDateLabel(date: string) {
+  return new Date(`${date}T00:00:00`).toLocaleDateString('en-US', {
+    month: 'short',
+    year: '2-digit',
+  });
+}
+
 function latestPoint(series: ComponentPoint[]) {
   const valid = [...series].reverse().find((point) => point.value != null);
   return valid ?? null;
@@ -49,11 +56,18 @@ function latestPoint(series: ComponentPoint[]) {
 
 function SeriesCard({ title, subtitle, series, color, formatter = (value) => value.toFixed(2), referenceLines = [] }: SeriesCardProps) {
   const width = 420;
-  const height = 180;
-  const padding = { top: 12, right: 14, bottom: 24, left: 14 };
+  const height = 210;
+  const padding = { top: 12, right: 14, bottom: 42, left: 14 };
   const { path, min, max } = buildPath(series, width, height, padding);
   const innerHeight = height - padding.top - padding.bottom;
   const latest = latestPoint(series);
+  const validSeries = series.filter((point) => point.value != null);
+  const xTickIndexes =
+    validSeries.length <= 1
+      ? [0]
+      : validSeries.length <= 2
+        ? [0, validSeries.length - 1]
+        : [0, Math.floor((validSeries.length - 1) / 2), validSeries.length - 1];
 
   return (
     <div className="rounded-2xl border border-slate-100 bg-white p-4">
@@ -76,6 +90,19 @@ function SeriesCard({ title, subtitle, series, color, formatter = (value) => val
             return <line key={line} x1={padding.left} y1={y} x2={width - padding.right} y2={y} stroke="#e2e8f0" strokeDasharray="4 4" strokeWidth="1" />;
           })}
           <path d={path} fill="none" stroke={color} strokeWidth="2.5" strokeLinejoin="round" strokeLinecap="round" />
+          {xTickIndexes.map((index) => {
+            const point = validSeries[index];
+            if (!point) return null;
+            const x = padding.left + (index / Math.max(validSeries.length - 1, 1)) * (width - padding.left - padding.right);
+            return (
+              <g key={`${title}-${point.date}`}>
+                <line x1={x} y1={height - padding.bottom} x2={x} y2={height - padding.bottom + 6} stroke="#94a3b8" strokeWidth="1" />
+                <text x={x} y={height - 8} textAnchor="middle" fontSize="11" fill="#64748b">
+                  {formatDateLabel(point.date)}
+                </text>
+              </g>
+            );
+          })}
         </svg>
       </div>
     </div>
