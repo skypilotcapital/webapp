@@ -28,6 +28,11 @@ class Settings(BaseSettings):
     db_user: str
     db_password: str
 
+    # Reports directory — absolute path to the folder containing report subdirectories.
+    # On the droplet: /root/Main/Reports
+    # Leave blank for local dev (reports list will return empty gracefully).
+    reports_dir: str = ""
+
     # CORS — JSON-encoded list of allowed origins, e.g. '["https://app.vercel.app"]'
     cors_origins: List[str] = ["http://localhost:3000"]
 

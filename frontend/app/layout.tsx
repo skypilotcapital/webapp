@@ -44,6 +44,10 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
                 Research
                 <span className="absolute -bottom-1 left-0 w-0 h-0.5 bg-[#4F46E5] transition-all group-hover/link:w-full"></span>
               </Link>
+              <Link href="/reports" className="text-slate-500 hover:text-[#4F46E5] transition-all relative group/link">
+                Reports
+                <span className="absolute -bottom-1 left-0 w-0 h-0.5 bg-[#4F46E5] transition-all group-hover/link:w-full"></span>
+              </Link>
               <span className="text-slate-300 cursor-not-allowed">
                 Portfolio
               </span>
