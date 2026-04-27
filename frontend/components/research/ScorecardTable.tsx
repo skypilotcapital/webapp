@@ -1,5 +1,6 @@
 'use client';
 
+import React from 'react';
 import type { P01ScorecardRow } from '@/types/api';
 
 // ---------------------------------------------------------------------------
@@ -28,21 +29,53 @@ function QualityBadge({ quality }: { quality: Quality }) {
 // ---------------------------------------------------------------------------
 function ICBar({ value, direction }: { value: number | null; direction: 1 | -1 }) {
   if (value == null) return <span className="text-slate-300 text-xs">—</span>;
-  // Effective IC: positive = factor working correctly regardless of direction
   const effective = value * direction;
-  const pct = Math.min(Math.abs(effective) / 0.08, 1) * 100; // saturate at IC=0.08
-  const color = effective >= 0 ? 'bg-indigo-400' : 'bg-red-400';
-  const sign = value >= 0 ? '+' : '';
+  const pct = Math.min(Math.abs(value) / 0.06, 1);
   return (
-    <div className="flex items-center gap-2 min-w-0">
-      <span className="text-xs font-mono text-slate-700 w-14 shrink-0">{sign}{value.toFixed(4)}</span>
-      <div className="flex-1 h-1.5 rounded-full bg-slate-100 min-w-[40px]">
+    <div className="flex items-center gap-2 min-w-[90px]">
+      <div className="flex-1 h-1.5 rounded-full bg-slate-100 overflow-hidden">
         <div
-          className={`h-full rounded-full transition-all ${color}`}
-          style={{ width: `${pct}%` }}
+          className={`h-full rounded-full ${effective > 0 ? 'bg-emerald-400' : 'bg-red-400'}`}
+          style={{ width: `${pct * 100}%` }}
         />
       </div>
+      <span className={`text-xs font-mono w-14 ${effective > 0 ? 'text-emerald-700' : 'text-red-600'}`}>
+        {value >= 0 ? '+' : ''}{value.toFixed(4)}
+      </span>
     </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Quintile sparkbar — 5 bars Q1→Q5 showing avg monthly return
+// ---------------------------------------------------------------------------
+const Q_COLORS = ['#ef4444', '#f97316', '#94a3b8', '#14b8a6', '#22c55e'];
+
+function QuintileSparkbar({ row }: { row: P01ScorecardRow }) {
+  const vals = [row.full_q1_avg, row.full_q2_avg, row.full_q3_avg, row.full_q4_avg, row.full_q5_avg];
+  if (vals.every(v => v == null)) return <span className="text-slate-300 text-xs">—</span>;
+
+  const w = 80;
+  const h = 28;
+  const barW = 10;
+  const gap = 4;
+  const totalW = 5 * barW + 4 * gap;
+  const offsetX = (w - totalW) / 2;
+  const midY = h / 2;
+  const maxAbs = Math.max(...vals.filter((v): v is number => v != null).map(Math.abs), 0.001);
+  const scale = (midY - 3) / maxAbs;
+
+  return (
+    <svg viewBox={`0 0 ${w} ${h}`} width={w} height={h} className="overflow-visible">
+      <line x1={offsetX} y1={midY} x2={offsetX + totalW} y2={midY} stroke="#e2e8f0" strokeWidth="0.8" />
+      {vals.map((v, i) => {
+        const x = offsetX + i * (barW + gap);
+        if (v == null) return <rect key={i} x={x} y={midY - 1} width={barW} height={2} fill="#e2e8f0" rx="1" />;
+        const barH = Math.max(Math.abs(v) * scale, 1.5);
+        const y = v >= 0 ? midY - barH : midY;
+        return <rect key={i} x={x} y={y} width={barW} height={barH} fill={Q_COLORS[i]} rx="1.5" opacity={0.85} />;
+      })}
+    </svg>
   );
 }
 
@@ -72,7 +105,7 @@ function FamilyPill({ family }: { family: string }) {
 // ---------------------------------------------------------------------------
 // Sort state
 // ---------------------------------------------------------------------------
-type SortKey = 'factor_label' | 'full_mean_ic' | 'full_ic_tstat' | 'full_q5q1_spread_ann' | 'ws_mean_ic' | 'ws_ic_tstat';
+type SortKey = 'factor_label' | 'full_mean_ic' | 'full_ic_tstat' | 'full_icir' | 'full_q5q1_spread_ann' | 'ws_mean_ic' | 'ws_ic_tstat' | 'ws_icir';
 
 function sortRows(rows: P01ScorecardRow[], key: SortKey, asc: boolean): P01ScorecardRow[] {
   return [...rows].sort((a, b) => {
@@ -107,7 +140,7 @@ export function ScorecardTable({ rows, selectedFactor, onSelect }: ScorecardTabl
       setSortAsc((prev) => !prev);
     } else {
       setSortKey(key);
-      setSortAsc(false); // default to descending for numeric columns
+      setSortAsc(false);
     }
   }
 
@@ -155,6 +188,9 @@ export function ScorecardTable({ rows, selectedFactor, onSelect }: ScorecardTabl
                 <th className="px-3 py-3.5 text-left w-24">
                   <span className="text-xs uppercase tracking-[0.15em] text-slate-400 font-bold">Family</span>
                 </th>
+                <th className="px-3 py-3.5 text-left">
+                  <span className="text-xs uppercase tracking-[0.15em] text-slate-400 font-bold">Q1→Q5</span>
+                </th>
                 {/* Full universe */}
                 <th className="px-3 py-3.5 text-left" colSpan={3}>
                   <span className="text-xs uppercase tracking-[0.15em] text-indigo-500 font-bold">Full Universe</span>
@@ -168,20 +204,21 @@ export function ScorecardTable({ rows, selectedFactor, onSelect }: ScorecardTabl
               <tr className="border-b border-slate-100 bg-slate-50/30">
                 <th className="px-5 py-2" />
                 <th className="px-3 py-2" />
+                <th className="px-3 py-2" />
                 <th className="px-3 py-2 text-left">
                   <SortHeader label="Mean IC" col="full_mean_ic" />
+                </th>
+                <th className="px-3 py-2 text-left">
+                  <SortHeader label="ICIR" col="full_icir" />
                 </th>
                 <th className="px-3 py-2 text-left">
                   <SortHeader label="t-stat" col="full_ic_tstat" />
                 </th>
                 <th className="px-3 py-2 text-left">
-                  <SortHeader label="Q5-Q1 Ann." col="full_q5q1_spread_ann" />
-                </th>
-                <th className="px-3 py-2 text-left">
                   <SortHeader label="Mean IC" col="ws_mean_ic" />
                 </th>
                 <th className="px-3 py-2 text-left">
-                  <SortHeader label="t-stat" col="ws_ic_tstat" />
+                  <SortHeader label="ICIR" col="ws_icir" />
                 </th>
                 <th className="px-3 py-2 text-left">
                   <span className="text-xs uppercase tracking-[0.15em] text-slate-400 font-bold">Quality</span>
@@ -202,41 +239,42 @@ export function ScorecardTable({ rows, selectedFactor, onSelect }: ScorecardTabl
                         : 'hover:bg-slate-50/80'
                     }`}
                   >
-                    <td className="px-5 py-3.5">
+                    <td className="px-5 py-3">
                       <div>
                         <p className="font-semibold text-slate-800 text-sm leading-tight">{row.factor_label}</p>
                         <p className="text-xs text-slate-400 mt-0.5 font-mono">{row.factor}</p>
                       </div>
                     </td>
-                    <td className="px-3 py-3.5">
+                    <td className="px-3 py-3">
                       <FamilyPill family={row.factor_family} />
                     </td>
+                    <td className="px-3 py-3">
+                      <QuintileSparkbar row={row} />
+                    </td>
                     {/* Full universe */}
-                    <td className="px-3 py-3.5">
+                    <td className="px-3 py-3">
                       <ICBar value={row.full_mean_ic} direction={row.direction} />
                     </td>
-                    <td className="px-3 py-3.5">
+                    <td className="px-3 py-3">
+                      <span className={`text-xs font-mono ${Math.abs(row.full_icir ?? 0) > 0.3 ? 'text-indigo-700 font-semibold' : 'text-slate-400'}`}>
+                        {row.full_icir != null ? (row.full_icir >= 0 ? '+' : '') + row.full_icir.toFixed(3) : '—'}
+                      </span>
+                    </td>
+                    <td className="px-3 py-3">
                       <span className={`text-xs font-mono ${(row.full_ic_tstat ?? 0) > 1.65 ? 'text-slate-700 font-semibold' : 'text-slate-400'}`}>
                         {row.full_ic_tstat != null ? row.full_ic_tstat.toFixed(2) : '—'}
                       </span>
                     </td>
-                    <td className="px-3 py-3.5">
-                      <span className={`text-xs font-mono ${(row.full_q5q1_spread_ann ?? 0) * row.direction > 0 ? 'text-emerald-600 font-semibold' : 'text-red-500'}`}>
-                        {row.full_q5q1_spread_ann != null
-                          ? `${row.full_q5q1_spread_ann > 0 ? '+' : ''}${(row.full_q5q1_spread_ann * 100).toFixed(1)}%`
-                          : '—'}
-                      </span>
-                    </td>
                     {/* Within sector */}
-                    <td className="px-3 py-3.5">
+                    <td className="px-3 py-3">
                       <ICBar value={row.ws_mean_ic} direction={row.direction} />
                     </td>
-                    <td className="px-3 py-3.5">
-                      <span className={`text-xs font-mono ${(row.ws_ic_tstat ?? 0) > 1.65 ? 'text-slate-700 font-semibold' : 'text-slate-400'}`}>
-                        {row.ws_ic_tstat != null ? row.ws_ic_tstat.toFixed(2) : '—'}
+                    <td className="px-3 py-3">
+                      <span className={`text-xs font-mono ${Math.abs(row.ws_icir ?? 0) > 0.3 ? 'text-sky-700 font-semibold' : 'text-slate-400'}`}>
+                        {row.ws_icir != null ? (row.ws_icir >= 0 ? '+' : '') + row.ws_icir.toFixed(3) : '—'}
                       </span>
                     </td>
-                    <td className="px-3 py-3.5">
+                    <td className="px-3 py-3">
                       <div className="flex flex-col gap-1">
                         <div className="flex items-center gap-1.5">
                           <span className="text-[9px] font-bold uppercase tracking-wider text-indigo-400 w-4">F</span>
@@ -248,7 +286,7 @@ export function ScorecardTable({ rows, selectedFactor, onSelect }: ScorecardTabl
                         </div>
                       </div>
                     </td>
-                    <td className="px-3 py-3.5 text-right">
+                    <td className="px-3 py-3 text-right">
                       <span className={`text-slate-300 text-xs transition-transform inline-block ${isSelected ? 'rotate-90' : 'group-hover:text-slate-400'}`}>▶</span>
                     </td>
                   </tr>
@@ -266,13 +304,10 @@ export function ScorecardTable({ rows, selectedFactor, onSelect }: ScorecardTabl
             {rows[0]?.n_months ? ` · ${rows[0].n_months} months` : ''}
           </p>
           <p className="text-xs text-slate-400">
-            F = Full Universe · S = Within Sector
+            Q1→Q5 sparkbar = avg monthly return by quintile (red→green) · F = Full Universe · S = Within Sector · ICIR = mean IC / std IC
           </p>
         </div>
       </div>
     </div>
   );
 }
-
-// React import — needed because this is a client component
-import React from 'react';

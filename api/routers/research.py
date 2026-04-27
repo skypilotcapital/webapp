@@ -46,17 +46,29 @@ class P01ScorecardRow(BaseModel):
     full_ic_std: Optional[float]
     full_ic_tstat: Optional[float]
     full_ic_pvalue: Optional[float]
+    full_icir: Optional[float]
     full_q5q1_spread_ann: Optional[float]
     full_monotonicity: Optional[float]
     full_signal_quality: Optional[str]
+    full_q1_avg: Optional[float]
+    full_q2_avg: Optional[float]
+    full_q3_avg: Optional[float]
+    full_q4_avg: Optional[float]
+    full_q5_avg: Optional[float]
     # Within-sector stats
     ws_mean_ic: Optional[float]
     ws_ic_std: Optional[float]
     ws_ic_tstat: Optional[float]
     ws_ic_pvalue: Optional[float]
+    ws_icir: Optional[float]
     ws_q5q1_spread_ann: Optional[float]
     ws_monotonicity: Optional[float]
     ws_signal_quality: Optional[str]
+    ws_q1_avg: Optional[float]
+    ws_q2_avg: Optional[float]
+    ws_q3_avg: Optional[float]
+    ws_q4_avg: Optional[float]
+    ws_q5_avg: Optional[float]
 
 
 class P01ICPoint(BaseModel):
@@ -96,18 +108,21 @@ def get_p01_scorecard():
             factor, factor_label, factor_family, direction,
             n_months, date_from::text, date_to::text,
             full_mean_ic, full_ic_std, full_ic_tstat, full_ic_pvalue,
-            full_q5q1_spread_ann, full_monotonicity, full_signal_quality,
+            full_icir, full_q5q1_spread_ann, full_monotonicity, full_signal_quality,
+            full_q1_avg, full_q2_avg, full_q3_avg, full_q4_avg, full_q5_avg,
             ws_mean_ic, ws_ic_std, ws_ic_tstat, ws_ic_pvalue,
-            ws_q5q1_spread_ann, ws_monotonicity, ws_signal_quality
+            ws_icir, ws_q5q1_spread_ann, ws_monotonicity, ws_signal_quality,
+            ws_q1_avg, ws_q2_avg, ws_q3_avg, ws_q4_avg, ws_q5_avg
         FROM research.p01_scorecard
         ORDER BY
             CASE factor_family
                 WHEN 'Momentum'  THEN 1
-                WHEN 'Quality'   THEN 2
-                WHEN 'Valuation' THEN 3
-                WHEN 'Growth'    THEN 4
-                WHEN 'Risk'      THEN 5
-                ELSE 6
+                WHEN 'Technical' THEN 2
+                WHEN 'Quality'   THEN 3
+                WHEN 'Valuation' THEN 4
+                WHEN 'Growth'    THEN 5
+                WHEN 'Risk'      THEN 6
+                ELSE 7
             END,
             factor
     """)

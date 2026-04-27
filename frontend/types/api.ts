@@ -141,7 +141,7 @@ export interface MacroBetaComponents {
 export interface P01ScorecardRow {
   factor: string;
   factor_label: string;
-  factor_family: 'Momentum' | 'Quality' | 'Valuation' | 'Growth' | 'Risk';
+  factor_family: 'Momentum' | 'Technical' | 'Quality' | 'Valuation' | 'Growth' | 'Risk';
   direction: 1 | -1;
   n_months: number;
   date_from: string | null;
@@ -151,17 +151,29 @@ export interface P01ScorecardRow {
   full_ic_std: number | null;
   full_ic_tstat: number | null;
   full_ic_pvalue: number | null;
+  full_icir: number | null;
   full_q5q1_spread_ann: number | null;
   full_monotonicity: number | null;
   full_signal_quality: 'Strong' | 'Moderate' | 'Weak' | 'Investigate' | null;
+  full_q1_avg: number | null;
+  full_q2_avg: number | null;
+  full_q3_avg: number | null;
+  full_q4_avg: number | null;
+  full_q5_avg: number | null;
   // Within-sector stats
   ws_mean_ic: number | null;
   ws_ic_std: number | null;
   ws_ic_tstat: number | null;
   ws_ic_pvalue: number | null;
+  ws_icir: number | null;
   ws_q5q1_spread_ann: number | null;
   ws_monotonicity: number | null;
   ws_signal_quality: 'Strong' | 'Moderate' | 'Weak' | 'Investigate' | null;
+  ws_q1_avg: number | null;
+  ws_q2_avg: number | null;
+  ws_q3_avg: number | null;
+  ws_q4_avg: number | null;
+  ws_q5_avg: number | null;
 }
 
 export interface P01ICPoint {
