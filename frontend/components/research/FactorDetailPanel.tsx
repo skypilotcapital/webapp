@@ -98,13 +98,15 @@ export function FactorDetailPanel({ row }: FactorDetailPanelProps) {
                 className={`px-2.5 py-1 rounded-xl text-xs font-semibold ${
                   row.factor_family === 'Momentum'
                     ? 'bg-violet-100 text-violet-700'
-                    : row.factor_family === 'Quality'
-                      ? 'bg-teal-100 text-teal-700'
-                      : row.factor_family === 'Valuation'
-                        ? 'bg-sky-100 text-sky-700'
-                        : row.factor_family === 'Growth'
-                          ? 'bg-lime-100 text-lime-700'
-                          : 'bg-orange-100 text-orange-700'
+                    : row.factor_family === 'Technical'
+                      ? 'bg-purple-100 text-purple-700'
+                      : row.factor_family === 'Quality'
+                        ? 'bg-teal-100 text-teal-700'
+                        : row.factor_family === 'Valuation'
+                          ? 'bg-sky-100 text-sky-700'
+                          : row.factor_family === 'Growth'
+                            ? 'bg-lime-100 text-lime-700'
+                            : 'bg-orange-100 text-orange-700'
                 }`}
               >
                 {row.factor_family}

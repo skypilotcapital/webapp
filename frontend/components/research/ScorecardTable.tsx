@@ -49,11 +49,12 @@ function ICBar({ value, direction }: { value: number | null; direction: 1 | -1 }
 // ---------------------------------------------------------------------------
 // Family filter button group
 // ---------------------------------------------------------------------------
-const FAMILIES = ['All', 'Momentum', 'Quality', 'Valuation', 'Growth', 'Risk'] as const;
+const FAMILIES = ['All', 'Momentum', 'Technical', 'Quality', 'Valuation', 'Growth', 'Risk'] as const;
 type Family = typeof FAMILIES[number];
 
 const FAMILY_COLORS: Record<string, string> = {
   Momentum:  'bg-violet-50 text-violet-700',
+  Technical: 'bg-purple-50 text-purple-700',
   Quality:   'bg-teal-50 text-teal-700',
   Valuation: 'bg-sky-50 text-sky-700',
   Growth:    'bg-lime-50 text-lime-700',
