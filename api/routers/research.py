@@ -18,6 +18,7 @@ Endpoints:
 
 from __future__ import annotations
 
+import decimal
 from typing import List, Optional
 
 from fastapi import APIRouter, HTTPException
@@ -25,6 +26,14 @@ from pydantic import BaseModel
 from sqlalchemy import text
 
 from api.db import get_db
+
+
+def _clean(row) -> dict:
+    """Convert decimal.Decimal NaN → None (NaN is not valid JSON)."""
+    return {
+        k: (None if (isinstance(v, decimal.Decimal) and v.is_nan()) else v)
+        for k, v in dict(row._mapping).items()
+    }
 
 router = APIRouter(prefix="/api/v1/research", tags=["research"])
 
@@ -134,7 +143,7 @@ def get_p01_scorecard():
             status_code=404,
             detail="No P01 scorecard data found. Run the analysis script first.",
         )
-    return [P01ScorecardRow(**dict(row._mapping)) for row in rows]
+    return [P01ScorecardRow(**_clean(row)) for row in rows]
 
 
 @router.get("/p01/factor/{factor_name}/detail", response_model=P01FactorDetail)
