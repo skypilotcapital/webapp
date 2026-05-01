@@ -15,11 +15,19 @@ const QUALITY_STYLES: Record<string, string> = {
   Investigate: 'bg-red-50 text-red-600 border border-red-200',
 };
 
+// Display label — "Investigate" is internal; show "Negative" to users
+const QUALITY_LABEL: Record<string, string> = {
+  Strong:      'Strong',
+  Moderate:    'Moderate',
+  Weak:        'Weak',
+  Investigate: 'Negative',
+};
+
 function QualityBadge({ quality }: { quality: Quality }) {
   if (!quality) return <span className="text-slate-300">—</span>;
   return (
     <span className={`inline-flex items-center px-2 py-0.5 rounded-md text-xs font-semibold ${QUALITY_STYLES[quality] ?? 'bg-slate-100 text-slate-500'}`}>
-      {quality}
+      {QUALITY_LABEL[quality] ?? quality}
     </span>
   );
 }
@@ -127,15 +135,32 @@ interface ScorecardTableProps {
   onSelect: (factor: string) => void;
 }
 
+const FAMILY_ORDER = ['Momentum', 'Technical', 'Quality', 'Valuation', 'Growth', 'Risk'] as const;
+
 export function ScorecardTable({ rows, selectedFactor, onSelect }: ScorecardTableProps) {
   const [family, setFamily] = React.useState<Family>('All');
+  const [groupByFamily, setGroupByFamily] = React.useState(false);
   const [sortKey, setSortKey] = React.useState<SortKey>('factor_label');
   const [sortAsc, setSortAsc] = React.useState(true);
 
   const filtered = family === 'All' ? rows : rows.filter((r) => r.factor_family === family);
   const sorted = sortRows(filtered, sortKey, sortAsc);
 
+  // For group view: bucket rows by family in canonical order
+  const grouped = React.useMemo(() => {
+    if (!groupByFamily) return null;
+    const buckets = new Map<string, P01ScorecardRow[]>();
+    for (const f of FAMILY_ORDER) buckets.set(f, []);
+    for (const row of rows) {
+      const bucket = buckets.get(row.factor_family);
+      if (bucket) bucket.push(row);
+      else buckets.set(row.factor_family, [row]);
+    }
+    return buckets;
+  }, [groupByFamily, rows]);
+
   function handleSort(key: SortKey) {
+    if (groupByFamily) return; // sort disabled in group view
     if (sortKey === key) {
       setSortAsc((prev) => !prev);
     } else {
@@ -145,81 +170,154 @@ export function ScorecardTable({ rows, selectedFactor, onSelect }: ScorecardTabl
   }
 
   function SortHeader({ label, col }: { label: string; col: SortKey }) {
-    const active = sortKey === col;
+    const active = sortKey === col && !groupByFamily;
     return (
       <button
         onClick={() => handleSort(col)}
-        className={`flex items-center gap-1 text-xs uppercase tracking-[0.15em] font-bold transition-colors ${active ? 'text-indigo-600' : 'text-slate-400 hover:text-slate-600'}`}
+        disabled={groupByFamily}
+        className={`flex items-center gap-1 text-xs uppercase tracking-[0.15em] font-bold transition-colors ${active ? 'text-indigo-600' : 'text-slate-400 hover:text-slate-600'} ${groupByFamily ? 'cursor-default' : ''}`}
       >
         {label}
-        <span className="text-[10px]">{active ? (sortAsc ? '▲' : '▼') : '⇅'}</span>
+        {!groupByFamily && <span className="text-[10px]">{active ? (sortAsc ? '▲' : '▼') : '⇅'}</span>}
       </button>
     );
   }
 
+  function FactorRow({ row }: { row: P01ScorecardRow }) {
+    const isSelected = selectedFactor === row.factor;
+    return (
+      <tr
+        key={row.factor}
+        onClick={() => onSelect(isSelected ? '' : row.factor)}
+        className={`cursor-pointer transition-colors group ${
+          isSelected ? 'bg-indigo-50/70 border-l-2 border-indigo-400' : 'hover:bg-slate-50/80'
+        }`}
+      >
+        <td className="px-5 py-3">
+          <div>
+            <p className="font-semibold text-slate-800 text-sm leading-tight">{row.factor_label}</p>
+            <p className="text-xs text-slate-400 mt-0.5 font-mono">{row.factor}</p>
+          </div>
+        </td>
+        <td className="px-3 py-3">
+          {!groupByFamily && <FamilyPill family={row.factor_family} />}
+        </td>
+        <td className="px-3 py-3">
+          <QuintileSparkbar row={row} />
+        </td>
+        <td className="px-3 py-3">
+          <ICBar value={row.full_mean_ic} direction={row.direction} />
+        </td>
+        <td className="px-3 py-3">
+          <span className={`text-xs font-mono ${Math.abs(row.full_icir ?? 0) > 0.3 ? 'text-indigo-700 font-semibold' : 'text-slate-400'}`}>
+            {row.full_icir != null ? (row.full_icir >= 0 ? '+' : '') + row.full_icir.toFixed(3) : '—'}
+          </span>
+        </td>
+        <td className="px-3 py-3">
+          <span className={`text-xs font-mono ${(row.full_ic_tstat ?? 0) > 1.65 ? 'text-slate-700 font-semibold' : 'text-slate-400'}`}>
+            {row.full_ic_tstat != null ? row.full_ic_tstat.toFixed(2) : '—'}
+          </span>
+        </td>
+        <td className="px-3 py-3">
+          <ICBar value={row.ws_mean_ic} direction={row.direction} />
+        </td>
+        <td className="px-3 py-3">
+          <span className={`text-xs font-mono ${Math.abs(row.ws_icir ?? 0) > 0.3 ? 'text-sky-700 font-semibold' : 'text-slate-400'}`}>
+            {row.ws_icir != null ? (row.ws_icir >= 0 ? '+' : '') + row.ws_icir.toFixed(3) : '—'}
+          </span>
+        </td>
+        <td className="px-3 py-3">
+          <div className="flex flex-col gap-1">
+            <div className="flex items-center gap-1.5">
+              <span className="text-[9px] font-bold uppercase tracking-wider text-indigo-400 w-4">F</span>
+              <QualityBadge quality={row.full_signal_quality} />
+            </div>
+            <div className="flex items-center gap-1.5">
+              <span className="text-[9px] font-bold uppercase tracking-wider text-sky-400 w-4">S</span>
+              <QualityBadge quality={row.ws_signal_quality} />
+            </div>
+          </div>
+        </td>
+        <td className="px-3 py-3 text-right">
+          <span className={`text-slate-300 text-xs transition-transform inline-block ${isSelected ? 'rotate-90' : 'group-hover:text-slate-400'}`}>▶</span>
+        </td>
+      </tr>
+    );
+  }
+
+  const totalShown = groupByFamily ? rows.length : sorted.length;
+
   return (
     <div className="space-y-4">
-      {/* Family filter */}
-      <div className="flex flex-wrap gap-2">
-        {FAMILIES.map((f) => (
-          <button
-            key={f}
-            onClick={() => setFamily(f)}
-            className={`px-3 py-1.5 rounded-xl text-xs font-semibold border transition-all ${
-              family === f
-                ? 'bg-[#4F46E5] text-white border-[#4F46E5] shadow-sm'
-                : 'bg-white text-slate-500 border-slate-200 hover:border-indigo-300 hover:text-indigo-600'
-            }`}
-          >
-            {f}
-          </button>
-        ))}
+      {/* Controls row */}
+      <div className="flex items-center justify-between flex-wrap gap-3">
+        {/* Family filter — hidden in group mode */}
+        {!groupByFamily && (
+          <div className="flex flex-wrap gap-2">
+            <span className="self-center text-xs text-slate-400 font-medium">Filter:</span>
+            {FAMILIES.map((f) => (
+              <button
+                key={f}
+                onClick={() => setFamily(f)}
+                className={`px-3 py-1.5 rounded-xl text-xs font-semibold border transition-all ${
+                  family === f
+                    ? 'bg-[#4F46E5] text-white border-[#4F46E5] shadow-sm'
+                    : 'bg-white text-slate-500 border-slate-200 hover:border-indigo-300 hover:text-indigo-600'
+                }`}
+              >
+                {f}
+              </button>
+            ))}
+          </div>
+        )}
+        {groupByFamily && <div />}
+        {/* Group toggle */}
+        <button
+          onClick={() => { setGroupByFamily((v) => !v); setFamily('All'); }}
+          className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-semibold border transition-all ${
+            groupByFamily
+              ? 'bg-[#4F46E5] text-white border-[#4F46E5] shadow-sm'
+              : 'bg-white text-slate-500 border-slate-200 hover:border-indigo-300 hover:text-indigo-600'
+          }`}
+        >
+          <span>⊞</span> Group by Family
+        </button>
       </div>
 
       {/* Table */}
       <div className="rounded-2xl border border-slate-100 bg-white overflow-hidden">
-        <div className="overflow-x-auto">
+        <div className="overflow-x-auto overflow-y-auto max-h-[520px]">
           <table className="w-full text-sm">
-            <thead>
-              <tr className="border-b border-slate-100 bg-slate-50/60">
+            <thead className="sticky top-0 z-10">
+              <tr className="border-b border-slate-100 bg-slate-50">
                 <th className="px-5 py-3.5 text-left">
                   <SortHeader label="Factor" col="factor_label" />
                 </th>
                 <th className="px-3 py-3.5 text-left w-24">
-                  <span className="text-xs uppercase tracking-[0.15em] text-slate-400 font-bold">Family</span>
+                  <span className="text-xs uppercase tracking-[0.15em] text-slate-400 font-bold">
+                    {groupByFamily ? '' : 'Family'}
+                  </span>
                 </th>
                 <th className="px-3 py-3.5 text-left">
                   <span className="text-xs uppercase tracking-[0.15em] text-slate-400 font-bold">Q1→Q5</span>
                 </th>
-                {/* Full universe */}
                 <th className="px-3 py-3.5 text-left" colSpan={3}>
                   <span className="text-xs uppercase tracking-[0.15em] text-indigo-500 font-bold">Full Universe</span>
                 </th>
-                {/* Within sector */}
                 <th className="px-3 py-3.5 text-left" colSpan={3}>
                   <span className="text-xs uppercase tracking-[0.15em] text-sky-500 font-bold">Within Sector</span>
                 </th>
                 <th className="px-3 py-3.5 w-6" />
               </tr>
-              <tr className="border-b border-slate-100 bg-slate-50/30">
+              <tr className="border-b border-slate-100 bg-slate-50">
                 <th className="px-5 py-2" />
                 <th className="px-3 py-2" />
                 <th className="px-3 py-2" />
-                <th className="px-3 py-2 text-left">
-                  <SortHeader label="Mean IC" col="full_mean_ic" />
-                </th>
-                <th className="px-3 py-2 text-left">
-                  <SortHeader label="ICIR" col="full_icir" />
-                </th>
-                <th className="px-3 py-2 text-left">
-                  <SortHeader label="t-stat" col="full_ic_tstat" />
-                </th>
-                <th className="px-3 py-2 text-left">
-                  <SortHeader label="Mean IC" col="ws_mean_ic" />
-                </th>
-                <th className="px-3 py-2 text-left">
-                  <SortHeader label="ICIR" col="ws_icir" />
-                </th>
+                <th className="px-3 py-2 text-left"><SortHeader label="Mean IC" col="full_mean_ic" /></th>
+                <th className="px-3 py-2 text-left"><SortHeader label="ICIR" col="full_icir" /></th>
+                <th className="px-3 py-2 text-left"><SortHeader label="t-stat" col="full_ic_tstat" /></th>
+                <th className="px-3 py-2 text-left"><SortHeader label="Mean IC" col="ws_mean_ic" /></th>
+                <th className="px-3 py-2 text-left"><SortHeader label="ICIR" col="ws_icir" /></th>
                 <th className="px-3 py-2 text-left">
                   <span className="text-xs uppercase tracking-[0.15em] text-slate-400 font-bold">Quality</span>
                 </th>
@@ -227,71 +325,22 @@ export function ScorecardTable({ rows, selectedFactor, onSelect }: ScorecardTabl
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-50">
-              {sorted.map((row) => {
-                const isSelected = selectedFactor === row.factor;
-                return (
-                  <tr
-                    key={row.factor}
-                    onClick={() => onSelect(isSelected ? '' : row.factor)}
-                    className={`cursor-pointer transition-colors group ${
-                      isSelected
-                        ? 'bg-indigo-50/70 border-l-2 border-indigo-400'
-                        : 'hover:bg-slate-50/80'
-                    }`}
-                  >
-                    <td className="px-5 py-3">
-                      <div>
-                        <p className="font-semibold text-slate-800 text-sm leading-tight">{row.factor_label}</p>
-                        <p className="text-xs text-slate-400 mt-0.5 font-mono">{row.factor}</p>
-                      </div>
-                    </td>
-                    <td className="px-3 py-3">
-                      <FamilyPill family={row.factor_family} />
-                    </td>
-                    <td className="px-3 py-3">
-                      <QuintileSparkbar row={row} />
-                    </td>
-                    {/* Full universe */}
-                    <td className="px-3 py-3">
-                      <ICBar value={row.full_mean_ic} direction={row.direction} />
-                    </td>
-                    <td className="px-3 py-3">
-                      <span className={`text-xs font-mono ${Math.abs(row.full_icir ?? 0) > 0.3 ? 'text-indigo-700 font-semibold' : 'text-slate-400'}`}>
-                        {row.full_icir != null ? (row.full_icir >= 0 ? '+' : '') + row.full_icir.toFixed(3) : '—'}
-                      </span>
-                    </td>
-                    <td className="px-3 py-3">
-                      <span className={`text-xs font-mono ${(row.full_ic_tstat ?? 0) > 1.65 ? 'text-slate-700 font-semibold' : 'text-slate-400'}`}>
-                        {row.full_ic_tstat != null ? row.full_ic_tstat.toFixed(2) : '—'}
-                      </span>
-                    </td>
-                    {/* Within sector */}
-                    <td className="px-3 py-3">
-                      <ICBar value={row.ws_mean_ic} direction={row.direction} />
-                    </td>
-                    <td className="px-3 py-3">
-                      <span className={`text-xs font-mono ${Math.abs(row.ws_icir ?? 0) > 0.3 ? 'text-sky-700 font-semibold' : 'text-slate-400'}`}>
-                        {row.ws_icir != null ? (row.ws_icir >= 0 ? '+' : '') + row.ws_icir.toFixed(3) : '—'}
-                      </span>
-                    </td>
-                    <td className="px-3 py-3">
-                      <div className="flex flex-col gap-1">
-                        <div className="flex items-center gap-1.5">
-                          <span className="text-[9px] font-bold uppercase tracking-wider text-indigo-400 w-4">F</span>
-                          <QualityBadge quality={row.full_signal_quality} />
-                        </div>
-                        <div className="flex items-center gap-1.5">
-                          <span className="text-[9px] font-bold uppercase tracking-wider text-sky-400 w-4">S</span>
-                          <QualityBadge quality={row.ws_signal_quality} />
-                        </div>
-                      </div>
-                    </td>
-                    <td className="px-3 py-3 text-right">
-                      <span className={`text-slate-300 text-xs transition-transform inline-block ${isSelected ? 'rotate-90' : 'group-hover:text-slate-400'}`}>▶</span>
-                    </td>
-                  </tr>
-                );
-              })}
+              {groupByFamily && grouped
+                ? Array.from(grouped.entries()).filter(([, fRows]) => fRows.length > 0).map(([fam, fRows]) => (
+                    <React.Fragment key={fam}>
+                      <tr className="bg-slate-50/80">
+                        <td colSpan={10} className="px-5 py-2">
+                          <div className="flex items-center gap-2">
+                            <FamilyPill family={fam} />
+                            <span className="text-xs text-slate-400">{fRows.length} factor{fRows.length !== 1 ? 's' : ''}</span>
+                          </div>
+                        </td>
+                      </tr>
+                      {fRows.map((row) => <FactorRow key={row.factor} row={row} />)}
+                    </React.Fragment>
+                  ))
+                : sorted.map((row) => <FactorRow key={row.factor} row={row} />)
+              }
             </tbody>
           </table>
         </div>
@@ -299,12 +348,12 @@ export function ScorecardTable({ rows, selectedFactor, onSelect }: ScorecardTabl
         {/* Footer */}
         <div className="px-5 py-3 border-t border-slate-100 bg-slate-50/30 flex items-center justify-between">
           <p className="text-xs text-slate-400">
-            {sorted.length} factor{sorted.length !== 1 ? 's' : ''} shown
+            {totalShown} factor{totalShown !== 1 ? 's' : ''} shown
             {rows[0]?.date_from ? ` · ${rows[0].date_from} → ${rows[0].date_to}` : ''}
             {rows[0]?.n_months ? ` · ${rows[0].n_months} months` : ''}
           </p>
           <p className="text-xs text-slate-400">
-            Q1→Q5 sparkbar = avg monthly return by quintile (red→green) · F = Full Universe · S = Within Sector · ICIR = mean IC / std IC
+            Q1→Q5 = avg monthly return by quintile (red→green) · F = Full Universe · S = Within Sector · Negative = IC in wrong direction
           </p>
         </div>
       </div>
