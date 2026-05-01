@@ -28,15 +28,25 @@ function formatDateShort(iso: string): string {
   return d.toLocaleDateString('en-US', { month: 'short', year: '2-digit' });
 }
 
-function cumulativeReturns(monthly: (number | null)[]): (number | null)[] {
+// Returns growth index rebased to 100 at start (log-scale friendly)
+function cumulativeIndex(monthly: (number | null)[]): (number | null)[] {
   let prod = 1;
-  let started = false;
   return monthly.map((r) => {
     if (r == null) return null;
-    if (!started) started = true;
     prod *= 1 + r;
-    return (prod - 1) * 100; // percent
+    return prod * 100;
   });
+}
+
+// Generate human-readable tick values that span [min, max] on a log scale
+function logScaleTicks(min: number, max: number): number[] {
+  const candidates = [
+    5, 10, 15, 20, 25, 30, 40, 50, 60, 70, 80,
+    100, 125, 150, 175, 200, 250, 300, 400, 500,
+    600, 700, 800, 1000, 1250, 1500, 2000, 2500, 3000,
+    4000, 5000, 7500, 10000,
+  ];
+  return candidates.filter((v) => v >= min * 0.85 && v <= max * 1.18);
 }
 
 function buildPath(points: Array<{ x: number; y: number } | null>): string {
@@ -68,31 +78,29 @@ export function QuintileReturnChart({ data, title }: QuintileReturnChartProps) {
 
   const keys = ['q1', 'q2', 'q3', 'q4', 'q5'] as const;
 
-  // Compute cumulative returns for each quintile
-  const cumSeries = keys.map((k) => cumulativeReturns(data.map((d) => d[k])));
+  // Compute cumulative growth index (rebased to 100) for each quintile
+  const cumSeries = keys.map((k) => cumulativeIndex(data.map((d) => d[k])));
 
-  // Y-axis domain
-  const allVals = cumSeries.flat().filter((v): v is number => v != null);
+  // Y-axis domain (log scale — values are always > 0)
+  const allVals = cumSeries.flat().filter((v): v is number => v != null && v > 0);
   if (allVals.length === 0) {
     return <p className="text-sm text-slate-400 text-center py-12">No valid returns to chart.</p>;
   }
-  const yMin = Math.min(...allVals) * 1.05;
-  const yMax = Math.max(...allVals) * 1.05;
-  const ySpan = yMax - yMin || 1;
+  const rawMin = Math.min(...allVals);
+  const rawMax = Math.max(...allVals);
+  const logMin = Math.log(rawMin * 0.92);
+  const logMax = Math.log(rawMax * 1.08);
 
   function xCoord(i: number) {
     return pad.left + (i / Math.max(data.length - 1, 1)) * iw;
   }
   function yCoord(v: number) {
-    return pad.top + ih - ((v - yMin) / ySpan) * ih;
+    return pad.top + ih - ((Math.log(v) - logMin) / (logMax - logMin)) * ih;
   }
-  const zeroY = yCoord(0);
+  const baselineY = yCoord(100); // where index = 100 (starting value)
 
-  // Y-axis ticks (5 steps)
-  const yTickCount = 5;
-  const yTicks = Array.from({ length: yTickCount }, (_, i) => {
-    return yMin + (i / (yTickCount - 1)) * (yMax - yMin);
-  });
+  // Y-axis ticks — log-spaced human-readable values
+  const yTicks = logScaleTicks(rawMin * 0.92, rawMax * 1.08);
 
   // X-axis ticks
   const tickCount = Math.min(6, data.length);
@@ -113,24 +121,25 @@ export function QuintileReturnChart({ data, title }: QuintileReturnChartProps) {
         <p className="text-xs font-bold uppercase tracking-[0.15em] text-slate-400 mb-3">{title}</p>
       )}
       <svg viewBox={`0 0 ${width} ${height}`} className="w-full h-auto">
-        {/* Zero line (only if in range) */}
-        {zeroY >= pad.top && zeroY <= pad.top + ih && (
+        {/* Baseline at index 100 */}
+        {baselineY >= pad.top && baselineY <= pad.top + ih && (
           <line
-            x1={pad.left} y1={zeroY}
-            x2={pad.left + iw} y2={zeroY}
+            x1={pad.left} y1={baselineY}
+            x2={pad.left + iw} y2={baselineY}
             stroke="#94a3b8" strokeWidth="1.2" strokeDasharray="4 3"
           />
         )}
 
-        {/* Grid */}
+        {/* Grid + y-axis tick labels */}
         {yTicks.map((v) => {
           const y = yCoord(v);
           if (y < pad.top || y > pad.top + ih) return null;
+          const label = v >= 1000 ? `${(v / 1000).toFixed(v % 1000 === 0 ? 0 : 1)}k` : `${v}`;
           return (
             <g key={v}>
               <line x1={pad.left} y1={y} x2={pad.left + iw} y2={y} stroke="#f1f5f9" strokeWidth="1" />
-              <text x={pad.left - 8} y={y + 4} textAnchor="end" fontSize="10" fill="#94a3b8">
-                {v > 0 ? `+${v.toFixed(0)}%` : `${v.toFixed(0)}%`}
+              <text x={pad.left - 8} y={y + 4} textAnchor="end" fontSize="10" fill={v === 100 ? '#64748b' : '#94a3b8'} fontWeight={v === 100 ? '600' : 'normal'}>
+                {label}
               </text>
             </g>
           );
@@ -176,7 +185,7 @@ export function QuintileReturnChart({ data, title }: QuintileReturnChartProps) {
           fontSize="10"
           fill="#94a3b8"
         >
-          Cumulative Return (%)
+          Growth Index (log, start = 100)
         </text>
       </svg>
 
