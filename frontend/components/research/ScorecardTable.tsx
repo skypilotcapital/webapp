@@ -33,22 +33,28 @@ function QualityBadge({ quality }: { quality: Quality }) {
 }
 
 // ---------------------------------------------------------------------------
-// IC bar — small inline visualisation of IC magnitude
+// t-stat bar — bar scaled 0–5 with a reference tick at t=2 (significance)
 // ---------------------------------------------------------------------------
-function ICBar({ value, direction }: { value: number | null; direction: 1 | -1 }) {
-  if (value == null) return <span className="text-slate-300 text-xs">—</span>;
-  const effective = value * direction;
-  const pct = Math.min(Math.abs(value) / 0.06, 1);
+function TStatBar({ tstat, direction }: { tstat: number | null; direction: 1 | -1 }) {
+  if (tstat == null) return <span className="text-slate-300 text-xs">—</span>;
+  const effective = tstat * direction;
+  const pct = Math.min(Math.abs(tstat) / 5, 1);
+  const refPct = 2 / 5; // t=2 threshold marker at 40% of bar
   return (
-    <div className="flex items-center gap-2 min-w-[90px]">
-      <div className="flex-1 h-1.5 rounded-full bg-slate-100 overflow-hidden">
+    <div className="flex items-center gap-2 min-w-[100px]">
+      <div className="relative flex-1 h-1.5 rounded-full bg-slate-100">
         <div
           className={`h-full rounded-full ${effective > 0 ? 'bg-emerald-400' : 'bg-red-400'}`}
           style={{ width: `${pct * 100}%` }}
         />
+        {/* Reference tick at t = 2 */}
+        <div
+          className="absolute top-1/2 -translate-y-1/2 w-px h-3 bg-slate-400"
+          style={{ left: `${refPct * 100}%` }}
+        />
       </div>
-      <span className={`text-xs font-mono w-14 ${effective > 0 ? 'text-emerald-700' : 'text-red-600'}`}>
-        {value >= 0 ? '+' : ''}{value.toFixed(4)}
+      <span className={`text-xs font-mono w-12 ${effective > 0 ? 'text-emerald-700' : 'text-red-600'} ${Math.abs(tstat) > 2 ? 'font-semibold' : ''}`}>
+        {tstat >= 0 ? '+' : ''}{tstat.toFixed(2)}
       </span>
     </div>
   );
@@ -205,8 +211,9 @@ export function ScorecardTable({ rows, selectedFactor, onSelect }: ScorecardTabl
         <td className="px-3 py-3">
           <QuintileSparkbar row={row} />
         </td>
+        {/* Full universe: t-stat bar, ICIR, Mean IC (plain) */}
         <td className="px-3 py-3">
-          <ICBar value={row.full_mean_ic} direction={row.direction} />
+          <TStatBar tstat={row.full_ic_tstat} direction={row.direction} />
         </td>
         <td className="px-3 py-3">
           <span className={`text-xs font-mono ${Math.abs(row.full_icir ?? 0) > 0.3 ? 'text-indigo-700 font-semibold' : 'text-slate-400'}`}>
@@ -214,12 +221,13 @@ export function ScorecardTable({ rows, selectedFactor, onSelect }: ScorecardTabl
           </span>
         </td>
         <td className="px-3 py-3">
-          <span className={`text-xs font-mono ${(row.full_ic_tstat ?? 0) > 1.65 ? 'text-slate-700 font-semibold' : 'text-slate-400'}`}>
-            {row.full_ic_tstat != null ? row.full_ic_tstat.toFixed(2) : '—'}
+          <span className="text-xs font-mono text-slate-400">
+            {row.full_mean_ic != null ? (row.full_mean_ic >= 0 ? '+' : '') + row.full_mean_ic.toFixed(4) : '—'}
           </span>
         </td>
+        {/* Within sector: t-stat bar, ICIR */}
         <td className="px-3 py-3">
-          <ICBar value={row.ws_mean_ic} direction={row.direction} />
+          <TStatBar tstat={row.ws_ic_tstat} direction={row.direction} />
         </td>
         <td className="px-3 py-3">
           <span className={`text-xs font-mono ${Math.abs(row.ws_icir ?? 0) > 0.3 ? 'text-sky-700 font-semibold' : 'text-slate-400'}`}>
@@ -313,10 +321,10 @@ export function ScorecardTable({ rows, selectedFactor, onSelect }: ScorecardTabl
                 <th className="px-5 py-2" />
                 <th className="px-3 py-2" />
                 <th className="px-3 py-2" />
-                <th className="px-3 py-2 text-left"><SortHeader label="Mean IC" col="full_mean_ic" /></th>
-                <th className="px-3 py-2 text-left"><SortHeader label="ICIR" col="full_icir" /></th>
                 <th className="px-3 py-2 text-left"><SortHeader label="t-stat" col="full_ic_tstat" /></th>
-                <th className="px-3 py-2 text-left"><SortHeader label="Mean IC" col="ws_mean_ic" /></th>
+                <th className="px-3 py-2 text-left"><SortHeader label="ICIR" col="full_icir" /></th>
+                <th className="px-3 py-2 text-left"><SortHeader label="Mean IC" col="full_mean_ic" /></th>
+                <th className="px-3 py-2 text-left"><SortHeader label="t-stat" col="ws_ic_tstat" /></th>
                 <th className="px-3 py-2 text-left"><SortHeader label="ICIR" col="ws_icir" /></th>
                 <th className="px-3 py-2 text-left">
                   <span className="text-xs uppercase tracking-[0.15em] text-slate-400 font-bold">Quality</span>
