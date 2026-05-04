@@ -15,9 +15,9 @@ const panels = [
   },
   {
     title: 'Model Research',
-    description: 'Quintile IC charts, factor scores, SHAP importance, and model version history.',
-    href: '#',
-    active: false,
+    description: 'Factor quintile analysis, IC & t-stat scorecard, cumulative return charts, and signal quality ratings.',
+    href: '/research/factors',
+    active: true,
   },
   {
     title: 'Portfolio Management',
