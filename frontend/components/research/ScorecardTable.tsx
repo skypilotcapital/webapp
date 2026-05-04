@@ -296,7 +296,7 @@ export function ScorecardTable({ rows, selectedFactor, onSelect }: ScorecardTabl
       <div className="rounded-2xl border border-slate-100 bg-white overflow-hidden">
         <div className="overflow-x-auto overflow-y-auto max-h-[520px]">
           <table className="w-full text-sm">
-            <thead className="sticky top-0 z-10">
+            <thead className="sticky top-0 z-10 bg-slate-50">
               <tr className="border-b border-slate-100 bg-slate-50">
                 <th className="px-5 py-3.5 text-left">
                   <SortHeader label="Factor" col="factor_label" />
