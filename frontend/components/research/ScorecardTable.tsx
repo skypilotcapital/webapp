@@ -75,18 +75,23 @@ function QuintileSparkbar({ row }: { row: P01ScorecardRow }) {
   const gap = 4;
   const totalW = 5 * barW + 4 * gap;
   const offsetX = (w - totalW) / 2;
-  const midY = h / 2;
-  const maxAbs = Math.max(...vals.filter((v): v is number => v != null).map(Math.abs), 0.001);
-  const scale = (midY - 3) / maxAbs;
+  const baseY = h - 2;
+
+  // Truncated y-axis: scale from min→max so the full height shows the spread.
+  // This amplifies the visual difference between quintiles rather than scaling from 0.
+  const nums = vals.filter((v): v is number => v != null);
+  const minVal = Math.min(...nums);
+  const maxVal = Math.max(...nums);
+  const range = maxVal - minVal || 0.001;
+  const scale = (h - 4) / range;
 
   return (
     <svg viewBox={`0 0 ${w} ${h}`} width={w} height={h} className="overflow-visible">
-      <line x1={offsetX} y1={midY} x2={offsetX + totalW} y2={midY} stroke="#e2e8f0" strokeWidth="0.8" />
       {vals.map((v, i) => {
         const x = offsetX + i * (barW + gap);
-        if (v == null) return <rect key={i} x={x} y={midY - 1} width={barW} height={2} fill="#e2e8f0" rx="1" />;
-        const barH = Math.max(Math.abs(v) * scale, 1.5);
-        const y = v >= 0 ? midY - barH : midY;
+        if (v == null) return <rect key={i} x={x} y={baseY - 2} width={barW} height={2} fill="#e2e8f0" rx="1" />;
+        const barH = Math.max((v - minVal) * scale, 1.5);
+        const y = baseY - barH;
         return <rect key={i} x={x} y={y} width={barW} height={barH} fill={Q_COLORS[i]} rx="1.5" opacity={0.85} />;
       })}
     </svg>
