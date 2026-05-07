@@ -48,3 +48,6 @@ export const fetchMacroBetaComponents = () => apiFetch<MacroBetaComponents>('/ap
 export const fetchP01Scorecard = () => apiFetch<P01ScorecardRow[]>('/api/v1/research/p01/scorecard');
 export const fetchP01FactorDetail = (factor: string) =>
   apiFetch<P01FactorDetail>(`/api/v1/research/p01/factor/${encodeURIComponent(factor)}/detail`);
+
+// Reports library
+export const fetchReports = () => apiFetch<unknown[]>('/api/v1/reports');

@@ -2,7 +2,7 @@
 
 import React from 'react';
 import useSWR from 'swr';
-import { apiFetch } from '@/lib/api';
+import { fetchReports } from '@/lib/api';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -112,7 +112,7 @@ function ReportCard({ item }: { item: ReportItem }) {
 export default function ReportsPage() {
   const { data, error, isLoading } = useSWR<ReportItem[]>(
     'reports-list',
-    () => apiFetch<ReportItem[]>('/api/v1/reports'),
+    () => fetchReports() as Promise<ReportItem[]>,
     { revalidateOnFocus: false }
   );
 
