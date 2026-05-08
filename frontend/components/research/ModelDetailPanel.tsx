@@ -8,19 +8,20 @@ import { Card, CardContent, CardHeader } from '@/components/ui/card';
 import { ModelRollingICChart } from './ModelRollingICChart';
 import { ModelQuintileChart } from './ModelQuintileChart';
 
-const SECTORS = [
-  'ALL',
-  'Technology',
-  'Financials',
-  'Health Care',
-  'Industrials',
-  'Consumer Disc.',
-  'Consumer Staples',
-  'Energy',
-  'Materials',
-  'Comm. Services',
-  'Real Estate',
-  'Utilities',
+// key = exact sector name stored in DB; label = display name on button
+const SECTORS: { key: string; label: string }[] = [
+  { key: 'ALL',                    label: 'ALL' },
+  { key: 'Technology',             label: 'Technology' },
+  { key: 'Financial Services',     label: 'Financials' },
+  { key: 'Healthcare',             label: 'Health Care' },
+  { key: 'Industrials',            label: 'Industrials' },
+  { key: 'Consumer Cyclical',      label: 'Consumer Disc.' },
+  { key: 'Consumer Defensive',     label: 'Consumer Staples' },
+  { key: 'Energy',                 label: 'Energy' },
+  { key: 'Basic Materials',        label: 'Materials' },
+  { key: 'Communication Services', label: 'Comm. Services' },
+  { key: 'Real Estate',            label: 'Real Estate' },
+  { key: 'Utilities',              label: 'Utilities' },
 ];
 
 const TARGET_LABEL: Record<string, string> = {
@@ -158,7 +159,7 @@ function FeatureImportanceSection({ features }: { features: ModelFeatureImportan
 }
 
 export function ModelDetailPanel({ row }: ModelDetailPanelProps) {
-  const [sector, setSector] = useState('ALL');
+  const [sector, setSector] = useState('ALL'); // DB key, not display label
 
   const { data: icData, error: icError, isLoading: icLoading } = useSWR(
     `model-ic-${row.model_id}-${sector}`,
@@ -289,15 +290,15 @@ export function ModelDetailPanel({ row }: ModelDetailPanelProps) {
             <div className="flex flex-wrap gap-1">
               {SECTORS.map((s) => (
                 <button
-                  key={s}
-                  onClick={() => setSector(s)}
+                  key={s.key}
+                  onClick={() => setSector(s.key)}
                   className={`px-2.5 py-1 rounded-lg text-xs font-semibold transition-all ${
-                    sector === s
+                    sector === s.key
                       ? 'bg-indigo-600 text-white shadow-sm'
                       : 'bg-slate-100 text-slate-500 hover:bg-slate-200'
                   }`}
                 >
-                  {s}
+                  {s.label}
                 </button>
               ))}
             </div>
