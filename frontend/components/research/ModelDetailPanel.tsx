@@ -158,6 +158,17 @@ function FeatureImportanceSection({ features }: { features: ModelFeatureImportan
   );
 }
 
+function computeSectorStats(points: ModelICPoint[]) {
+  const ics = points.map((p) => p.ic).filter((v): v is number => v != null && !isNaN(v));
+  if (ics.length < 2) return null;
+  const n = ics.length;
+  const mean = ics.reduce((a, b) => a + b, 0) / n;
+  const std = Math.sqrt(ics.reduce((a, b) => a + (b - mean) ** 2, 0) / (n - 1));
+  const tstat = std > 0 ? mean / (std / Math.sqrt(n)) : 0;
+  const hitRate = ics.filter((v) => v > 0).length / n;
+  return { mean, tstat, hitRate, n };
+}
+
 export function ModelDetailPanel({ row }: ModelDetailPanelProps) {
   const [sector, setSector] = useState('ALL'); // DB key, not display label
 
@@ -186,9 +197,17 @@ export function ModelDetailPanel({ row }: ModelDetailPanelProps) {
   );
 
   const allStability = stabilityData?.find((s) => s.sector === 'ALL');
-
   const isLoading = icLoading || qLoading;
   const hasError = icError || qError;
+
+  // Sector stats: precomputed aggregate when ALL, computed from icData when specific sector
+  const isAllSector = sector === 'ALL';
+  const sectorLabel = SECTORS.find((s) => s.key === sector)?.label ?? sector;
+  const liveSectorStats = !isAllSector && icData ? computeSectorStats(icData) : null;
+
+  const sectorMeanIC    = isAllSector ? row.sector_mean_ic    : (liveSectorStats?.mean ?? null);
+  const sectorTstat     = isAllSector ? row.sector_ic_tstat   : (liveSectorStats?.tstat ?? null);
+  const sectorHitRate   = isAllSector ? row.sector_ic_hit_rate : (liveSectorStats?.hitRate ?? null);
 
   return (
     <Card className="border-indigo-100 bg-gradient-to-br from-white to-indigo-50/30">
@@ -216,10 +235,35 @@ export function ModelDetailPanel({ row }: ModelDetailPanelProps) {
       </CardHeader>
 
       <CardContent className="space-y-8">
-        {/* Stats */}
+        {/* Sector selector — at top so both stats and charts respond */}
+        <div>
+          <div className="flex items-center justify-between flex-wrap gap-3">
+            <h3 className="text-xs uppercase tracking-[0.2em] text-slate-400 font-bold">Sector View</h3>
+            <div className="flex flex-wrap gap-1">
+              {SECTORS.map((s) => (
+                <button
+                  key={s.key}
+                  onClick={() => setSector(s.key)}
+                  className={`px-2.5 py-1 rounded-lg text-xs font-semibold transition-all ${
+                    sector === s.key
+                      ? 'bg-indigo-600 text-white shadow-sm'
+                      : 'bg-slate-100 text-slate-500 hover:bg-slate-200'
+                  }`}
+                >
+                  {s.label}
+                </button>
+              ))}
+            </div>
+          </div>
+        </div>
+
+        <div className="border-t border-slate-100" />
+
+        {/* Stats — Full Universe fixed, Sector IC responds to selection */}
         <div>
           <h3 className="text-xs uppercase tracking-[0.2em] text-slate-400 font-bold mb-4">Backtest Performance</h3>
           <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+            {/* Full Universe — always fixed */}
             <div className="space-y-3">
               <div className="flex items-center gap-2">
                 <span className="w-2.5 h-2.5 rounded-full bg-indigo-500 shrink-0" />
@@ -252,27 +296,30 @@ export function ModelDetailPanel({ row }: ModelDetailPanelProps) {
               </div>
             </div>
 
+            {/* Sector IC — responds to sector selector */}
             <div className="space-y-3">
               <div className="flex items-center gap-2">
                 <span className="w-2.5 h-2.5 rounded-full bg-sky-400 shrink-0" />
-                <span className="text-sm font-bold text-sky-700 uppercase tracking-wider">Sector IC (avg across sectors)</span>
+                <span className="text-sm font-bold text-sky-700 uppercase tracking-wider">
+                  {isAllSector ? 'Sector IC — avg across all sectors' : `Sector IC — ${sectorLabel}`}
+                </span>
               </div>
               <div className="grid grid-cols-2 gap-2">
                 <StatCard
                   label="Mean IC"
-                  value={fmt(row.sector_mean_ic, 4)}
-                  sub={`t = ${row.sector_ic_tstat?.toFixed(2) ?? '—'}`}
-                  highlight={(row.sector_ic_tstat ?? 0) > 2}
-                  color={(row.sector_mean_ic ?? 0) > 0 ? 'text-emerald-700' : 'text-red-600'}
+                  value={fmt(sectorMeanIC, 4)}
+                  sub={sectorTstat != null ? `t = ${sectorTstat.toFixed(2)}` : undefined}
+                  highlight={(sectorTstat ?? 0) > 2}
+                  color={(sectorMeanIC ?? 0) > 0 ? 'text-emerald-700' : 'text-red-600'}
                 />
                 <StatCard
                   label="t-Statistic"
-                  value={row.sector_ic_tstat?.toFixed(2) ?? null}
-                  highlight={(row.sector_ic_tstat ?? 0) > 2}
+                  value={sectorTstat?.toFixed(2) ?? null}
+                  highlight={(sectorTstat ?? 0) > 2}
                 />
                 <StatCard
                   label="Hit Rate"
-                  value={row.sector_ic_hit_rate != null ? `${(row.sector_ic_hit_rate * 100).toFixed(1)}%` : null}
+                  value={sectorHitRate != null ? `${(sectorHitRate * 100).toFixed(1)}%` : null}
                   sub="months IC > 0"
                 />
                 <StatCard label="Feature Set" value={row.feature_set} sub={`${row.feature_count ?? '?'} features`} />
@@ -283,30 +330,11 @@ export function ModelDetailPanel({ row }: ModelDetailPanelProps) {
 
         <div className="border-t border-slate-100" />
 
-        {/* Sector selector */}
+        {/* Charts */}
         <div>
-          <div className="flex items-center justify-between flex-wrap gap-4 mb-4">
-            <h3 className="text-xs uppercase tracking-[0.2em] text-slate-400 font-bold">Charts by Sector</h3>
-            <div className="flex flex-wrap gap-1">
-              {SECTORS.map((s) => (
-                <button
-                  key={s.key}
-                  onClick={() => setSector(s.key)}
-                  className={`px-2.5 py-1 rounded-lg text-xs font-semibold transition-all ${
-                    sector === s.key
-                      ? 'bg-indigo-600 text-white shadow-sm'
-                      : 'bg-slate-100 text-slate-500 hover:bg-slate-200'
-                  }`}
-                >
-                  {s.label}
-                </button>
-              ))}
-            </div>
-          </div>
-
           {isLoading && (
             <div className="rounded-2xl border border-slate-100 bg-white p-12 text-center">
-              <p className="text-sm text-slate-400">Loading {row.model_id} data…</p>
+              <p className="text-sm text-slate-400">Loading {row.model_id} · {sectorLabel}…</p>
             </div>
           )}
           {hasError && !isLoading && (
@@ -314,7 +342,6 @@ export function ModelDetailPanel({ row }: ModelDetailPanelProps) {
               <p className="text-sm text-red-500">Failed to load model data. Run compute_research_tables.py first.</p>
             </div>
           )}
-
           {icData && !icLoading && (
             <div className="space-y-6">
               <div>
