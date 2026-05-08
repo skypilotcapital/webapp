@@ -35,7 +35,16 @@ export function ModelRollingICChart({ data, sector }: ModelRollingICChartProps) 
   const ih = height - pad.top - pad.bottom;
 
   const rawIC = data.map((d) => d.ic);
-  const rolling = data.map((d) => d.rolling_12m_ic);
+
+  // Use precomputed rolling_12m_ic if available; otherwise compute client-side (min 6 months)
+  const rolling = data.map((d, i) => {
+    if (d.rolling_12m_ic != null) return d.rolling_12m_ic;
+    const window = data
+      .slice(Math.max(0, i - 11), i + 1)
+      .map((p) => p.ic)
+      .filter((v): v is number => v != null);
+    return window.length >= 6 ? window.reduce((a, b) => a + b, 0) / window.length : null;
+  });
 
   const allVals = [...rawIC, ...rolling].filter((v): v is number => v != null && !isNaN(v));
   const maxAbs = Math.max(0.06, ...allVals.map(Math.abs));
