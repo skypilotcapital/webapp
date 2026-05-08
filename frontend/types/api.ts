@@ -197,3 +197,62 @@ export interface P01FactorDetail {
   quintile_returns_full: P01QuintilePoint[];
   quintile_returns_within: P01QuintilePoint[];
 }
+
+// ---------------------------------------------------------------------------
+// Alpha Model Results
+// ---------------------------------------------------------------------------
+
+export interface ModelScorecardRow {
+  model_id: string;
+  description: string;
+  target: string;
+  feature_set: string;
+  feature_count: number | null;
+  model_type: string;
+  backtest_start: string | null;
+  backtest_end: string | null;
+  n_months: number | null;
+  sector_mean_ic: number | null;
+  sector_ic_std: number | null;
+  sector_ic_tstat: number | null;
+  sector_ic_hit_rate: number | null;
+  univ_mean_ic: number | null;
+  univ_ic_std: number | null;
+  univ_ic_tstat: number | null;
+  univ_ic_hit_rate: number | null;
+  q5_minus_q1_avg: number | null;
+  q5_minus_q1_ann: number | null;
+}
+
+export interface ModelICPoint {
+  date: string;
+  sector: string;
+  ic: number | null;
+  rolling_12m_ic: number | null;
+}
+
+export interface ModelQuintilePoint {
+  date: string;
+  sector: string;
+  quintile: number;
+  fwd_return: number | null;
+}
+
+export interface ModelSignalStability {
+  model_id: string;
+  sector: string;
+  rank_autocorr: number | null;
+  q1_persistence: number | null;
+  q5_persistence: number | null;
+  avg_persistence: number | null;
+  transition_matrix: number[][] | null;  // 5×5 nested array
+  n_pairs: number | null;
+}
+
+export interface ModelFeatureImportance {
+  model_id: string;
+  feature: string;
+  mean_gini: number | null;
+  mean_shap: number | null;
+  shap_rank: number | null;
+}

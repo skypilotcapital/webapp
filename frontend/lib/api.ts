@@ -21,6 +21,11 @@ import type {
   MacroBetaComponents,
   P01ScorecardRow,
   P01FactorDetail,
+  ModelScorecardRow,
+  ModelICPoint,
+  ModelQuintilePoint,
+  ModelSignalStability,
+  ModelFeatureImportance,
 } from '@/types/api';
 
 const API_BASE = '/api-proxy';
@@ -48,6 +53,17 @@ export const fetchMacroBetaComponents = () => apiFetch<MacroBetaComponents>('/ap
 export const fetchP01Scorecard = () => apiFetch<P01ScorecardRow[]>('/api/v1/research/p01/scorecard');
 export const fetchP01FactorDetail = (factor: string) =>
   apiFetch<P01FactorDetail>(`/api/v1/research/p01/factor/${encodeURIComponent(factor)}/detail`);
+
+// Alpha Model Results
+export const fetchModelScorecard = () => apiFetch<ModelScorecardRow[]>('/api/v1/research/models/scorecard');
+export const fetchModelICSeries = (modelId: string, sector = 'ALL') =>
+  apiFetch<ModelICPoint[]>(`/api/v1/research/models/${modelId}/ic?sector=${encodeURIComponent(sector)}`);
+export const fetchModelQuintiles = (modelId: string, sector = 'ALL') =>
+  apiFetch<ModelQuintilePoint[]>(`/api/v1/research/models/${modelId}/quintiles?sector=${encodeURIComponent(sector)}`);
+export const fetchModelSignalStability = (modelId: string) =>
+  apiFetch<ModelSignalStability[]>(`/api/v1/research/models/${modelId}/stability`);
+export const fetchModelFeatureImportance = (modelId: string) =>
+  apiFetch<ModelFeatureImportance[]>(`/api/v1/research/models/${modelId}/feature-importance`);
 
 // Reports library
 export const fetchReports = () => apiFetch<unknown[]>('/api/v1/reports');
