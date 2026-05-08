@@ -3,7 +3,7 @@
 import React, { useState } from 'react';
 import useSWR from 'swr';
 import { fetchModelICSeries, fetchModelQuintiles, fetchModelSignalStability, fetchModelFeatureImportance } from '@/lib/api';
-import type { ModelScorecardRow, ModelSignalStability, ModelFeatureImportance } from '@/types/api';
+import type { ModelScorecardRow, ModelSignalStability, ModelFeatureImportance, ModelICPoint } from '@/types/api';
 import { Card, CardContent, CardHeader } from '@/components/ui/card';
 import { ModelRollingICChart } from './ModelRollingICChart';
 import { ModelQuintileChart } from './ModelQuintileChart';
