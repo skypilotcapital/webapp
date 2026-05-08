@@ -18,6 +18,7 @@ Endpoints:
 from __future__ import annotations
 
 import decimal
+import json
 from typing import List, Optional
 
 from fastapi import APIRouter, HTTPException
@@ -345,24 +346,25 @@ def get_model_signal_stability(model_id: str):
     Return signal stability metrics (rank autocorrelation + quintile transition matrices)
     for a model.  One row per sector; sector='ALL' = full-universe aggregate.
     """
-    with get_db() as conn:
-        rows = conn.execute(text("""
-            SELECT model_id, sector, rank_autocorr, q1_persistence, q5_persistence,
-                   avg_persistence, transition_matrix, n_pairs
-            FROM research.model_signal_stability
-            WHERE model_id = :mid
-            ORDER BY sector
-        """), {"mid": model_id}).fetchall()
+    try:
+        with get_db() as conn:
+            rows = conn.execute(text("""
+                SELECT model_id, sector, rank_autocorr, q1_persistence, q5_persistence,
+                       avg_persistence, transition_matrix, n_pairs
+                FROM research.model_signal_stability
+                WHERE model_id = :mid
+                ORDER BY sector
+            """), {"mid": model_id}).fetchall()
+    except Exception:
+        return []
     if not rows:
-        raise HTTPException(status_code=404,
-                            detail=f"No stability data for '{model_id}'. Run compute_research_tables.py first.")
+        return []
     result = []
     for r in rows:
         d = _clean(r)
         # transition_matrix is stored as JSONB — already a Python list from psycopg2
         if d.get("transition_matrix") is not None and isinstance(d["transition_matrix"], str):
-            import json as _json
-            d["transition_matrix"] = _json.loads(d["transition_matrix"])
+            d["transition_matrix"] = json.loads(d["transition_matrix"])
         result.append(ModelSignalStability(**d))
     return result
 
@@ -373,14 +375,16 @@ def get_model_feature_importance(model_id: str):
     Return aggregated feature importance (mean Gini + mean |SHAP|) for a model,
     ranked by SHAP descending.  Run compute_feature_importance.py to populate.
     """
-    with get_db() as conn:
-        rows = conn.execute(text("""
-            SELECT model_id, feature, mean_gini, mean_shap, shap_rank
-            FROM research.model_feature_importance
-            WHERE model_id = :mid
-            ORDER BY shap_rank
-        """), {"mid": model_id}).fetchall()
+    try:
+        with get_db() as conn:
+            rows = conn.execute(text("""
+                SELECT model_id, feature, mean_gini, mean_shap, shap_rank
+                FROM research.model_feature_importance
+                WHERE model_id = :mid
+                ORDER BY shap_rank
+            """), {"mid": model_id}).fetchall()
+    except Exception:
+        return []
     if not rows:
-        raise HTTPException(status_code=404,
-                            detail=f"No feature importance for '{model_id}'. Run compute_feature_importance.py first.")
+        return []
     return [ModelFeatureImportance(**_clean(r)) for r in rows]
