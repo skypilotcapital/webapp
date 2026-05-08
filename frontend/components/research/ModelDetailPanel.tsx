@@ -2,8 +2,8 @@
 
 import React, { useState } from 'react';
 import useSWR from 'swr';
-import { fetchModelICSeries, fetchModelQuintiles, fetchModelSignalStability, fetchModelFeatureImportance } from '@/lib/api';
-import type { ModelScorecardRow, ModelSignalStability, ModelFeatureImportance, ModelICPoint } from '@/types/api';
+import { fetchModelICSeries, fetchModelQuintiles, fetchModelSignalStability, fetchModelFeatureImportance, fetchModelSectorSummary, fetchModelFeatureImportanceBySector } from '@/lib/api';
+import type { ModelScorecardRow, ModelSignalStability, ModelFeatureImportance, ModelFeatureImportanceBySector, ModelICPoint, ModelSectorSummary } from '@/types/api';
 import { Card, CardContent, CardHeader } from '@/components/ui/card';
 import { ModelRollingICChart } from './ModelRollingICChart';
 import { ModelQuintileChart } from './ModelQuintileChart';
@@ -58,6 +58,7 @@ function fmt(v: number | null, decimals = 4, pct = false): string | null {
 
 interface ModelDetailPanelProps {
   row: ModelScorecardRow;
+  sectorStickyTop?: number;
 }
 
 function pct(v: number | null, decimals = 1) {
@@ -108,16 +109,102 @@ function StabilitySection({ stability }: { stability: ModelSignalStability | und
   );
 }
 
-function FeatureImportanceSection({ features }: { features: ModelFeatureImportance[] }) {
+function SectorBreakdownTable({ sectors }: { sectors: ModelSectorSummary[] }) {
+  if (sectors.length === 0) return null;
+  return (
+    <div>
+      <div className="border-t border-slate-100 my-8" />
+      <div className="flex items-center justify-between mb-4">
+        <h3 className="text-xs uppercase tracking-[0.2em] text-slate-400 font-bold">IC Dispersion by Sector</h3>
+        <p className="text-xs text-slate-400">Mean IC · Std IC · ICIR = mean/std · t-stat · Hit Rate</p>
+      </div>
+      <div className="overflow-x-auto">
+        <table className="w-full text-xs font-mono">
+          <thead>
+            <tr className="border-b border-slate-100">
+              <th className="text-left py-1.5 pr-4 text-slate-400 font-semibold uppercase tracking-wider w-36">Sector</th>
+              <th className="text-right py-1.5 px-3 text-slate-400 font-semibold uppercase tracking-wider">N</th>
+              <th className="text-right py-1.5 px-3 text-slate-400 font-semibold uppercase tracking-wider">Mean IC</th>
+              <th className="text-right py-1.5 px-3 text-slate-400 font-semibold uppercase tracking-wider">Std IC</th>
+              <th className="text-right py-1.5 px-3 text-slate-400 font-semibold uppercase tracking-wider">ICIR</th>
+              <th className="text-right py-1.5 px-3 text-slate-400 font-semibold uppercase tracking-wider">t-stat</th>
+              <th className="text-right py-1.5 pl-3 text-slate-400 font-semibold uppercase tracking-wider">Hit%</th>
+            </tr>
+          </thead>
+          <tbody>
+            {sectors.map((s) => {
+              const tAbs = Math.abs(s.tstat ?? 0);
+              const tColor = tAbs >= 2 ? 'text-emerald-700 font-bold' : tAbs >= 1 ? 'text-amber-600' : 'text-slate-400';
+              const icColor = (s.mean_ic ?? 0) >= 0 ? 'text-emerald-700' : 'text-red-500';
+              const icirColor = (s.icir ?? 0) >= 0.5 ? 'text-emerald-600' : (s.icir ?? 0) >= 0 ? 'text-slate-600' : 'text-red-500';
+              return (
+                <tr key={s.sector} className="border-b border-slate-50 hover:bg-slate-50/60">
+                  <td className="py-1.5 pr-4 text-slate-600 font-sans">{s.sector}</td>
+                  <td className="py-1.5 px-3 text-right text-slate-400">{s.n_months ?? '—'}</td>
+                  <td className={`py-1.5 px-3 text-right ${icColor}`}>
+                    {s.mean_ic != null ? `${s.mean_ic >= 0 ? '+' : ''}${s.mean_ic.toFixed(4)}` : '—'}
+                  </td>
+                  <td className="py-1.5 px-3 text-right text-slate-500">
+                    {s.std_ic != null ? s.std_ic.toFixed(4) : '—'}
+                  </td>
+                  <td className={`py-1.5 px-3 text-right ${icirColor}`}>
+                    {s.icir != null ? `${s.icir >= 0 ? '+' : ''}${s.icir.toFixed(2)}` : '—'}
+                  </td>
+                  <td className={`py-1.5 px-3 text-right ${tColor}`}>
+                    {s.tstat != null ? `${s.tstat >= 0 ? '+' : ''}${s.tstat.toFixed(2)}` : '—'}
+                  </td>
+                  <td className="py-1.5 pl-3 text-right text-slate-500">
+                    {s.hit_rate != null ? `${(s.hit_rate * 100).toFixed(1)}%` : '—'}
+                  </td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+      </div>
+      <p className="text-xs text-slate-400 mt-2">
+        Rows sorted by t-stat (descending). Green t-stat = |t| ≥ 2. ICIR = mean IC ÷ std IC (Sharpe of IC stream).
+        Low ICIR despite positive mean IC indicates high within-sector IC volatility — a signal that GICS grouping may be adding noise.
+      </p>
+    </div>
+  );
+}
+
+function FeatureImportanceSection({
+  features,
+  sectorLabel,
+}: {
+  features: ModelFeatureImportance[] | ModelFeatureImportanceBySector[];
+  sectorLabel: string;
+}) {
   if (features.length === 0) return null;
   const top20 = features.slice(0, 20);
   const maxShap = Math.max(...top20.map((f) => f.mean_shap ?? 0));
   return (
     <div>
       <div className="border-t border-slate-100 my-8" />
-      <div className="flex items-center justify-between mb-4">
-        <h3 className="text-xs uppercase tracking-[0.2em] text-slate-400 font-bold">Feature Importance (Top 20)</h3>
+      <div className="flex items-center justify-between mb-3">
+        <h3 className="text-xs uppercase tracking-[0.2em] text-slate-400 font-bold">
+          Feature Importance (Top 20) — {sectorLabel}
+        </h3>
         <p className="text-xs text-slate-400">Mean |SHAP| · bar = relative contribution</p>
+      </div>
+      <div className="mb-4 rounded-lg border border-slate-100 bg-slate-50/60 px-4 py-3 text-xs text-slate-500 space-y-2">
+        <p>
+          <strong className="text-slate-700">Mean |SHAP|</strong> (indigo bar) — average absolute SHAP value across all stocks and
+          months. Measures how much each feature shifts the model&apos;s predicted return on average. Higher = more influential.
+          SHAP accounts for feature interactions and is the most reliable importance metric.
+        </p>
+        <p>
+          <strong className="text-slate-700">Gini / MDI</strong> (grey bar, relative) — Mean Decrease in Impurity: how often
+          this feature is used to split trees in the Random Forest, weighted by impurity reduction. Faster to compute but
+          biased toward high-cardinality features. When SHAP and Gini agree on a feature&apos;s rank, confidence is higher
+          that the feature is genuinely important.
+        </p>
+        <p className="text-slate-400 italic">
+          Selecting a sector above updates this chart to show importance for the sector-specific sub-model trained on
+          that sector only.
+        </p>
       </div>
       <div className="space-y-1.5">
         {top20.map((f) => {
@@ -169,7 +256,7 @@ function computeSectorStats(points: ModelICPoint[]) {
   return { mean, tstat, hitRate, n };
 }
 
-export function ModelDetailPanel({ row }: ModelDetailPanelProps) {
+export function ModelDetailPanel({ row, sectorStickyTop }: ModelDetailPanelProps) {
   const [sector, setSector] = useState('ALL'); // DB key, not display label
 
   const { data: icData, error: icError, isLoading: icLoading } = useSWR(
@@ -193,6 +280,18 @@ export function ModelDetailPanel({ row }: ModelDetailPanelProps) {
   const { data: importanceData } = useSWR(
     `model-importance-${row.model_id}`,
     () => fetchModelFeatureImportance(row.model_id),
+    { revalidateOnFocus: false }
+  );
+
+  const { data: sectorSummaryData } = useSWR(
+    `model-sector-summary-${row.model_id}`,
+    () => fetchModelSectorSummary(row.model_id),
+    { revalidateOnFocus: false }
+  );
+
+  const { data: sectorImportanceData } = useSWR(
+    sector !== 'ALL' ? `model-importance-by-sector-${row.model_id}-${sector}` : null,
+    () => fetchModelFeatureImportanceBySector(row.model_id, sector),
     { revalidateOnFocus: false }
   );
 
@@ -235,8 +334,11 @@ export function ModelDetailPanel({ row }: ModelDetailPanelProps) {
       </CardHeader>
 
       <CardContent className="space-y-8">
-        {/* Sector selector — at top so both stats and charts respond */}
-        <div>
+        {/* Sector selector — sticky so it stays visible when scrolling through charts */}
+        <div
+          className="sticky z-30 -mx-6 px-6 py-3 bg-white/95 backdrop-blur-sm border-b border-slate-100"
+          style={{ top: `${sectorStickyTop ?? 92}px` }}
+        >
           <div className="flex items-center justify-between flex-wrap gap-3">
             <h3 className="text-xs uppercase tracking-[0.2em] text-slate-400 font-bold">Sector View</h3>
             <div className="flex flex-wrap gap-1">
@@ -256,8 +358,6 @@ export function ModelDetailPanel({ row }: ModelDetailPanelProps) {
             </div>
           </div>
         </div>
-
-        <div className="border-t border-slate-100" />
 
         {/* Stats — Full Universe fixed, Sector IC responds to selection */}
         <div>
@@ -361,9 +461,19 @@ export function ModelDetailPanel({ row }: ModelDetailPanelProps) {
 
         <StabilitySection stability={allStability} />
 
-        {importanceData && importanceData.length > 0 && (
-          <FeatureImportanceSection features={importanceData} />
+        {sectorSummaryData && sectorSummaryData.length > 0 && (
+          <SectorBreakdownTable sectors={sectorSummaryData} />
         )}
+
+        {(() => {
+          const displayFeatures = sector !== 'ALL' && sectorImportanceData && sectorImportanceData.length > 0
+            ? sectorImportanceData
+            : importanceData;
+          const label = sector !== 'ALL' ? sectorLabel : 'All Sectors';
+          return displayFeatures && displayFeatures.length > 0
+            ? <FeatureImportanceSection features={displayFeatures} sectorLabel={label} />
+            : null;
+        })()}
       </CardContent>
     </Card>
   );

@@ -26,6 +26,8 @@ import type {
   ModelQuintilePoint,
   ModelSignalStability,
   ModelFeatureImportance,
+  ModelSectorSummary,
+  ModelFeatureImportanceBySector,
 } from '@/types/api';
 
 const API_BASE = '/api-proxy';
@@ -64,6 +66,12 @@ export const fetchModelSignalStability = (modelId: string) =>
   apiFetch<ModelSignalStability[]>(`/api/v1/research/models/${modelId}/stability`);
 export const fetchModelFeatureImportance = (modelId: string) =>
   apiFetch<ModelFeatureImportance[]>(`/api/v1/research/models/${modelId}/feature-importance`);
+export const fetchModelSectorSummary = (modelId: string) =>
+  apiFetch<ModelSectorSummary[]>(`/api/v1/research/models/${modelId}/sector-summary`);
+export const fetchModelFeatureImportanceBySector = (modelId: string, sector: string) =>
+  apiFetch<ModelFeatureImportanceBySector[]>(
+    `/api/v1/research/models/${modelId}/feature-importance-by-sector?sector=${encodeURIComponent(sector)}`
+  );
 
 // Reports library
 export const fetchReports = () => apiFetch<unknown[]>('/api/v1/reports');

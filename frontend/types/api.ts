@@ -256,3 +256,22 @@ export interface ModelFeatureImportance {
   mean_shap: number | null;
   shap_rank: number | null;
 }
+
+export interface ModelSectorSummary {
+  sector: string;
+  n_months: number | null;
+  mean_ic: number | null;
+  std_ic: number | null;
+  icir: number | null;
+  tstat: number | null;
+  hit_rate: number | null;
+}
+
+export interface ModelFeatureImportanceBySector {
+  model_id: string;
+  sector: string;
+  feature: string;
+  mean_gini: number | null;
+  mean_shap: number | null;
+  shap_rank: number | null;
+}

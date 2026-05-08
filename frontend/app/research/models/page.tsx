@@ -1,10 +1,12 @@
 'use client';
 
-import React, { useState } from 'react';
+import React, { useState, useRef, useEffect } from 'react';
 import useSWR from 'swr';
 import { fetchModelScorecard } from '@/lib/api';
 import { ModelComparisonTable } from '@/components/research/ModelComparisonTable';
 import { ModelDetailPanel } from '@/components/research/ModelDetailPanel';
+
+const NAV_HEIGHT = 92; // px — sticky site header height
 
 function ModelInterpretationBox() {
   const [open, setOpen] = useState(false);
@@ -128,6 +130,18 @@ function ModelInterpretationBox() {
 
 export default function ModelsPage() {
   const [selectedModel, setSelectedModel] = useState<string | null>(null);
+  const tableRef = useRef<HTMLDivElement>(null);
+  const [sectorTabsTop, setSectorTabsTop] = useState(NAV_HEIGHT + 234);
+
+  useEffect(() => {
+    const el = tableRef.current;
+    if (!el) return;
+    const update = () => setSectorTabsTop(NAV_HEIGHT + el.offsetHeight);
+    update();
+    const obs = new ResizeObserver(update);
+    obs.observe(el);
+    return () => obs.disconnect();
+  }, []);
 
   const { data, error, isLoading } = useSWR('model-scorecard', fetchModelScorecard, {
     revalidateOnFocus: false,
@@ -136,9 +150,9 @@ export default function ModelsPage() {
   const selectedRow = data?.find((r) => r.model_id === selectedModel) ?? null;
 
   return (
-    <div className="space-y-12">
+    <div>
       {/* Page header */}
-      <div className="border-b border-black/5 pb-10 mb-12 max-w-3xl">
+      <div className="border-b border-black/5 pb-10 mb-10 max-w-3xl">
         <div className="flex items-center gap-3 mb-3">
           <span className="px-2.5 py-1 rounded-lg bg-indigo-100 text-indigo-700 text-xs font-bold uppercase tracking-wider">
             P02
@@ -170,10 +184,12 @@ export default function ModelsPage() {
         </div>
       </div>
 
-      <ModelInterpretationBox />
+      <div className="mb-10">
+        <ModelInterpretationBox />
+      </div>
 
       {isLoading && (
-        <div className="rounded-2xl border border-slate-100 bg-white p-16 text-center">
+        <div className="rounded-2xl border border-slate-100 bg-white p-16 text-center mb-8">
           <p className="text-sm text-slate-400">Loading model scorecard…</p>
           <p className="text-xs text-slate-300 mt-2">
             If this is your first load, run:
@@ -185,7 +201,7 @@ export default function ModelsPage() {
       )}
 
       {error && (
-        <div className="rounded-2xl border border-red-100 bg-red-50 p-8">
+        <div className="rounded-2xl border border-red-100 bg-red-50 p-8 mb-8">
           <p className="text-sm font-semibold text-red-600">Failed to load model scorecard.</p>
           <p className="text-xs text-red-400 mt-1">
             Ensure the backtest has been run and compute_research_tables.py has been executed.
@@ -194,16 +210,22 @@ export default function ModelsPage() {
       )}
 
       {data && (
-        <ModelComparisonTable
-          rows={data}
-          selectedModel={selectedModel}
-          onSelect={(id) => setSelectedModel(id === selectedModel ? null : id)}
-        />
+        <div
+          ref={tableRef}
+          className="sticky z-40 mb-6 rounded-2xl bg-[#FDFCFB]/95 backdrop-blur-sm"
+          style={{ top: `${NAV_HEIGHT}px` }}
+        >
+          <ModelComparisonTable
+            rows={data}
+            selectedModel={selectedModel}
+            onSelect={(id) => setSelectedModel(id === selectedModel ? null : id)}
+          />
+        </div>
       )}
 
       {selectedRow && (
         <div className="animate-in fade-in slide-in-from-top-2 duration-300">
-          <ModelDetailPanel row={selectedRow} />
+          <ModelDetailPanel row={selectedRow} sectorStickyTop={sectorTabsTop} />
         </div>
       )}
 

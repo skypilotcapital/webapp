@@ -388,3 +388,78 @@ def get_model_feature_importance(model_id: str):
     if not rows:
         return []
     return [ModelFeatureImportance(**_clean(r)) for r in rows]
+
+
+class ModelSectorSummary(BaseModel):
+    sector: str
+    n_months: Optional[int]
+    mean_ic: Optional[float]
+    std_ic: Optional[float]
+    icir: Optional[float]
+    tstat: Optional[float]
+    hit_rate: Optional[float]
+
+
+@router.get("/models/{model_id}/sector-summary", response_model=List[ModelSectorSummary])
+def get_model_sector_summary(model_id: str):
+    """
+    Return per-sector IC statistics aggregated from the monthly IC series.
+    One row per sector (excluding ALL), ordered by t-stat descending.
+    Requires research.model_ic_series to be populated (compute_research_tables.py).
+    """
+    try:
+        with get_db() as conn:
+            rows = conn.execute(text("""
+                SELECT
+                    sector,
+                    COUNT(ic)::int AS n_months,
+                    AVG(ic) AS mean_ic,
+                    STDDEV(ic) AS std_ic,
+                    CASE WHEN STDDEV(ic) > 0
+                         THEN AVG(ic) / STDDEV(ic)
+                         ELSE NULL END AS icir,
+                    CASE WHEN STDDEV(ic) > 0
+                         THEN AVG(ic) / (STDDEV(ic) / SQRT(COUNT(ic)))
+                         ELSE NULL END AS tstat,
+                    SUM(CASE WHEN ic > 0 THEN 1 ELSE 0 END)::float
+                        / NULLIF(COUNT(ic), 0) AS hit_rate
+                FROM research.model_ic_series
+                WHERE model_id = :mid AND sector != 'ALL' AND ic IS NOT NULL
+                GROUP BY sector
+                ORDER BY tstat DESC NULLS LAST
+            """), {"mid": model_id}).fetchall()
+    except Exception:
+        return []
+    return [ModelSectorSummary(**_clean(r)) for r in rows]
+
+
+class ModelFeatureImportanceBySector(BaseModel):
+    model_id: str
+    sector: str
+    feature: str
+    mean_gini: Optional[float]
+    mean_shap: Optional[float]
+    shap_rank: Optional[int]
+
+
+@router.get("/models/{model_id}/feature-importance-by-sector",
+            response_model=List[ModelFeatureImportanceBySector])
+def get_model_feature_importance_by_sector(model_id: str, sector: str = "ALL"):
+    """
+    Return per-sector feature importance (mean Gini + mean |SHAP|) for a model.
+    Pass sector='ALL' to get the cross-sector aggregate (same as /feature-importance).
+    Run compute_feature_importance.py to populate.
+    """
+    try:
+        with get_db() as conn:
+            rows = conn.execute(text("""
+                SELECT model_id, sector, feature, mean_gini, mean_shap, shap_rank
+                FROM research.model_feature_importance_by_sector
+                WHERE model_id = :mid AND sector = :sector
+                ORDER BY shap_rank
+            """), {"mid": model_id, "sector": sector}).fetchall()
+    except Exception:
+        return []
+    if not rows:
+        return []
+    return [ModelFeatureImportanceBySector(**_clean(r)) for r in rows]
