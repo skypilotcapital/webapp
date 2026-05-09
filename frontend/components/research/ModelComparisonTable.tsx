@@ -3,10 +3,24 @@
 import type { ModelScorecardRow } from '@/types/api';
 
 const TARGET_LABEL: Record<string, string> = {
-  fwd_1w: '1-Week',
-  fwd_1m: '1-Month',
-  fwd_2m: '2-Month',
-  fwd_3m: '3-Month',
+  fwd_1w: '1w',
+  fwd_1m: '1m',
+  fwd_2m: '2m',
+  fwd_3m: '3m',
+};
+
+const TYPE_STYLE: Record<string, string> = {
+  random_forest: 'bg-violet-100 text-violet-700',
+  lightgbm:      'bg-sky-100 text-sky-700',
+  lasso:         'bg-amber-100 text-amber-700',
+  ensemble:      'bg-emerald-100 text-emerald-700',
+};
+
+const TYPE_LABEL: Record<string, string> = {
+  random_forest: 'RF',
+  lightgbm:      'LGBM',
+  lasso:         'Lasso',
+  ensemble:      'Ens.',
 };
 
 function fmt(v: number | null, decimals = 4, pct = false): string {
@@ -23,7 +37,7 @@ function TStatBadge({ t }: { t: number | null }) {
     abs >= 2 ? 'bg-blue-100 text-blue-700' :
                'bg-slate-100 text-slate-500';
   return (
-    <span className={`inline-block px-2 py-0.5 rounded text-xs font-semibold ${color}`}>
+    <span className={`inline-block px-1.5 py-0.5 rounded text-xs font-semibold ${color}`}>
       {t.toFixed(2)}
     </span>
   );
@@ -37,70 +51,85 @@ interface Props {
 
 export function ModelComparisonTable({ rows, selectedModel, onSelect }: Props) {
   return (
-    <div className="overflow-x-auto rounded-2xl border border-slate-100 shadow-sm">
-      <table className="w-full text-sm">
-        <thead>
-          <tr className="border-b border-slate-100 bg-slate-50/80">
-            <th className="px-4 py-3 text-left text-xs font-semibold text-slate-500 uppercase tracking-wider w-24">Model</th>
-            <th className="px-4 py-3 text-left text-xs font-semibold text-slate-500 uppercase tracking-wider">Description</th>
-            <th className="px-4 py-3 text-center text-xs font-semibold text-slate-500 uppercase tracking-wider">Target</th>
-            <th className="px-4 py-3 text-center text-xs font-semibold text-slate-500 uppercase tracking-wider">Features</th>
-            <th className="px-4 py-3 text-center text-xs font-semibold text-slate-500 uppercase tracking-wider">Months</th>
-            <th className="px-4 py-3 text-right text-xs font-semibold text-slate-500 uppercase tracking-wider">Mean IC</th>
-            <th className="px-4 py-3 text-center text-xs font-semibold text-slate-500 uppercase tracking-wider">IC t-stat</th>
-            <th className="px-4 py-3 text-right text-xs font-semibold text-slate-500 uppercase tracking-wider">Hit Rate</th>
-            <th className="px-4 py-3 text-right text-xs font-semibold text-slate-500 uppercase tracking-wider">Q5−Q1 Ann.</th>
-          </tr>
-        </thead>
-        <tbody className="divide-y divide-slate-50">
-          {rows.map((row) => {
-            const isSelected = row.model_id === selectedModel;
-            return (
-              <tr
-                key={row.model_id}
-                onClick={() => onSelect(row.model_id)}
-                className={`cursor-pointer transition-colors ${
-                  isSelected
-                    ? 'bg-indigo-50 hover:bg-indigo-50'
-                    : 'bg-white hover:bg-slate-50'
-                }`}
-              >
-                <td className="px-4 py-3">
-                  <span className={`font-mono text-xs font-bold px-2 py-1 rounded ${
-                    isSelected ? 'bg-indigo-200 text-indigo-800' : 'bg-slate-100 text-slate-600'
-                  }`}>
-                    {row.model_id}
-                  </span>
-                </td>
-                <td className="px-4 py-3 text-slate-700 text-xs">{row.description}</td>
-                <td className="px-4 py-3 text-center">
-                  <span className="text-xs font-medium text-slate-500 bg-slate-100 px-2 py-0.5 rounded">
-                    {TARGET_LABEL[row.target] ?? row.target}
-                  </span>
-                </td>
-                <td className="px-4 py-3 text-center text-slate-500 text-xs">{row.feature_count ?? '—'}</td>
-                <td className="px-4 py-3 text-center text-slate-500 text-xs">{row.n_months ?? '—'}</td>
-                <td className="px-4 py-3 text-right font-mono text-xs">
-                  <span className={row.univ_mean_ic != null && row.univ_mean_ic > 0 ? 'text-emerald-700' : 'text-red-500'}>
-                    {fmt(row.univ_mean_ic, 4)}
-                  </span>
-                </td>
-                <td className="px-4 py-3 text-center">
-                  <TStatBadge t={row.univ_ic_tstat} />
-                </td>
-                <td className="px-4 py-3 text-right font-mono text-xs text-slate-600">
-                  {fmt(row.univ_ic_hit_rate, 1, true)}
-                </td>
-                <td className="px-4 py-3 text-right font-mono text-xs">
-                  <span className={row.q5_minus_q1_ann != null && row.q5_minus_q1_ann > 0 ? 'text-emerald-700' : 'text-red-500'}>
-                    {fmt(row.q5_minus_q1_ann, 1, true)}
-                  </span>
-                </td>
-              </tr>
-            );
-          })}
-        </tbody>
-      </table>
+    <div className="rounded-2xl border border-slate-100 shadow-sm overflow-hidden">
+      <div className="max-h-[300px] overflow-y-auto">
+        <table className="w-full text-xs">
+          <thead className="sticky top-0 z-10">
+            <tr className="border-b border-slate-200 bg-slate-100/90 backdrop-blur-sm">
+              <th className="px-3 py-2 text-left font-semibold text-slate-500 uppercase tracking-wider w-20">Model</th>
+              <th className="px-3 py-2 text-left font-semibold text-slate-500 uppercase tracking-wider">Description</th>
+              <th className="px-3 py-2 text-center font-semibold text-slate-500 uppercase tracking-wider w-14">Tgt</th>
+              <th className="px-3 py-2 text-center font-semibold text-slate-500 uppercase tracking-wider w-16">Type</th>
+              <th className="px-3 py-2 text-right font-semibold text-slate-500 uppercase tracking-wider w-20">Mean IC</th>
+              <th className="px-3 py-2 text-center font-semibold text-slate-500 uppercase tracking-wider w-20">IC t-stat</th>
+              <th className="px-3 py-2 text-right font-semibold text-slate-500 uppercase tracking-wider w-20">Hit Rate</th>
+              <th className="px-3 py-2 text-right font-semibold text-slate-500 uppercase tracking-wider w-24">Q5−Q1 Ann.</th>
+            </tr>
+          </thead>
+          <tbody className="divide-y divide-slate-50">
+            {rows.map((row) => {
+              const isSelected = row.model_id === selectedModel;
+              const typeStyle = TYPE_STYLE[row.model_type] ?? 'bg-slate-100 text-slate-500';
+              const typeLabel = TYPE_LABEL[row.model_type] ?? row.model_type;
+              return (
+                <tr
+                  key={row.model_id}
+                  onClick={() => onSelect(row.model_id)}
+                  className={`cursor-pointer transition-colors ${
+                    isSelected
+                      ? 'bg-indigo-50 hover:bg-indigo-50'
+                      : 'bg-white hover:bg-slate-50'
+                  }`}
+                >
+                  <td className="px-3 py-2">
+                    <span className={`font-mono text-xs font-bold px-1.5 py-0.5 rounded ${
+                      isSelected ? 'bg-indigo-200 text-indigo-800' : 'bg-slate-100 text-slate-600'
+                    }`}>
+                      {row.model_id}
+                    </span>
+                  </td>
+                  <td className="px-3 py-2 text-slate-600 max-w-[280px]">
+                    <span className="block truncate">{row.description}</span>
+                  </td>
+                  <td className="px-3 py-2 text-center">
+                    <span className="text-xs font-semibold text-slate-500 bg-slate-100 px-1.5 py-0.5 rounded">
+                      {TARGET_LABEL[row.target] ?? row.target}
+                    </span>
+                  </td>
+                  <td className="px-3 py-2 text-center">
+                    <span className={`text-xs font-bold px-1.5 py-0.5 rounded ${typeStyle}`}>
+                      {typeLabel}
+                    </span>
+                  </td>
+                  <td className="px-3 py-2 text-right font-mono">
+                    <span className={row.univ_mean_ic != null && row.univ_mean_ic > 0 ? 'text-emerald-700' : 'text-red-500'}>
+                      {fmt(row.univ_mean_ic, 4)}
+                    </span>
+                  </td>
+                  <td className="px-3 py-2 text-center">
+                    <TStatBadge t={row.univ_ic_tstat} />
+                  </td>
+                  <td className="px-3 py-2 text-right font-mono text-slate-600">
+                    {fmt(row.univ_ic_hit_rate, 1, true)}
+                  </td>
+                  <td className="px-3 py-2 text-right font-mono">
+                    <span className={row.q5_minus_q1_ann != null && row.q5_minus_q1_ann > 0 ? 'text-emerald-700' : 'text-red-500'}>
+                      {fmt(row.q5_minus_q1_ann, 1, true)}
+                    </span>
+                  </td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+      </div>
+      <div className="px-3 py-1.5 bg-slate-50/80 border-t border-slate-100 text-[10px] text-slate-400 flex items-center justify-between">
+        <span>{rows.length} models — click a row to expand diagnostics</span>
+        <div className="flex items-center gap-3">
+          <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-emerald-500 inline-block" /> t ≥ 3</span>
+          <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-blue-400 inline-block" /> t ≥ 2</span>
+        </div>
+      </div>
     </div>
   );
 }

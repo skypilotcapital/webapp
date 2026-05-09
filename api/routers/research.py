@@ -131,7 +131,8 @@ def get_p01_scorecard():
                 WHEN 'Valuation' THEN 4
                 WHEN 'Growth'    THEN 5
                 WHEN 'Risk'      THEN 6
-                ELSE 7
+                WHEN 'Macro'     THEN 7
+                ELSE 8
             END,
             factor
     """)

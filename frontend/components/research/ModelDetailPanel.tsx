@@ -362,7 +362,7 @@ export function ModelDetailPanel({ row, sectorStickyTop }: ModelDetailPanelProps
         {/* Stats — Full Universe fixed, Sector IC responds to selection */}
         <div>
           <h3 className="text-xs uppercase tracking-[0.2em] text-slate-400 font-bold mb-4">Backtest Performance</h3>
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
             {/* Full Universe — always fixed */}
             <div className="space-y-3">
               <div className="flex items-center gap-2">
