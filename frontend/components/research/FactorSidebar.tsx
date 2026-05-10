@@ -3,6 +3,56 @@
 import React, { useState, useEffect } from 'react';
 import type { P01ScorecardRow } from '@/types/api';
 
+const Q_COLORS = ['#ef4444', '#f97316', '#94a3b8', '#14b8a6', '#22c55e'];
+
+function QuintileSparkbar({ row }: { row: P01ScorecardRow }) {
+  const vals = [
+    row.ws_q1_avg ?? row.full_q1_avg,
+    row.ws_q2_avg ?? row.full_q2_avg,
+    row.ws_q3_avg ?? row.full_q3_avg,
+    row.ws_q4_avg ?? row.full_q4_avg,
+    row.ws_q5_avg ?? row.full_q5_avg,
+  ];
+  if (vals.every((v) => v == null)) return null;
+
+  const w = 66;
+  const h = 20;
+  const barW = 9;
+  const gap = 3;
+  const totalW = 5 * barW + 4 * gap;
+  const offsetX = (w - totalW) / 2;
+  const baseY = h - 1;
+
+  const nums = vals.filter((v): v is number => v != null);
+  const minVal = Math.min(...nums);
+  const maxVal = Math.max(...nums);
+  const range = maxVal - minVal || 0.001;
+  const scale = (h - 3) / range;
+
+  return (
+    <svg viewBox={`0 0 ${w} ${h}`} width={w} height={h} className="overflow-visible">
+      {vals.map((v, i) => {
+        const x = offsetX + i * (barW + gap);
+        if (v == null)
+          return <rect key={i} x={x} y={baseY - 2} width={barW} height={2} fill="#e2e8f0" rx="1" />;
+        const barH = Math.max((v - minVal) * scale, 1.5);
+        return (
+          <rect
+            key={i}
+            x={x}
+            y={baseY - barH}
+            width={barW}
+            height={barH}
+            fill={Q_COLORS[i]}
+            rx="1.5"
+            opacity={0.85}
+          />
+        );
+      })}
+    </svg>
+  );
+}
+
 const QUALITY_DOT: Record<string, string> = {
   Strong:      'bg-emerald-500',
   Moderate:    'bg-blue-400',
@@ -157,11 +207,9 @@ export function FactorSidebar({ rows, selectedFactor, onSelect }: Props) {
                           {tstat != null ? `${sign}${tstat.toFixed(1)}` : '—'}
                         </span>
                       </div>
-                      {isSelected && quality && (
-                        <p className={`text-[9px] font-bold pl-3 mt-0.5 ${tColor}`}>
-                          {QUALITY_LABEL[quality]}
-                        </p>
-                      )}
+                      <div className="pl-3 pt-1">
+                        <QuintileSparkbar row={row} />
+                      </div>
                     </button>
                   );
                 })}
