@@ -7,6 +7,7 @@ import type { ModelScorecardRow, ModelSignalStability, ModelFeatureImportance, M
 import { Card, CardContent, CardHeader } from '@/components/ui/card';
 import { ModelRollingICChart } from './ModelRollingICChart';
 import { ModelQuintileChart } from './ModelQuintileChart';
+import { ModelSpreadChart } from './ModelSpreadChart';
 
 // key = exact sector name stored in DB; label = display name on button
 const SECTORS: { key: string; label: string }[] = [
@@ -453,9 +454,18 @@ export function ModelDetailPanel({ row, sectorStickyTop }: ModelDetailPanelProps
         </div>
 
         {qData && !qLoading && (
-          <div>
-            <p className="text-xs font-bold uppercase tracking-[0.15em] text-slate-400 mb-3">Quintile Cumulative Returns</p>
-            <ModelQuintileChart data={qData} sector={sector} />
+          <div className="space-y-6">
+            <div>
+              <p className="text-xs font-bold uppercase tracking-[0.15em] text-slate-400 mb-3">Quintile Cumulative Returns</p>
+              <ModelQuintileChart data={qData} sector={sector} />
+            </div>
+            <div>
+              <p className="text-xs font-bold uppercase tracking-[0.15em] text-slate-400 mb-1">Rolling 24-Month Q5−Q1 Spread</p>
+              <p className="text-xs text-slate-400 mb-3">
+                How much the model&apos;s top vs. bottom quintile gap has varied over time — regime shifts visible as sustained positive or negative periods
+              </p>
+              <ModelSpreadChart data={qData} sector={sector} />
+            </div>
           </div>
         )}
 
