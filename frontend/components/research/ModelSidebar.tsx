@@ -20,6 +20,9 @@ const TYPE_LABEL: Record<string, string> = {
 const TARGET_LABEL: Record<string, string> = {
   fwd_1w: '1w',
   fwd_1m: '1m',
+  fwd_1m_sector_rel: '1m sr',
+  fwd_1m_sector_rank: '1m rk',
+  fwd_1m_voladj_63d: '1m vol',
   fwd_2m: '2m',
   fwd_3m: '3m',
 };
@@ -55,7 +58,7 @@ export function ModelSidebar({ rows, selectedModel, onSelect }: Props) {
       <div className="px-3 py-1 grid grid-cols-[auto_1fr_auto_auto] gap-2 items-center border-b border-slate-50 mb-0.5">
         <span className="text-[9px] uppercase tracking-wider text-slate-500 font-bold w-10">ID</span>
         <span className="text-[9px] uppercase tracking-wider text-slate-500 font-bold">Type / Target</span>
-        <span className="text-[9px] uppercase tracking-wider text-slate-500 font-bold text-right">Sect t</span>
+        <span className="text-[9px] uppercase tracking-wider text-slate-500 font-bold text-right">Mo. t</span>
         <span className="text-[9px] uppercase tracking-wider text-slate-500 font-bold text-right">Q5−Q1</span>
       </div>
 
@@ -67,7 +70,7 @@ export function ModelSidebar({ rows, selectedModel, onSelect }: Props) {
           const targetLabel = TARGET_LABEL[row.target] ?? row.target;
           const spread = row.q5_minus_q1_ann;
           const spreadColor = spread != null && spread > 0 ? 'text-emerald-600' : 'text-red-500';
-          const st = row.sector_ic_tstat;
+          const st = row.sector_ic_tstat_monthly ?? row.sector_ic_tstat;
 
           return (
             <button

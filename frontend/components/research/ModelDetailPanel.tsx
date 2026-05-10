@@ -28,6 +28,9 @@ const SECTORS: { key: string; label: string }[] = [
 const TARGET_LABEL: Record<string, string> = {
   fwd_1w: '1-Week Forward Return',
   fwd_1m: '1-Month Forward Return',
+  fwd_1m_sector_rel: '1-Month Sector-Relative Return',
+  fwd_1m_sector_rank: '1-Month Sector Rank-Normalized Return',
+  fwd_1m_voladj_63d: '1-Month Volatility-Scaled Return',
   fwd_2m: '2-Month Forward Return',
   fwd_3m: '3-Month Forward Return',
 };
@@ -305,9 +308,16 @@ export function ModelDetailPanel({ row, sectorStickyTop }: ModelDetailPanelProps
   const sectorLabel = SECTORS.find((s) => s.key === sector)?.label ?? sector;
   const liveSectorStats = !isAllSector && icData ? computeSectorStats(icData) : null;
 
-  const sectorMeanIC    = isAllSector ? row.sector_mean_ic    : (liveSectorStats?.mean ?? null);
-  const sectorTstat     = isAllSector ? row.sector_ic_tstat   : (liveSectorStats?.tstat ?? null);
-  const sectorHitRate   = isAllSector ? row.sector_ic_hit_rate : (liveSectorStats?.hitRate ?? null);
+  const sectorMeanIC = isAllSector
+    ? (row.sector_mean_ic_monthly ?? row.sector_mean_ic)
+    : (liveSectorStats?.mean ?? null);
+  const sectorTstat = isAllSector
+    ? (row.sector_ic_tstat_monthly ?? row.sector_ic_tstat)
+    : (liveSectorStats?.tstat ?? null);
+  const sectorHitRate = isAllSector
+    ? (row.sector_ic_hit_rate_monthly ?? row.sector_ic_hit_rate)
+    : (liveSectorStats?.hitRate ?? null);
+  const sectorPanelTstat = isAllSector ? row.sector_ic_tstat_panel : null;
 
   return (
     <Card className="border-indigo-100 bg-gradient-to-br from-white to-indigo-50/30">
@@ -402,21 +412,28 @@ export function ModelDetailPanel({ row, sectorStickyTop }: ModelDetailPanelProps
               <div className="flex items-center gap-2">
                 <span className="w-2.5 h-2.5 rounded-full bg-sky-400 shrink-0" />
                 <span className="text-sm font-bold text-sky-700 uppercase tracking-wider">
-                  {isAllSector ? 'Sector IC — avg across all sectors' : `Sector IC — ${sectorLabel}`}
+                  {isAllSector ? 'Sector IC — monthly avg across all sectors' : `Sector IC — ${sectorLabel}`}
                 </span>
               </div>
               <div className="grid grid-cols-2 gap-2">
                 <StatCard
                   label="Mean IC"
                   value={fmt(sectorMeanIC, 4)}
-                  sub={sectorTstat != null ? `t = ${sectorTstat.toFixed(2)}` : undefined}
+                  sub={
+                    sectorTstat != null
+                      ? isAllSector && sectorPanelTstat != null
+                        ? `monthly t = ${sectorTstat.toFixed(2)} · panel t = ${sectorPanelTstat.toFixed(2)}`
+                        : `t = ${sectorTstat.toFixed(2)}`
+                      : undefined
+                  }
                   highlight={(sectorTstat ?? 0) > 2}
                   color={(sectorMeanIC ?? 0) > 0 ? 'text-emerald-700' : 'text-red-600'}
                 />
                 <StatCard
-                  label="t-Statistic"
+                  label={isAllSector ? 'Monthly t-Stat' : 't-Statistic'}
                   value={sectorTstat?.toFixed(2) ?? null}
                   highlight={(sectorTstat ?? 0) > 2}
+                  sub={isAllSector && sectorPanelTstat != null ? `panel = ${sectorPanelTstat.toFixed(2)}` : undefined}
                 />
                 <StatCard
                   label="Hit Rate"

@@ -5,6 +5,9 @@ import type { ModelScorecardRow } from '@/types/api';
 const TARGET_LABEL: Record<string, string> = {
   fwd_1w: '1w',
   fwd_1m: '1m',
+  fwd_1m_sector_rel: '1m sr',
+  fwd_1m_sector_rank: '1m rk',
+  fwd_1m_voladj_63d: '1m vol',
   fwd_2m: '2m',
   fwd_3m: '3m',
 };
@@ -60,8 +63,8 @@ export function ModelComparisonTable({ rows, selectedModel, onSelect }: Props) {
               <th className="px-3 py-2 text-left font-semibold text-slate-500 uppercase tracking-wider">Description</th>
               <th className="px-3 py-2 text-center font-semibold text-slate-500 uppercase tracking-wider w-14">Tgt</th>
               <th className="px-3 py-2 text-center font-semibold text-slate-500 uppercase tracking-wider w-16">Type</th>
-              <th className="px-3 py-2 text-right font-semibold text-slate-500 uppercase tracking-wider w-20">Mean IC</th>
-              <th className="px-3 py-2 text-center font-semibold text-slate-500 uppercase tracking-wider w-20">IC t-stat</th>
+              <th className="px-3 py-2 text-right font-semibold text-slate-500 uppercase tracking-wider w-20">Sector IC</th>
+              <th className="px-3 py-2 text-center font-semibold text-slate-500 uppercase tracking-wider w-24">Monthly t-stat</th>
               <th className="px-3 py-2 text-right font-semibold text-slate-500 uppercase tracking-wider w-20">Hit Rate</th>
               <th className="px-3 py-2 text-right font-semibold text-slate-500 uppercase tracking-wider w-24">Q5−Q1 Ann.</th>
             </tr>
@@ -102,12 +105,12 @@ export function ModelComparisonTable({ rows, selectedModel, onSelect }: Props) {
                     </span>
                   </td>
                   <td className="px-3 py-2 text-right font-mono">
-                    <span className={row.univ_mean_ic != null && row.univ_mean_ic > 0 ? 'text-emerald-700' : 'text-red-500'}>
-                      {fmt(row.univ_mean_ic, 4)}
+                    <span className={row.sector_mean_ic_monthly != null && row.sector_mean_ic_monthly > 0 ? 'text-emerald-700' : 'text-red-500'}>
+                      {fmt(row.sector_mean_ic_monthly ?? row.sector_mean_ic, 4)}
                     </span>
                   </td>
                   <td className="px-3 py-2 text-center">
-                    <TStatBadge t={row.univ_ic_tstat} />
+                    <TStatBadge t={row.sector_ic_tstat_monthly ?? row.sector_ic_tstat} />
                   </td>
                   <td className="px-3 py-2 text-right font-mono text-slate-600">
                     {fmt(row.univ_ic_hit_rate, 1, true)}
@@ -124,7 +127,7 @@ export function ModelComparisonTable({ rows, selectedModel, onSelect }: Props) {
         </table>
       </div>
       <div className="px-3 py-1.5 bg-slate-50/80 border-t border-slate-100 text-[10px] text-slate-400 flex items-center justify-between">
-        <span>{rows.length} models — click a row to expand diagnostics</span>
+        <span>{rows.length} models — headline sector t-stat uses one average sector IC per month</span>
         <div className="flex items-center gap-3">
           <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-emerald-500 inline-block" /> t ≥ 3</span>
           <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-blue-400 inline-block" /> t ≥ 2</span>

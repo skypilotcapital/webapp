@@ -235,6 +235,14 @@ class ModelScorecardRow(BaseModel):
     sector_ic_std: Optional[float]
     sector_ic_tstat: Optional[float]
     sector_ic_hit_rate: Optional[float]
+    sector_mean_ic_monthly: Optional[float]
+    sector_ic_std_monthly: Optional[float]
+    sector_ic_tstat_monthly: Optional[float]
+    sector_ic_hit_rate_monthly: Optional[float]
+    sector_mean_ic_panel: Optional[float]
+    sector_ic_std_panel: Optional[float]
+    sector_ic_tstat_panel: Optional[float]
+    sector_ic_hit_rate_panel: Optional[float]
     univ_mean_ic: Optional[float]
     univ_ic_std: Optional[float]
     univ_ic_tstat: Optional[float]
@@ -262,6 +270,12 @@ def get_model_scorecard():
     """
     Return aggregate IC stats and quintile spread for all published alpha models.
     One row per model, ordered by model_id.
+
+    sector_*_monthly is the preferred significance metric:
+    one average sector IC per rebalance month.
+
+    sector_*_panel pools all date×sector ICs and is exposed as supplementary
+    context only because that independence assumption is looser.
     """
     with get_db() as conn:
         rows = conn.execute(text("""
@@ -269,6 +283,8 @@ def get_model_scorecard():
                 model_id, description, target, feature_set, feature_count, model_type,
                 backtest_start::text, backtest_end::text, n_months,
                 sector_mean_ic, sector_ic_std, sector_ic_tstat, sector_ic_hit_rate,
+                sector_mean_ic_monthly, sector_ic_std_monthly, sector_ic_tstat_monthly, sector_ic_hit_rate_monthly,
+                sector_mean_ic_panel, sector_ic_std_panel, sector_ic_tstat_panel, sector_ic_hit_rate_panel,
                 univ_mean_ic, univ_ic_std, univ_ic_tstat, univ_ic_hit_rate,
                 q5_minus_q1_avg, q5_minus_q1_ann
             FROM research.model_scorecard
@@ -407,6 +423,7 @@ def get_model_sector_summary(model_id: str):
     Return per-sector IC statistics aggregated from the monthly IC series.
     One row per sector (excluding ALL), ordered by t-stat descending.
     Requires research.model_ic_series to be populated (compute_research_tables.py).
+    These t-stats are month-based within each sector, not pooled across sectors.
     """
     try:
         with get_db() as conn:

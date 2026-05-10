@@ -216,6 +216,14 @@ export interface ModelScorecardRow {
   sector_ic_std: number | null;
   sector_ic_tstat: number | null;
   sector_ic_hit_rate: number | null;
+  sector_mean_ic_monthly: number | null;
+  sector_ic_std_monthly: number | null;
+  sector_ic_tstat_monthly: number | null;
+  sector_ic_hit_rate_monthly: number | null;
+  sector_mean_ic_panel: number | null;
+  sector_ic_std_panel: number | null;
+  sector_ic_tstat_panel: number | null;
+  sector_ic_hit_rate_panel: number | null;
   univ_mean_ic: number | null;
   univ_ic_std: number | null;
   univ_ic_tstat: number | null;
