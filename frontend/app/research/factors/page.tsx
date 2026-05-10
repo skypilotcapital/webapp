@@ -106,7 +106,7 @@ export default function FactorsPage() {
 
           {/* Left sidebar — sticky, scrolls independently */}
           <div
-            className="w-56 flex-none sticky overflow-y-auto rounded-2xl border border-slate-100 bg-white/80 backdrop-blur-sm shadow-sm"
+            className="w-64 flex-none sticky overflow-y-auto rounded-2xl border border-slate-100 bg-white/80 backdrop-blur-sm shadow-sm"
             style={{
               top: `${NAV_HEIGHT + 16}px`,
               maxHeight: `calc(100vh - ${NAV_HEIGHT + 32}px)`,

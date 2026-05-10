@@ -106,7 +106,9 @@ export function FactorDetailPanel({ row }: FactorDetailPanelProps) {
                           ? 'bg-sky-100 text-sky-700'
                           : row.factor_family === 'Growth'
                             ? 'bg-lime-100 text-lime-700'
-                            : 'bg-orange-100 text-orange-700'
+                            : row.factor_family === 'Macro'
+                              ? 'bg-indigo-100 text-indigo-700'
+                              : 'bg-orange-100 text-orange-700'
                 }`}
               >
                 {row.factor_family}

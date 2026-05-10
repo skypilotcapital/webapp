@@ -24,23 +24,16 @@ const TARGET_LABEL: Record<string, string> = {
   fwd_3m: '3m',
 };
 
-function TStatDot({ t }: { t: number | null }) {
-  if (t == null) return <span className="text-slate-300 text-[10px]">—</span>;
+function tColor(t: number | null) {
+  if (t == null) return 'text-slate-300';
   const abs = Math.abs(t);
-  const color =
-    abs >= 3 ? 'text-emerald-600' :
-    abs >= 2 ? 'text-blue-500' :
-               'text-slate-400';
-  const dot =
-    abs >= 3 ? 'bg-emerald-500' :
-    abs >= 2 ? 'bg-blue-400' :
-               'bg-slate-300';
-  return (
-    <span className={`flex items-center gap-1 font-mono text-[10px] font-semibold ${color}`}>
-      <span className={`w-1.5 h-1.5 rounded-full inline-block ${dot}`} />
-      {t.toFixed(1)}
-    </span>
-  );
+  return abs >= 3 ? 'text-emerald-600' : abs >= 2 ? 'text-blue-500' : 'text-slate-400';
+}
+
+function tDot(t: number | null) {
+  if (t == null) return 'bg-slate-200';
+  const abs = Math.abs(t);
+  return abs >= 3 ? 'bg-emerald-500' : abs >= 2 ? 'bg-blue-400' : 'bg-slate-300';
 }
 
 interface Props {
@@ -53,20 +46,20 @@ export function ModelSidebar({ rows, selectedModel, onSelect }: Props) {
   return (
     <div className="flex flex-col">
       <div className="px-3 py-2 border-b border-slate-100 mb-1">
-        <p className="text-[10px] uppercase tracking-[0.15em] text-slate-400 font-bold">
+        <p className="text-[10px] uppercase tracking-[0.15em] text-slate-500 font-bold">
           {rows.length} models
         </p>
       </div>
 
-      {/* Column header */}
-      <div className="px-3 py-1 grid grid-cols-[auto_1fr_auto_auto] gap-1.5 items-center">
-        <span className="text-[9px] uppercase tracking-wider text-slate-300 font-bold w-10">ID</span>
-        <span className="text-[9px] uppercase tracking-wider text-slate-300 font-bold">Type</span>
-        <span className="text-[9px] uppercase tracking-wider text-slate-300 font-bold">t-stat</span>
-        <span className="text-[9px] uppercase tracking-wider text-slate-300 font-bold">Q5−Q1</span>
+      {/* Column headers */}
+      <div className="px-3 py-1 grid grid-cols-[auto_1fr_auto_auto] gap-2 items-center border-b border-slate-50 mb-0.5">
+        <span className="text-[9px] uppercase tracking-wider text-slate-500 font-bold w-10">ID</span>
+        <span className="text-[9px] uppercase tracking-wider text-slate-500 font-bold">Type / Target</span>
+        <span className="text-[9px] uppercase tracking-wider text-slate-500 font-bold text-right">Sect t</span>
+        <span className="text-[9px] uppercase tracking-wider text-slate-500 font-bold text-right">Q5−Q1</span>
       </div>
 
-      <div className="flex flex-col gap-0.5">
+      <div className="flex flex-col gap-0.5 px-1">
         {rows.map((row) => {
           const isSelected = row.model_id === selectedModel;
           const typeStyle = TYPE_STYLE[row.model_type] ?? 'bg-slate-100 text-slate-500';
@@ -74,46 +67,52 @@ export function ModelSidebar({ rows, selectedModel, onSelect }: Props) {
           const targetLabel = TARGET_LABEL[row.target] ?? row.target;
           const spread = row.q5_minus_q1_ann;
           const spreadColor = spread != null && spread > 0 ? 'text-emerald-600' : 'text-red-500';
+          const st = row.sector_ic_tstat;
 
           return (
             <button
               key={row.model_id}
               onClick={() => onSelect(row.model_id)}
-              className={`w-full text-left px-3 py-2 rounded-lg transition-colors ${
+              className={`w-full text-left px-2 py-2 rounded-lg transition-colors ${
                 isSelected
                   ? 'bg-indigo-50 border border-indigo-200'
                   : 'hover:bg-slate-50 border border-transparent'
               }`}
             >
-              {/* Row 1: ID + type badges */}
-              <div className="flex items-center gap-1.5 mb-1">
-                <span className={`font-mono text-[10px] font-black px-1.5 py-0.5 rounded ${
+              {/* Single compact row: ID · type · target · t-stat · spread */}
+              <div className="grid grid-cols-[auto_1fr_auto_auto] gap-2 items-center">
+                <span className={`font-mono text-[10px] font-black px-1.5 py-0.5 rounded w-10 text-center ${
                   isSelected ? 'bg-indigo-200 text-indigo-800' : 'bg-slate-100 text-slate-600'
                 }`}>
                   {row.model_id}
                 </span>
-                <span className={`text-[9px] font-bold px-1.5 py-0.5 rounded ${typeStyle}`}>
-                  {typeLabel}
+                <div className="flex items-center gap-1 min-w-0">
+                  <span className={`text-[9px] font-bold px-1.5 py-0.5 rounded flex-none ${typeStyle}`}>
+                    {typeLabel}
+                  </span>
+                  <span className="text-[9px] font-semibold text-slate-400 bg-slate-100 px-1 py-0.5 rounded flex-none">
+                    {targetLabel}
+                  </span>
+                </div>
+                {/* Sector IC t-stat */}
+                <span className={`font-mono text-[10px] font-semibold flex items-center gap-0.5 ${tColor(st)}`}>
+                  <span className={`w-1.5 h-1.5 rounded-full inline-block flex-none ${tDot(st)}`} />
+                  {st != null ? st.toFixed(1) : '—'}
                 </span>
-                <span className="text-[9px] font-semibold text-slate-400 bg-slate-100 px-1 py-0.5 rounded">
-                  {targetLabel}
-                </span>
-              </div>
-
-              {/* Row 2: description (truncated) */}
-              <p className="text-[9px] text-slate-400 truncate leading-tight mb-1.5">
-                {row.description}
-              </p>
-
-              {/* Row 3: IC metrics */}
-              <div className="flex items-center justify-between">
-                <TStatDot t={row.univ_ic_tstat} />
-                <span className={`font-mono text-[10px] font-semibold ${spreadColor}`}>
+                {/* Q5-Q1 spread */}
+                <span className={`font-mono text-[10px] font-semibold text-right ${spreadColor}`}>
                   {spread != null
                     ? `${spread > 0 ? '+' : ''}${(spread * 100).toFixed(1)}%`
                     : '—'}
                 </span>
               </div>
+
+              {/* Description row (only when selected or always?) — show always, small */}
+              <p className={`text-[9px] mt-1 pl-0.5 truncate leading-tight ${
+                isSelected ? 'text-slate-500' : 'text-slate-400'
+              }`}>
+                {row.description}
+              </p>
             </button>
           );
         })}

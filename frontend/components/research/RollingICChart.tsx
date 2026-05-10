@@ -13,11 +13,12 @@ import type { P01ICPoint } from '@/types/api';
 const WINDOW = 24; // rolling months
 
 function rollingMean(values: (number | null)[], window: number): (number | null)[] {
+  const MIN_VALID = Math.ceil(window / 2); // require at least half the window — handles sparse series
   return values.map((_, i) => {
     if (i < window - 1) return null;
     const slice = values.slice(i - window + 1, i + 1);
     const valid = slice.filter((v): v is number => v != null && !isNaN(v));
-    return valid.length === window ? valid.reduce((a, b) => a + b, 0) / valid.length : null;
+    return valid.length >= MIN_VALID ? valid.reduce((a, b) => a + b, 0) / valid.length : null;
   });
 }
 

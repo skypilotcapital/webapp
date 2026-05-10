@@ -24,7 +24,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
 
         <header className="bg-white/60 backdrop-blur-2xl border-b border-black/5 sticky top-0 z-50">
           <div className="absolute bottom-[-1px] left-0 right-0 h-[2px] bg-gradient-to-r from-transparent via-[#4F46E5]/40 to-transparent"></div>
-          <div className="max-w-[1600px] mx-auto px-8 py-6 flex items-center justify-between">
+          <div className="max-w-[1600px] mx-auto px-4 py-6 flex items-center justify-between">
             <Link href="/" className="flex items-center gap-5 group">
               <div className="w-11 h-11 bg-[#4F46E5] text-white flex items-center justify-center font-black rounded-2xl group-hover:bg-white group-hover:text-[#4F46E5] group-hover:shadow-[0_0_20px_rgba(79,70,229,0.4)] border border-transparent group-hover:border-[#4F46E5]/20 transition-all duration-500">S</div>
               <span className="text-xl font-bold tracking-tight text-[#0F172A] group-hover:text-[#4F46E5] transition-colors">
@@ -55,7 +55,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
           </div>
         </header>
 
-        <main className="max-w-[1600px] mx-auto px-8 py-12" style={{ backgroundColor: '#FDFCFB' }}>
+        <main className="max-w-[1600px] mx-auto px-4 py-12" style={{ backgroundColor: '#FDFCFB' }}>
           {children}
         </main>
       </body>
