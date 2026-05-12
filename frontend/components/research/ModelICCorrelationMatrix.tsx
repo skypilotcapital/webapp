@@ -80,19 +80,14 @@ export function ModelICCorrelationMatrix() {
   const svgH = LABEL_H + N * CELL;
 
   return (
-    <div className="rounded-2xl border border-slate-100 bg-white/80 backdrop-blur-sm shadow-sm p-5">
-      <div className="mb-4">
-        <p className="text-xs font-bold uppercase tracking-[0.15em] text-slate-400">
-          IC Correlation Matrix
-        </p>
-        <p className="text-xs text-slate-400 mt-0.5 leading-relaxed">
-          Pearson correlation of monthly universe IC series across base models.{' '}
-          <span className="text-blue-600 font-medium">Blue = low correlation</span> — complementary signals,
-          better ensemble candidates.{' '}
-          <span className="text-red-500 font-medium">Red = high correlation</span> — similar bets,
-          little diversification benefit.
-        </p>
-      </div>
+    <div className="p-5">
+      <p className="text-xs text-slate-400 mb-4 leading-relaxed">
+        Pearson correlation of monthly universe IC series across base models.{' '}
+        <span className="text-blue-600 font-medium">Blue = low correlation</span> — complementary signals,
+        better ensemble candidates.{' '}
+        <span className="text-red-500 font-medium">Red = high correlation</span> — similar bets,
+        little diversification benefit.
+      </p>
 
       <div className="relative overflow-x-auto">
         <svg

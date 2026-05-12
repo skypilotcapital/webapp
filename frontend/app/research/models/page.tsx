@@ -68,6 +68,29 @@ function ModelInterpretationBox() {
   );
 }
 
+function CollapsibleCorrelationMatrix() {
+  const [open, setOpen] = useState(false);
+  return (
+    <div className="rounded-xl border border-slate-200 bg-slate-50/60">
+      <button
+        onClick={() => setOpen((v) => !v)}
+        className="w-full flex items-center justify-between px-4 py-3 font-semibold text-xs text-slate-700 hover:bg-slate-100/60 rounded-xl transition-colors"
+      >
+        <span className="flex items-center gap-2">
+          <span className="text-slate-400">⊞</span>
+          IC Correlation Matrix — ensemble design tool
+        </span>
+        <span className="text-slate-400 text-[10px]">{open ? '▲' : '▼'}</span>
+      </button>
+      {open && (
+        <div className="border-t border-slate-200">
+          <ModelICCorrelationMatrix />
+        </div>
+      )}
+    </div>
+  );
+}
+
 export default function ModelsPage() {
   const [selectedModel, setSelectedModel] = useState<string | null>(null);
 
@@ -137,7 +160,7 @@ export default function ModelsPage() {
             {!selectedRow && (
               <div className="space-y-6">
                 <ModelInterpretationBox />
-                <ModelICCorrelationMatrix />
+                <CollapsibleCorrelationMatrix />
                 <div className="rounded-xl border border-slate-100 bg-white/40 px-6 py-4 flex items-center gap-6 text-xs text-slate-400">
                   <div className="flex items-center gap-1.5">
                     <span className="w-2 h-2 rounded-full bg-emerald-500" />
