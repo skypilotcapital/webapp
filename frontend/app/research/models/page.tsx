@@ -5,6 +5,7 @@ import useSWR from 'swr';
 import { fetchModelScorecard } from '@/lib/api';
 import { ModelSidebar } from '@/components/research/ModelSidebar';
 import { ModelDetailPanel } from '@/components/research/ModelDetailPanel';
+import { ModelICCorrelationMatrix } from '@/components/research/ModelICCorrelationMatrix';
 
 const NAV_HEIGHT = 92; // px — sticky site header
 
@@ -136,20 +137,17 @@ export default function ModelsPage() {
             {!selectedRow && (
               <div className="space-y-6">
                 <ModelInterpretationBox />
-                <div className="rounded-2xl border border-slate-100 bg-white/60 p-12 text-center">
-                  <p className="text-sm text-slate-300">
-                    Select a model from the left panel to view diagnostics.
-                  </p>
-                  <div className="flex justify-center gap-6 mt-4 text-xs text-slate-400">
-                    <div className="flex items-center gap-1.5">
-                      <span className="w-2 h-2 rounded-full bg-emerald-500" />
-                      <span>IC t-stat ≥ 3 — statistically strong</span>
-                    </div>
-                    <div className="flex items-center gap-1.5">
-                      <span className="w-2 h-2 rounded-full bg-blue-400" />
-                      <span>IC t-stat ≥ 2 — likely signal</span>
-                    </div>
+                <ModelICCorrelationMatrix />
+                <div className="rounded-xl border border-slate-100 bg-white/40 px-6 py-4 flex items-center gap-6 text-xs text-slate-400">
+                  <div className="flex items-center gap-1.5">
+                    <span className="w-2 h-2 rounded-full bg-emerald-500" />
+                    <span>IC t-stat ≥ 3 — statistically strong</span>
                   </div>
+                  <div className="flex items-center gap-1.5">
+                    <span className="w-2 h-2 rounded-full bg-blue-400" />
+                    <span>IC t-stat ≥ 2 — likely signal</span>
+                  </div>
+                  <span className="ml-auto text-slate-300">← Select a model for diagnostics</span>
                 </div>
               </div>
             )}

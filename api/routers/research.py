@@ -265,6 +265,32 @@ class ModelQuintilePoint(BaseModel):
     fwd_return: Optional[float]
 
 
+class ModelICCorrelationEntry(BaseModel):
+    model_a: str
+    model_b: str
+    ic_correlation: Optional[float]
+    n_common_months: Optional[int]
+
+
+@router.get("/models/ic-correlation", response_model=List[ModelICCorrelationEntry])
+def get_model_ic_correlation():
+    """
+    Return pairwise Pearson IC correlations for all base (non-ensemble) models.
+    Lower correlation = more complementary for ensemble construction.
+    Populated by scripts/compute_ic_correlation.py.
+    """
+    try:
+        with get_db() as conn:
+            rows = conn.execute(text("""
+                SELECT model_a, model_b, ic_correlation, n_common_months
+                FROM research.model_ic_correlation
+                ORDER BY model_a, model_b
+            """)).fetchall()
+    except Exception:
+        return []
+    return [ModelICCorrelationEntry(**_clean(r)) for r in rows]
+
+
 @router.get("/models/scorecard", response_model=List[ModelScorecardRow])
 def get_model_scorecard():
     """

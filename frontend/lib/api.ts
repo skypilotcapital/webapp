@@ -28,6 +28,7 @@ import type {
   ModelFeatureImportance,
   ModelSectorSummary,
   ModelFeatureImportanceBySector,
+  ModelICCorrelationEntry,
 } from '@/types/api';
 
 const API_BASE = '/api-proxy';
@@ -72,6 +73,9 @@ export const fetchModelFeatureImportanceBySector = (modelId: string, sector: str
   apiFetch<ModelFeatureImportanceBySector[]>(
     `/api/v1/research/models/${modelId}/feature-importance-by-sector?sector=${encodeURIComponent(sector)}`
   );
+
+export const fetchModelICCorrelation = () =>
+  apiFetch<ModelICCorrelationEntry[]>('/api/v1/research/models/ic-correlation');
 
 // Reports library
 export const fetchReports = () => apiFetch<unknown[]>('/api/v1/reports');

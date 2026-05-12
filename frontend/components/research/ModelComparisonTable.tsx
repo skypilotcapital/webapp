@@ -10,6 +10,7 @@ const TARGET_LABEL: Record<string, string> = {
   fwd_1m_voladj_63d: '1m vol',
   fwd_2m: '2m',
   fwd_3m: '3m',
+  fwd_3m_voladj_63d: '3m vol',
 };
 
 const TYPE_STYLE: Record<string, string> = {

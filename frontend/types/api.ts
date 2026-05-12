@@ -283,3 +283,10 @@ export interface ModelFeatureImportanceBySector {
   mean_shap: number | null;
   shap_rank: number | null;
 }
+
+export interface ModelICCorrelationEntry {
+  model_a: string;
+  model_b: string;
+  ic_correlation: number | null;
+  n_common_months: number | null;
+}
