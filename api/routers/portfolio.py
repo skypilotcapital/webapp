@@ -96,17 +96,16 @@ def _compute_summary(label: str, rows: list) -> BacktestSummary:
     if not rows:
         raise HTTPException(status_code=404, detail=f"No data for '{label}'")
 
-    port_g = [_v(r["portfolio_gross"]) for r in rows if r["portfolio_gross"] is not None]
-    port_n = [_v(r["portfolio_net"])   for r in rows if r["portfolio_net"]   is not None]
-    bench  = [_v(r["benchmark"])       for r in rows if r["benchmark"]       is not None]
-
-    n = min(len(port_n), len(bench))
-    if n == 0:
+    # Only include months where both portfolio and benchmark have data (aligned)
+    aligned = [r for r in rows if r["portfolio_gross"] is not None and r["benchmark"] is not None]
+    if not aligned:
         raise HTTPException(status_code=404, detail=f"No valid returns for '{label}'")
 
-    port_n = port_n[:n]
-    port_g = port_g[:n] if len(port_g) >= n else port_n
-    bench  = bench[:n]
+    port_g = [_v(r["portfolio_gross"]) for r in aligned]
+    port_n = [_v(r["portfolio_net"])   for r in aligned]
+    bench  = [_v(r["benchmark"])       for r in aligned]
+
+    n = len(port_n)
 
     n_years = n / 12
 
@@ -237,6 +236,9 @@ def get_backtest_returns(label: str):
 
     if not rows:
         raise HTTPException(status_code=404, detail=f"No data for backtest '{label}'")
+
+    # Only include months where both portfolio and benchmark have data
+    rows = [r for r in rows if r._mapping["portfolio_gross"] is not None and r._mapping["benchmark"] is not None]
 
     result = []
     cum_p = 100.0
