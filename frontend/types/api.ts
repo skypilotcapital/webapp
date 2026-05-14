@@ -290,3 +290,43 @@ export interface ModelICCorrelationEntry {
   ic_correlation: number | null;
   n_common_months: number | null;
 }
+
+// ---------------------------------------------------------------------------
+// Portfolio Backtests
+// ---------------------------------------------------------------------------
+
+export interface BacktestSummary {
+  label: string;
+  period_start: string | null;
+  period_end: string | null;
+  n_months: number;
+  ann_return_gross: number | null;
+  ann_return_net: number | null;
+  ann_return_benchmark: number | null;
+  ann_excess_return: number | null;
+  sharpe_gross: number | null;
+  sharpe_net: number | null;
+  information_ratio: number | null;
+  tracking_error: number | null;
+  max_drawdown: number | null;
+  ann_volatility: number | null;
+  hit_rate: number | null;
+  avg_monthly_turnover: number | null;
+  avg_tc_drag_bps: number | null;
+  n_optimal: number;
+  n_fallback: number;
+}
+
+export interface BacktestMonthlyReturn {
+  date: string;
+  portfolio_gross: number | null;
+  portfolio_net: number | null;
+  benchmark: number | null;
+  active_return: number | null;
+  turnover: number | null;
+  tc_cost: number | null;
+  n_stocks: number | null;
+  optimizer_status: string | null;
+  cum_portfolio: number | null;
+  cum_benchmark: number | null;
+}

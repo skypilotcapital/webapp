@@ -29,6 +29,8 @@ import type {
   ModelSectorSummary,
   ModelFeatureImportanceBySector,
   ModelICCorrelationEntry,
+  BacktestSummary,
+  BacktestMonthlyReturn,
 } from '@/types/api';
 
 const API_BASE = '/api-proxy';
@@ -79,3 +81,9 @@ export const fetchModelICCorrelation = () =>
 
 // Reports library
 export const fetchReports = () => apiFetch<unknown[]>('/api/v1/reports');
+
+// Portfolio Backtests
+export const fetchBacktestSummaries = () =>
+  apiFetch<BacktestSummary[]>('/api/v1/portfolio/backtests');
+export const fetchBacktestReturns = (label: string) =>
+  apiFetch<BacktestMonthlyReturn[]>(`/api/v1/portfolio/backtests/${encodeURIComponent(label)}/returns`);
