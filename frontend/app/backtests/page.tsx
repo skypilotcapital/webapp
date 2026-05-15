@@ -28,17 +28,17 @@ function bps(v: number | null): string {
 }
 
 const MODEL_LABELS: Record<string, string> = {
-  'm001_te5': 'M001 · RF Baseline',
-  'm009_te5': 'M009 · 1M+3M Ensemble',
-  'm013_te5': 'M013 · Vol-Adj 1M',
-  'm019_te5': 'M019 · Vol-Adj 1M+3M',
+  'M001': 'M001 · RF Baseline',
+  'M009': 'M009 · 1M+3M Ensemble',
+  'M013': 'M013 · Vol-Adj 1M',
+  'M019': 'M019 · Vol-Adj 1M+3M',
 };
 
 const MODEL_COLORS: Record<string, string> = {
-  'm001_te5': '#6366f1',
-  'm009_te5': '#f59e0b',
-  'm013_te5': '#10b981',
-  'm019_te5': '#3b82f6',
+  'M001': '#6366f1',
+  'M009': '#f59e0b',
+  'M013': '#10b981',
+  'M019': '#3b82f6',
 };
 
 const BENCHMARK_COLOR = '#94a3b8';
@@ -413,10 +413,11 @@ export default function BacktestsPage() {
       <div>
         <h1 className="text-3xl font-bold tracking-tight text-slate-900">Portfolio Backtests</h1>
         <p className="mt-2 text-sm text-slate-500 max-w-2xl">
-          Layer 2 mean-variance optimised portfolios. Alpha scores from the selected model are
-          converted to long-only S&P 500 weights subject to a 5% tracking error budget,
-          3% per-stock cap, and ±5% active sector deviation. TC assumed 7.5bps one-way.
-          Period: 2010–2023 (in-sample calibration).
+          Layer 2 mean-variance optimised portfolios using a Barra-style factor risk model
+          (K=24: market + 11 sector dummies + 12 style factors; Ledoit-Wolf shrinkage).
+          Alpha scores converted to long-only S&P 500 weights subject to a 5% tracking error
+          budget, 3% per-stock cap, and ±5% active sector deviation. TC assumed 7.5bps one-way.
+          Solver: CLARABEL. Period: 2010–2023 (in-sample calibration).
         </p>
       </div>
 
@@ -439,7 +440,7 @@ export default function BacktestsPage() {
         <div className="rounded-xl border border-slate-200 bg-slate-50 px-4 py-12 text-center">
           <p className="text-sm font-medium text-slate-600">No backtest results yet.</p>
           <p className="text-xs text-slate-400 mt-1">
-            Run: <code className="bg-slate-100 px-1 rounded">conda run -n skypilot-alpha python -m scripts.run_layer2_backtest --config m019_te5</code>
+            Run: <code className="bg-slate-100 px-1 rounded">conda run -n skypilot-alpha python -m scripts.run_layer2_backtest --config m019_barra</code>
           </p>
         </div>
       )}
