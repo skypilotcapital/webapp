@@ -13,7 +13,7 @@ export default function ResearchLayout({ children }: { children: React.ReactNode
 
   return (
     <div>
-      <div className="flex items-center gap-2 mb-8 border-b border-slate-100 pb-1">
+      <div className="flex items-center gap-2 mb-4 border-b border-slate-100 pb-1">
         {RESEARCH_TABS.map(({ href, label }) => {
           const active = pathname.startsWith(href);
           return (

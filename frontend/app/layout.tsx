@@ -55,7 +55,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
           </div>
         </header>
 
-        <main className="max-w-[1600px] mx-auto px-4 py-12" style={{ backgroundColor: '#FDFCFB' }}>
+        <main className="max-w-[1600px] mx-auto px-4 py-8" style={{ backgroundColor: '#FDFCFB' }}>
           {children}
         </main>
       </body>
