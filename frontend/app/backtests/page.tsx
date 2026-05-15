@@ -190,7 +190,7 @@ function SubperiodTable({ monthly }: { monthly: BacktestMonthlyReturn[] }) {
 // ---------------------------------------------------------------------------
 
 function CumReturnChart({ allReturns }: { allReturns: Map<string, BacktestMonthlyReturn[]> }) {
-  const W = 900, H = 320, PL = 52, PR = 16, PT = 16, PB = 36;
+  const W = 900, H = 210, PL = 52, PR = 16, PT = 12, PB = 36;
   const cw = W - PL - PR, ch = H - PT - PB;
 
   if (allReturns.size === 0) return null;
@@ -308,7 +308,7 @@ function CumReturnChart({ allReturns }: { allReturns: Map<string, BacktestMonthl
 // ---------------------------------------------------------------------------
 
 function TurnoverChart({ monthly }: { monthly: BacktestMonthlyReturn[] }) {
-  const W = 900, H = 160, PL = 44, PR = 16, PT = 12, PB = 28;
+  const W = 900, H = 90, PL = 44, PR = 16, PT = 8, PB = 22;
   const cw = W - PL - PR, ch = H - PT - PB;
   const n = monthly.length;
   if (n === 0) return null;
@@ -351,6 +351,67 @@ function TurnoverChart({ monthly }: { monthly: BacktestMonthlyReturn[] }) {
 }
 
 // ---------------------------------------------------------------------------
+// Annual excess return bar chart
+// ---------------------------------------------------------------------------
+
+function AnnualExcessChart({ monthly, label }: { monthly: BacktestMonthlyReturn[]; label: string }) {
+  const yearMap = new Map<string, { port: number; bench: number }>();
+  for (const m of monthly) {
+    const year = m.date.slice(0, 4);
+    if (!yearMap.has(year)) yearMap.set(year, { port: 1, bench: 1 });
+    const e = yearMap.get(year)!;
+    e.port *= 1 + (m.portfolio_net ?? 0);
+    e.bench *= 1 + (m.benchmark ?? 0);
+  }
+  const bars = Array.from(yearMap.entries())
+    .map(([year, v]) => ({ year, excess: v.port - v.bench }))
+    .sort((a, b) => a.year.localeCompare(b.year));
+
+  if (bars.length === 0) return null;
+
+  const W = 460, H = 110, PL = 34, PR = 8, PT = 8, PB = 20;
+  const cw = W - PL - PR, ch = H - PT - PB;
+  const maxAbs = Math.max(...bars.map(b => Math.abs(b.excess)), 0.04);
+  const yZero = PT + ch / 2;
+  const yScale = (v: number) => yZero - (v / maxAbs) * (ch / 2);
+  const barW = Math.max(2, (cw / bars.length) * 0.65);
+  const color = MODEL_COLORS[label] ?? '#6366f1';
+
+  return (
+    <svg viewBox={`0 0 ${W} ${H}`} className="w-full h-auto">
+      <line x1={PL} y1={yZero.toFixed(1)} x2={W - PR} y2={yZero.toFixed(1)} stroke="#94a3b8" strokeWidth="1" />
+      {[maxAbs * 0.5, maxAbs].map(v => [v, -v]).flat().map(v => {
+        const y = yScale(v);
+        if (y < PT - 2 || y > H - PB + 2) return null;
+        return (
+          <g key={v}>
+            <line x1={PL} y1={y.toFixed(1)} x2={W - PR} y2={y.toFixed(1)} stroke="#e2e8f0" strokeWidth="1" strokeDasharray="3 2" />
+            <text x={PL - 3} y={y} textAnchor="end" dominantBaseline="middle" fontSize="7.5" fill="#94a3b8">
+              {v >= 0 ? '+' : ''}{(v * 100).toFixed(0)}%
+            </text>
+          </g>
+        );
+      })}
+      {bars.map((b, i) => {
+        const x = PL + (i / bars.length) * cw + ((cw / bars.length) - barW) / 2;
+        const y1 = yScale(b.excess);
+        const barH = Math.abs(y1 - yZero);
+        return (
+          <g key={b.year}>
+            <rect x={x.toFixed(1)} y={(b.excess >= 0 ? y1 : yZero).toFixed(1)}
+                  width={barW.toFixed(1)} height={Math.max(1, barH).toFixed(1)}
+                  fill={b.excess >= 0 ? color : '#ef4444'} opacity="0.75" />
+            <text x={(x + barW / 2).toFixed(1)} y={H - 3} textAnchor="middle" fontSize="7.5" fill="#94a3b8">
+              {b.year.slice(2)}
+            </text>
+          </g>
+        );
+      })}
+    </svg>
+  );
+}
+
+// ---------------------------------------------------------------------------
 // Detail panel — for a selected backtest
 // ---------------------------------------------------------------------------
 
@@ -366,19 +427,23 @@ function BacktestDetail({ label }: { label: string }) {
   const displayLabel = MODEL_LABELS[label] ?? label;
 
   return (
-    <div className="space-y-6">
+    <div className="grid grid-cols-1 xl:grid-cols-2 gap-4">
       <div>
-        <h3 className="text-sm font-semibold text-slate-700 mb-3">
-          Sub-period Breakdown — {displayLabel}
-        </h3>
+        <h3 className="text-xs font-semibold text-slate-600 mb-2">Sub-period Breakdown</h3>
         <SubperiodTable monthly={monthly} />
       </div>
-      <div>
-        <h3 className="text-sm font-semibold text-slate-700 mb-2">
-          Monthly Turnover — {displayLabel}
-        </h3>
-        <div className="rounded-xl border border-slate-200 p-4 bg-white">
-          <TurnoverChart monthly={monthly} />
+      <div className="space-y-3">
+        <div>
+          <h3 className="text-xs font-semibold text-slate-600 mb-1">Annual Excess Return</h3>
+          <div className="rounded-lg border border-slate-200 p-2 bg-white">
+            <AnnualExcessChart monthly={monthly} label={label} />
+          </div>
+        </div>
+        <div>
+          <h3 className="text-xs font-semibold text-slate-600 mb-1">Monthly Turnover — {displayLabel}</h3>
+          <div className="rounded-lg border border-slate-200 p-2 bg-white">
+            <TurnoverChart monthly={monthly} />
+          </div>
         </div>
       </div>
     </div>
@@ -408,16 +473,17 @@ export default function BacktestsPage() {
     setSelected(prev => (prev === label ? null : label));
 
   return (
-    <div className="space-y-10">
+    <div className="space-y-5">
       {/* Header */}
       <div>
-        <h1 className="text-3xl font-bold tracking-tight text-slate-900">Portfolio Backtests</h1>
-        <p className="mt-2 text-sm text-slate-500 max-w-2xl">
-          Layer 2 mean-variance optimised portfolios using a Barra-style factor risk model
-          (K=24: market + 11 sector dummies + 12 style factors; Ledoit-Wolf shrinkage).
-          Alpha scores converted to long-only S&P 500 weights subject to a 5% tracking error
-          budget, 3% per-stock cap, and ±5% active sector deviation. TC assumed 7.5bps one-way.
-          Solver: CLARABEL. Period: 2010–2023 (in-sample calibration).
+        <div className="flex items-center gap-3 mb-2">
+          <span className="px-2.5 py-1 rounded-lg bg-indigo-100 text-indigo-700 text-xs font-bold uppercase tracking-wider">L2</span>
+          <span className="text-xs text-slate-400 font-medium uppercase tracking-wider">Portfolio Optimization · 2010–2023</span>
+        </div>
+        <h1 className="text-2xl font-bold tracking-tight text-slate-900">Portfolio Backtests</h1>
+        <p className="mt-1 text-xs text-slate-500 max-w-2xl leading-relaxed">
+          Mean-variance optimised portfolios — Barra K=24 factor risk model (LW shrinkage), CLARABEL solver.
+          Long-only S&P 500, 5% TE budget, 3% per-stock cap, ±5% active sector deviation, 7.5bps TC.
         </p>
       </div>
 
@@ -430,14 +496,14 @@ export default function BacktestsPage() {
 
       {/* Loading state */}
       {!error && !summaries && (
-        <div className="rounded-xl border border-slate-200 bg-slate-50 px-4 py-12 text-center text-sm text-slate-400">
+        <div className="rounded-xl border border-slate-200 bg-slate-50 px-4 py-8 text-center text-sm text-slate-400">
           Loading backtest results…
         </div>
       )}
 
       {/* Empty state */}
       {summaries && summaries.length === 0 && (
-        <div className="rounded-xl border border-slate-200 bg-slate-50 px-4 py-12 text-center">
+        <div className="rounded-xl border border-slate-200 bg-slate-50 px-4 py-8 text-center">
           <p className="text-sm font-medium text-slate-600">No backtest results yet.</p>
           <p className="text-xs text-slate-400 mt-1">
             Run: <code className="bg-slate-100 px-1 rounded">conda run -n skypilot-alpha python -m scripts.run_layer2_backtest --config m019_barra</code>
@@ -445,33 +511,31 @@ export default function BacktestsPage() {
         </div>
       )}
 
-      {/* Summary table */}
+      {/* Summary table + sub-period detail side by side */}
       {summaries && summaries.length > 0 && (
         <div>
-          <div className="flex items-center justify-between mb-3">
-            <h2 className="text-base font-semibold text-slate-800">Performance Summary</h2>
-            <span className="text-xs text-slate-400">Click a row for sub-period breakdown</span>
+          <div className="flex items-center justify-between mb-2">
+            <h2 className="text-sm font-semibold text-slate-700">Performance Summary</h2>
+            <span className="text-xs text-slate-400">Click a row for detail</span>
           </div>
           <SummaryTable rows={summaries} selected={selected} onSelect={handleSelect} />
+          {selected && (
+            <div className="mt-3 rounded-xl border border-indigo-100 bg-indigo-50/20 p-4">
+              <BacktestDetail label={selected} />
+            </div>
+          )}
         </div>
       )}
 
       {/* Cumulative return chart */}
       {allMonthly && allMonthly.size > 0 && (
         <div>
-          <h2 className="text-base font-semibold text-slate-800 mb-3">
+          <h2 className="text-sm font-semibold text-slate-700 mb-2">
             Cumulative Return vs S&P 500 (Net of TC, base 100)
           </h2>
-          <div className="rounded-xl border border-slate-200 p-4 bg-white">
+          <div className="rounded-xl border border-slate-200 p-3 bg-white">
             <CumReturnChart allReturns={allMonthly} />
           </div>
-        </div>
-      )}
-
-      {/* Sub-period detail for selected backtest */}
-      {selected && (
-        <div className="rounded-xl border border-indigo-200 bg-indigo-50/30 p-5">
-          <BacktestDetail label={selected} />
         </div>
       )}
     </div>

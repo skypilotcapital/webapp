@@ -24,16 +24,12 @@ interface StatCardProps {
   color?: string;
 }
 
-function StatCard({ label, value, sub, highlight, color }: StatCardProps) {
+function StatInline({ label, value, sub, color }: StatCardProps) {
   return (
-    <div
-      className={`rounded-xl p-3.5 border transition-all ${
-        highlight ? 'bg-indigo-50 border-indigo-100' : 'bg-slate-50 border-slate-100'
-      }`}
-    >
-      <p className="text-xs uppercase tracking-[0.15em] text-slate-400 font-bold mb-1">{label}</p>
-      <p className={`text-xl font-black ${color ?? 'text-slate-800'}`}>{value ?? '-'}</p>
-      {sub && <p className="text-xs text-slate-400 mt-0.5">{sub}</p>}
+    <div className="flex flex-col items-start min-w-[56px]">
+      <span className="text-[9px] uppercase tracking-[0.1em] text-slate-400 font-semibold">{label}</span>
+      <span className={`text-sm font-bold tabular-nums leading-tight ${color ?? 'text-slate-800'}`}>{value ?? '—'}</span>
+      {sub && <span className="text-[9px] text-slate-400">{sub}</span>}
     </div>
   );
 }
@@ -123,85 +119,50 @@ export function FactorDetailPanel({ row }: FactorDetailPanelProps) {
         </div>
       </CardHeader>
 
-      <CardContent className="space-y-8">
+      <CardContent className="space-y-5">
         <div>
-          <h3 className="text-xs uppercase tracking-[0.2em] text-slate-400 font-bold mb-4">Signal Statistics</h3>
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-            <div className="space-y-3">
-              <div className="flex items-center gap-2">
-                <span className="w-2.5 h-2.5 rounded-full bg-indigo-500 shrink-0" />
-                <span className="text-sm font-bold text-indigo-700 uppercase tracking-wider">Full Universe</span>
+          <h3 className="text-xs uppercase tracking-[0.2em] text-slate-400 font-bold mb-2">Signal Statistics</h3>
+          <div className="space-y-1.5">
+            {/* Full Universe strip */}
+            <div className="flex flex-wrap items-center gap-x-5 gap-y-1.5 rounded-lg border border-indigo-100 bg-indigo-50/40 px-3 py-2">
+              <div className="flex items-center gap-2 shrink-0 border-r border-indigo-100 pr-4 mr-1">
+                <span className="w-2 h-2 rounded-full bg-indigo-500 shrink-0" />
+                <span className="text-xs font-bold text-indigo-700 uppercase tracking-wider whitespace-nowrap">Full Universe</span>
                 <QBadge q={row.full_signal_quality} />
               </div>
-              <div className="grid grid-cols-2 gap-2">
-                <StatCard
-                  label="Mean IC"
-                  value={fmtIC(row.full_mean_ic)}
-                  sub={`t = ${fmtTStat(row.full_ic_tstat)}`}
-                  highlight={(row.full_ic_tstat ?? 0) > 1.65}
-                  color={(row.full_mean_ic ?? 0) * row.direction > 0 ? 'text-emerald-700' : 'text-red-600'}
-                />
-                <StatCard
-                  label="t-Statistic"
-                  value={fmtTStat(row.full_ic_tstat)}
-                  sub={`p = ${row.full_ic_pvalue?.toFixed(3) ?? '-'}`}
-                  highlight={(row.full_ic_tstat ?? 0) > 1.65}
-                />
-                <StatCard
-                  label="Q5-Q1 Spread"
-                  value={fmtSpread(row.full_q5q1_spread_ann)}
-                  sub="annualised"
-                  color={(row.full_q5q1_spread_ann ?? 0) * row.direction > 0 ? 'text-emerald-700' : 'text-red-600'}
-                />
-                <StatCard label="Monotonicity" value={fmtMono(row.full_monotonicity)} sub="% months Q5 > Q1" />
-              </div>
+              <StatInline label="Mean IC" value={fmtIC(row.full_mean_ic)} color={(row.full_mean_ic ?? 0) * row.direction > 0 ? 'text-emerald-700' : 'text-red-600'} />
+              <StatInline label="t-Stat" value={fmtTStat(row.full_ic_tstat)} sub={`p = ${row.full_ic_pvalue?.toFixed(3) ?? '-'}`} />
+              <StatInline label="Q5−Q1" value={fmtSpread(row.full_q5q1_spread_ann)} sub="ann." color={(row.full_q5q1_spread_ann ?? 0) * row.direction > 0 ? 'text-emerald-700' : 'text-red-600'} />
+              <StatInline label="Monoton." value={fmtMono(row.full_monotonicity)} sub="Q5 > Q1" />
             </div>
-
-            <div className="space-y-3">
-              <div className="flex items-center gap-2">
-                <span className="w-2.5 h-2.5 rounded-full bg-sky-400 shrink-0" />
-                <span className="text-sm font-bold text-sky-700 uppercase tracking-wider">Within Sector</span>
+            {/* Within Sector strip */}
+            <div className="flex flex-wrap items-center gap-x-5 gap-y-1.5 rounded-lg border border-sky-100 bg-sky-50/40 px-3 py-2">
+              <div className="flex items-center gap-2 shrink-0 border-r border-sky-100 pr-4 mr-1">
+                <span className="w-2 h-2 rounded-full bg-sky-400 shrink-0" />
+                <span className="text-xs font-bold text-sky-700 uppercase tracking-wider whitespace-nowrap">Within Sector</span>
                 <QBadge q={row.ws_signal_quality} />
               </div>
-              <div className="grid grid-cols-2 gap-2">
-                <StatCard
-                  label="Mean IC"
-                  value={fmtIC(row.ws_mean_ic)}
-                  sub={`t = ${fmtTStat(row.ws_ic_tstat)}`}
-                  highlight={(row.ws_ic_tstat ?? 0) > 1.65}
-                  color={(row.ws_mean_ic ?? 0) * row.direction > 0 ? 'text-emerald-700' : 'text-red-600'}
-                />
-                <StatCard
-                  label="t-Statistic"
-                  value={fmtTStat(row.ws_ic_tstat)}
-                  sub={`p = ${row.ws_ic_pvalue?.toFixed(3) ?? '-'}`}
-                  highlight={(row.ws_ic_tstat ?? 0) > 1.65}
-                />
-                <StatCard
-                  label="Q5-Q1 Spread"
-                  value={fmtSpread(row.ws_q5q1_spread_ann)}
-                  sub="annualised"
-                  color={(row.ws_q5q1_spread_ann ?? 0) * row.direction > 0 ? 'text-emerald-700' : 'text-red-600'}
-                />
-                <StatCard label="Monotonicity" value={fmtMono(row.ws_monotonicity)} sub="% months Q5 > Q1" />
-              </div>
+              <StatInline label="Mean IC" value={fmtIC(row.ws_mean_ic)} color={(row.ws_mean_ic ?? 0) * row.direction > 0 ? 'text-emerald-700' : 'text-red-600'} />
+              <StatInline label="t-Stat" value={fmtTStat(row.ws_ic_tstat)} sub={`p = ${row.ws_ic_pvalue?.toFixed(3) ?? '-'}`} />
+              <StatInline label="Q5−Q1" value={fmtSpread(row.ws_q5q1_spread_ann)} sub="ann." color={(row.ws_q5q1_spread_ann ?? 0) * row.direction > 0 ? 'text-emerald-700' : 'text-red-600'} />
+              <StatInline label="Monoton." value={fmtMono(row.ws_monotonicity)} sub="Q5 > Q1" />
             </div>
           </div>
 
           {row.full_mean_ic != null && row.ws_mean_ic != null && (
-            <div className="mt-4 rounded-xl bg-slate-50 border border-slate-100 px-4 py-3">
+            <div className="mt-2 rounded-lg bg-slate-50 border border-slate-100 px-3 py-2">
               <p className="text-xs text-slate-500">
-                <span className="font-semibold text-slate-700">Sector normalisation effect: </span>
+                <span className="font-semibold text-slate-700">Sector normalisation: </span>
                 Within-sector IC is{' '}
                 {Math.abs(row.ws_mean_ic) > Math.abs(row.full_mean_ic) ? (
                   <span className="text-emerald-600 font-semibold">stronger</span>
                 ) : (
                   <span className="text-amber-600 font-semibold">weaker</span>
                 )}{' '}
-                than full-universe IC (Delta = {fmtIC(row.ws_mean_ic - row.full_mean_ic)}).{' '}
+                than full-universe IC (Δ = {fmtIC(row.ws_mean_ic - row.full_mean_ic)}).{' '}
                 {Math.abs(row.ws_mean_ic) > Math.abs(row.full_mean_ic)
-                  ? "The factor's predictive power is amplified when controlled for sector effects — a good sign for the sector-by-sector RF model."
-                  : 'The factor predicts better across sectors than within them — cross-sector dispersion is part of the signal.'}
+                  ? "Amplified within-sector — good for the sector-by-sector RF model."
+                  : 'Cross-sector dispersion is part of the signal.'}
               </p>
             </div>
           )}
