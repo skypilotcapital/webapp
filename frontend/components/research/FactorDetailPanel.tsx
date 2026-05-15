@@ -42,9 +42,9 @@ const QUALITY_BG: Record<string, string> = {
 };
 
 function QBadge({ q }: { q: string | null }) {
-  if (!q) return <span className="text-slate-300 text-sm">-</span>;
+  if (!q) return <span className="text-slate-300 text-xs">-</span>;
   return (
-    <span className={`inline-flex px-3 py-1 rounded-lg text-sm font-bold ${QUALITY_BG[q] ?? 'bg-slate-100 text-slate-600'}`}>
+    <span className={`inline-flex px-2 py-0.5 rounded text-xs font-bold ${QUALITY_BG[q] ?? 'bg-slate-100 text-slate-600'}`}>
       {q}
     </span>
   );
