@@ -107,8 +107,8 @@ export default function ModelsPage() {
   return (
     <div>
       {/* Page header — above the split layout */}
-      <div className="mb-8">
-        <div className="flex items-center gap-3 mb-3">
+      <div className="mb-4">
+        <div className="flex items-center gap-3 mb-2">
           <span className="px-2.5 py-1 rounded-lg bg-indigo-100 text-indigo-700 text-xs font-bold uppercase tracking-wider">
             P02
           </span>
@@ -116,11 +116,10 @@ export default function ModelsPage() {
             Alpha Model Research · Walk-Forward Backtest
           </span>
         </div>
-        <h1 className="text-3xl font-bold text-[#0F172A] tracking-tight">Alpha Model Analysis</h1>
-        <p className="text-sm text-slate-500 mt-2 leading-relaxed font-medium max-w-3xl">
-          Walk-forward backtest results — sector-by-sector models (RF, LightGBM, Lasso, ensemble variants).
-          Each model is trained on an expanding window; alpha score = within-sector percentile of raw prediction.
-          Select a model to expand the diagnostic view.
+        <h1 className="text-2xl font-bold text-[#0F172A] tracking-tight">Alpha Model Analysis</h1>
+        <p className="text-xs text-slate-500 mt-1 leading-relaxed max-w-3xl">
+          Walk-forward backtest results — sector-by-sector models (RF, LightGBM, Lasso, ensembles).
+          Trained on expanding windows; alpha score = within-sector percentile. Select a model for diagnostics.
         </p>
       </div>
 

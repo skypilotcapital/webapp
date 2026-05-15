@@ -71,8 +71,8 @@ export default function FactorsPage() {
   return (
     <div>
       {/* Page header — above the split layout */}
-      <div className="mb-8">
-        <div className="flex items-center gap-3 mb-3">
+      <div className="mb-4">
+        <div className="flex items-center gap-3 mb-2">
           <span className="px-2.5 py-1 rounded-lg bg-indigo-100 text-indigo-700 text-xs font-bold uppercase tracking-wider">
             P01
           </span>
@@ -80,11 +80,10 @@ export default function FactorsPage() {
             Gate 2 Validation · Tier 1 Signal Research
           </span>
         </div>
-        <h1 className="text-3xl font-bold text-[#0F172A] tracking-tight">Factor Quintile Analysis</h1>
-        <p className="text-sm text-slate-500 mt-2 leading-relaxed font-medium max-w-3xl">
-          Gate 2 validation of the v1 factor layer. For each factor, stocks are sorted into quintiles
-          at each month-end and equal-weighted 1-month forward returns are measured.
-          Factors are grouped by family in the left panel. Select any factor to view its diagnostic charts.
+        <h1 className="text-2xl font-bold text-[#0F172A] tracking-tight">Factor Quintile Analysis</h1>
+        <p className="text-xs text-slate-500 mt-1 leading-relaxed max-w-3xl">
+          For each factor, stocks are sorted into quintiles at each month-end and equal-weighted
+          1-month forward returns are measured. Select any factor from the left panel to view IC and quintile charts.
         </p>
       </div>
 
