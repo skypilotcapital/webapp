@@ -24,12 +24,24 @@
 ## Key Endpoints
 
 All under `/api/v1/research/`:
-- `p01/scorecard` — P01 factor scorecard
-- `p01/factor/{name}/detail` — rolling IC + quintile returns for one factor
-- `models/scorecard` — alpha model scorecard (all models)
-- `models/ic-correlation` — pairwise IC correlation matrix (base models only)
+
+### P01 Factor Quintile Analysis
+- `p01/scorecard?universe=sp500|russell2500` — P01 factor scorecard (64 factors; default: sp500)
+- `p01/factor/{name}/detail?universe=sp500|russell2500` — rolling IC + quintile returns for one factor
+
+### P02 Alpha Models
+- `models/scorecard?universe=sp500|russell2500` — alpha model scorecard (sp500: M* models; russell2500: MR* models)
+- `models/ic-correlation` — pairwise IC correlation matrix (base models only, S&P 500)
 - `models/{id}/ic` — monthly IC series
 - `models/{id}/quintiles` — quintile returns
 - `models/{id}/stability` — rank autocorr + transition matrices
 - `models/{id}/feature-importance` — SHAP feature importance
 - `models/{id}/sector-summary` — per-sector IC breakdown
+
+## Research UI (4-tab layout)
+
+Research page has 4 flat tabs under `/research/`:
+- `/research/factors` — S&P 500 Factor Quintile Analysis (P01, universe=sp500)
+- `/research/models` — S&P 500 Alpha Models (P02, universe=sp500, model_id prefix M*)
+- `/research/r2500-factors` — Russell 2500 Factor Quintile Analysis (P01, universe=russell2500)
+- `/research/r2500-models` — Russell 2500 Alpha Models (P02, universe=russell2500, model_id prefix MR*)
