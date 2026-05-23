@@ -72,14 +72,15 @@ function fmtMono(v: number | null) {
 
 interface FactorDetailPanelProps {
   row: P01ScorecardRow;
+  universe?: string;
 }
 
-export function FactorDetailPanel({ row }: FactorDetailPanelProps) {
+export function FactorDetailPanel({ row, universe = 'sp500' }: FactorDetailPanelProps) {
   const [viewMode, setViewMode] = useState<ViewMode>('side-by-side');
 
   const { data, error, isLoading } = useSWR(
-    `p01-detail-${row.factor}`,
-    () => fetchP01FactorDetail(row.factor),
+    `p01-detail-${universe}-${row.factor}`,
+    () => fetchP01FactorDetail(row.factor, universe),
     { revalidateOnFocus: false }
   );
 

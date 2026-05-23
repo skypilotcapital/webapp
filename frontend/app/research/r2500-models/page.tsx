@@ -5,7 +5,6 @@ import useSWR from 'swr';
 import { fetchModelScorecard } from '@/lib/api';
 import { ModelSidebar } from '@/components/research/ModelSidebar';
 import { ModelDetailPanel } from '@/components/research/ModelDetailPanel';
-import { ModelICCorrelationMatrix } from '@/components/research/ModelICCorrelationMatrix';
 
 const NAV_HEIGHT = 92; // px — sticky site header
 
@@ -28,9 +27,9 @@ function ModelInterpretationBox() {
           <div>
             <p className="font-semibold text-slate-700 mb-1">Mean IC — Information Coefficient</p>
             <p className="leading-relaxed">
-              At each month-end, all stocks in a sector are ranked by the model's predicted alpha score and by their
-              realized forward return. IC is the <strong>Spearman rank correlation</strong> between those two rankings.
-              A positive IC means higher-scored stocks tended to outperform that month.
+              At each month-end, all stocks in a sector are ranked by the model&apos;s predicted alpha score and by
+              their realized forward return. IC is the <strong>Spearman rank correlation</strong> between those two
+              rankings. A positive IC means higher-scored stocks tended to outperform that month.
             </p>
             <div className="grid grid-cols-3 gap-x-4 gap-y-1 mt-1.5 font-mono">
               <div><span className="text-amber-600 font-semibold">0.00–0.02</span> — weak, marginal</div>
@@ -58,8 +57,8 @@ function ModelInterpretationBox() {
           <div>
             <p className="font-semibold text-slate-700 mb-1">Grinold-Kahn: IR ≈ IC × √Breadth</p>
             <p className="leading-relaxed">
-              Breadth ≈ 500 stocks × 12 months = 6,000. IC of 0.01 → IR ≈ 0.01 × √6,000 ≈ 0.77 —
-              competitive for a systematic strategy. Small IC matters when breadth is high.
+              Breadth ≈ 2500 stocks × 12 months = 30,000 for Russell 2500.
+              IC of 0.01 → IR ≈ 0.01 × √30,000 ≈ 1.73 — potentially high information ratio from SMID breadth.
             </p>
           </div>
         </div>
@@ -68,31 +67,8 @@ function ModelInterpretationBox() {
   );
 }
 
-function CollapsibleCorrelationMatrix() {
-  const [open, setOpen] = useState(false);
-  return (
-    <div className="rounded-xl border border-slate-200 bg-slate-50/60">
-      <button
-        onClick={() => setOpen((v) => !v)}
-        className="w-full flex items-center justify-between px-4 py-3 font-semibold text-xs text-slate-700 hover:bg-slate-100/60 rounded-xl transition-colors"
-      >
-        <span className="flex items-center gap-2">
-          <span className="text-slate-400">⊞</span>
-          IC Correlation Matrix — ensemble design tool
-        </span>
-        <span className="text-slate-400 text-[10px]">{open ? '▲' : '▼'}</span>
-      </button>
-      {open && (
-        <div className="border-t border-slate-200">
-          <ModelICCorrelationMatrix />
-        </div>
-      )}
-    </div>
-  );
-}
-
-export default function ModelsPage() {
-  const universe = 'sp500';
+export default function R2500ModelsPage() {
+  const universe = 'russell2500';
   const [selectedModel, setSelectedModel] = useState<string | null>(null);
 
   const { data, error, isLoading } = useSWR(
@@ -116,13 +92,13 @@ export default function ModelsPage() {
             P02
           </span>
           <span className="text-xs text-slate-400 font-medium uppercase tracking-wider">
-            Alpha Model Research · Walk-Forward Backtest
+            Alpha Model Research · Walk-Forward Backtest · Russell 2500
           </span>
         </div>
-        <h1 className="text-2xl font-bold text-[#0F172A] tracking-tight">Alpha Model Analysis</h1>
+        <h1 className="text-2xl font-bold text-[#0F172A] tracking-tight">Alpha Model Analysis — Russell 2500</h1>
         <p className="text-xs text-slate-500 mt-1 leading-relaxed max-w-3xl">
-          Walk-forward backtest results — sector-by-sector models (RF, LightGBM, Lasso, ensembles).
-          Trained on expanding windows; alpha score = within-sector percentile. Select a model for diagnostics.
+          Walk-forward backtest results for SMID-cap universe (ranks 501–3000 by market cap) — sector-by-sector RF models
+          with z-scores recalibrated within R2500 sector peers. Select a model for diagnostics.
         </p>
       </div>
 
@@ -138,11 +114,10 @@ export default function ModelsPage() {
         </div>
       )}
 
-      {/* Always-visible info boxes — above the split layout */}
+      {/* Always-visible info box — above the split layout */}
       {data && (
-        <div className="mb-4 space-y-2">
+        <div className="mb-4">
           <ModelInterpretationBox />
-          <CollapsibleCorrelationMatrix />
         </div>
       )}
 

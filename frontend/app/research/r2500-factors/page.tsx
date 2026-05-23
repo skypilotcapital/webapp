@@ -55,8 +55,8 @@ function ICMethodologyBox() {
   );
 }
 
-export default function FactorsPage() {
-  const universe = 'sp500';
+export default function R2500FactorsPage() {
+  const universe = 'russell2500';
   const [selectedFactor, setSelectedFactor] = useState<string | null>(null);
 
   const { data, error, isLoading } = useSWR(
@@ -80,13 +80,13 @@ export default function FactorsPage() {
             P01
           </span>
           <span className="text-xs text-slate-400 font-medium uppercase tracking-wider">
-            Gate 2 Validation · Tier 1 Signal Research
+            Gate 2 Validation · Tier 1 Signal Research · Russell 2500
           </span>
         </div>
-        <h1 className="text-2xl font-bold text-[#0F172A] tracking-tight">Factor Quintile Analysis</h1>
+        <h1 className="text-2xl font-bold text-[#0F172A] tracking-tight">Factor Quintile Analysis — Russell 2500</h1>
         <p className="text-xs text-slate-500 mt-1 leading-relaxed max-w-3xl">
-          For each factor, stocks are sorted into quintiles at each month-end and equal-weighted
-          1-month forward returns are measured. Select any factor from the left panel to view IC and quintile charts.
+          For each factor, SMID-cap stocks (ranks 501–3000 by market cap) are sorted into quintiles at each month-end
+          and equal-weighted 1-month forward returns are measured. Select any factor to view IC and quintile charts.
         </p>
       </div>
 

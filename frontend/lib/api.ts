@@ -55,12 +55,14 @@ export const fetchMacroBetaHealth = () => apiFetch<MacroBetaHealth>('/api/v1/mac
 export const fetchMacroBetaComponents = () => apiFetch<MacroBetaComponents>('/api/v1/macro-beta/components');
 
 // P01 Factor Quintile Analysis
-export const fetchP01Scorecard = () => apiFetch<P01ScorecardRow[]>('/api/v1/research/p01/scorecard');
-export const fetchP01FactorDetail = (factor: string) =>
-  apiFetch<P01FactorDetail>(`/api/v1/research/p01/factor/${encodeURIComponent(factor)}/detail`);
+export const fetchP01Scorecard = (universe = 'sp500') =>
+  apiFetch<P01ScorecardRow[]>(`/api/v1/research/p01/scorecard?universe=${encodeURIComponent(universe)}`);
+export const fetchP01FactorDetail = (factor: string, universe = 'sp500') =>
+  apiFetch<P01FactorDetail>(`/api/v1/research/p01/factor/${encodeURIComponent(factor)}/detail?universe=${encodeURIComponent(universe)}`);
 
 // Alpha Model Results
-export const fetchModelScorecard = () => apiFetch<ModelScorecardRow[]>('/api/v1/research/models/scorecard');
+export const fetchModelScorecard = (universe = 'sp500') =>
+  apiFetch<ModelScorecardRow[]>(`/api/v1/research/models/scorecard?universe=${encodeURIComponent(universe)}`);
 export const fetchModelICSeries = (modelId: string, sector = 'ALL') =>
   apiFetch<ModelICPoint[]>(`/api/v1/research/models/${modelId}/ic?sector=${encodeURIComponent(sector)}`);
 export const fetchModelQuintiles = (modelId: string, sector = 'ALL') =>

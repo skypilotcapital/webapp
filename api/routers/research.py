@@ -107,10 +107,12 @@ class P01FactorDetail(BaseModel):
 # ---------------------------------------------------------------------------
 
 @router.get("/p01/scorecard", response_model=List[P01ScorecardRow])
-def get_p01_scorecard():
+def get_p01_scorecard(universe: str = "sp500"):
     """
     Return aggregate IC and quintile stats for all P01 factors.
     Ordered by factor_family, then factor name.
+
+    universe: 'sp500' (default) or 'russell2500'
     """
     query = text("""
         SELECT
@@ -123,6 +125,7 @@ def get_p01_scorecard():
             ws_icir, ws_q5q1_spread_ann, ws_monotonicity, ws_signal_quality,
             ws_q1_avg, ws_q2_avg, ws_q3_avg, ws_q4_avg, ws_q5_avg
         FROM research.p01_scorecard
+        WHERE data_universe = :universe
         ORDER BY
             CASE factor_family
                 WHEN 'Momentum'  THEN 1
@@ -137,38 +140,37 @@ def get_p01_scorecard():
             factor
     """)
     with get_db() as conn:
-        rows = conn.execute(query).fetchall()
+        rows = conn.execute(query, {"universe": universe}).fetchall()
 
     if not rows:
         raise HTTPException(
             status_code=404,
-            detail="No P01 scorecard data found. Run the analysis script first.",
+            detail=f"No P01 scorecard data found for universe '{universe}'. Run the analysis script first.",
         )
     return [P01ScorecardRow(**_clean(row)) for row in rows]
 
 
 @router.get("/p01/factor/{factor_name}/detail", response_model=P01FactorDetail)
-def get_p01_factor_detail(factor_name: str):
+def get_p01_factor_detail(factor_name: str, universe: str = "sp500"):
     """
     Return full time-series data for a single factor:
       - Monthly IC (full-universe + within-sector) — for rolling IC chart
       - Monthly quintile returns for both universes — for cumulative return chart
 
-    The frontend computes:
-      - Rolling 24M IC from the ic_series
-      - Cumulative returns by chaining monthly quintile returns
+    universe: 'sp500' (default) or 'russell2500'
+    The frontend computes rolling 24M IC and cumulative returns.
     """
-    # Validate factor exists
+    # Validate factor exists for the given universe
     with get_db() as conn:
         exists = conn.execute(
-            text("SELECT 1 FROM research.p01_scorecard WHERE factor = :f"),
-            {"f": factor_name},
+            text("SELECT 1 FROM research.p01_scorecard WHERE factor = :f AND data_universe = :u"),
+            {"f": factor_name, "u": universe},
         ).fetchone()
 
     if not exists:
         raise HTTPException(
             status_code=404,
-            detail=f"Factor '{factor_name}' not found in P01 scorecard.",
+            detail=f"Factor '{factor_name}' not found in P01 scorecard for universe '{universe}'.",
         )
 
     # IC series
@@ -177,10 +179,10 @@ def get_p01_factor_detail(factor_name: str):
             text("""
                 SELECT date::text, ic_full, ic_within
                 FROM research.p01_ic_series
-                WHERE factor = :f
+                WHERE factor = :f AND data_universe = :u
                 ORDER BY date
             """),
-            {"f": factor_name},
+            {"f": factor_name, "u": universe},
         ).fetchall()
 
     ic_series = [P01ICPoint(**dict(r._mapping)) for r in ic_rows]
@@ -191,10 +193,10 @@ def get_p01_factor_detail(factor_name: str):
             text("""
                 SELECT date::text, q1, q2, q3, q4, q5
                 FROM research.p01_quintile_returns
-                WHERE factor = :f AND universe = 'full'
+                WHERE factor = :f AND universe = 'full' AND data_universe = :u
                 ORDER BY date
             """),
-            {"f": factor_name},
+            {"f": factor_name, "u": universe},
         ).fetchall()
 
     # Quintile returns — within sector
@@ -203,10 +205,10 @@ def get_p01_factor_detail(factor_name: str):
             text("""
                 SELECT date::text, q1, q2, q3, q4, q5
                 FROM research.p01_quintile_returns
-                WHERE factor = :f AND universe = 'within_sector'
+                WHERE factor = :f AND universe = 'within_sector' AND data_universe = :u
                 ORDER BY date
             """),
-            {"f": factor_name},
+            {"f": factor_name, "u": universe},
         ).fetchall()
 
     return P01FactorDetail(
@@ -292,19 +294,25 @@ def get_model_ic_correlation():
 
 
 @router.get("/models/scorecard", response_model=List[ModelScorecardRow])
-def get_model_scorecard():
+def get_model_scorecard(universe: str = "sp500"):
     """
     Return aggregate IC stats and quintile spread for all published alpha models.
     One row per model, ordered by model_id.
 
-    sector_*_monthly is the preferred significance metric:
-    one average sector IC per rebalance month.
+    universe: 'sp500' (default) returns M001-M019 (model_id NOT LIKE 'MR%').
+              'russell2500' returns MR001, MR013, ... (model_id LIKE 'MR%').
 
-    sector_*_panel pools all date×sector ICs and is exposed as supplementary
-    context only because that independence assumption is looser.
+    sector_*_monthly is the preferred significance metric.
+    sector_*_panel pools all date×sector ICs (supplementary only).
     """
+    # Build universe filter using hardcoded clause — universe param is validated by comparison
+    if universe == "russell2500":
+        universe_filter = "model_id LIKE 'MR%'"
+    else:
+        universe_filter = "model_id NOT LIKE 'MR%'"
+
     with get_db() as conn:
-        rows = conn.execute(text("""
+        rows = conn.execute(text(f"""
             SELECT
                 model_id, description, target, feature_set, feature_count, model_type,
                 backtest_start::text, backtest_end::text, n_months,
@@ -314,11 +322,12 @@ def get_model_scorecard():
                 univ_mean_ic, univ_ic_std, univ_ic_tstat, univ_ic_hit_rate,
                 q5_minus_q1_avg, q5_minus_q1_ann
             FROM research.model_scorecard
+            WHERE {universe_filter}
             ORDER BY model_id
         """)).fetchall()
 
     if not rows:
-        raise HTTPException(status_code=404, detail="No model results found. Run compute_research_tables.py first.")
+        raise HTTPException(status_code=404, detail=f"No model results found for universe '{universe}'. Run compute_research_tables.py first.")
     return [ModelScorecardRow(**_clean(r)) for r in rows]
 
 

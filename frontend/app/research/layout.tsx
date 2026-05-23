@@ -4,8 +4,10 @@ import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 
 const RESEARCH_TABS = [
-  { href: '/research/factors', label: 'P01 · Factor Quintile Analysis' },
-  { href: '/research/models', label: 'P02 · Alpha Models' },
+  { href: '/research/factors',       label: 'S&P 500 — Factors' },
+  { href: '/research/models',        label: 'S&P 500 — Models' },
+  { href: '/research/r2500-factors', label: 'Russell 2500 — Factors' },
+  { href: '/research/r2500-models',  label: 'Russell 2500 — Models' },
 ];
 
 export default function ResearchLayout({ children }: { children: React.ReactNode }) {
