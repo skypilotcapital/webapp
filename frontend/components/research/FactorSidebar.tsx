@@ -78,7 +78,8 @@ const QUALITY_ORDER: Record<string, number> = {
   Strong: 0, Moderate: 1, Weak: 2, Investigate: 3,
 };
 
-const FAMILY_ORDER = ['Momentum', 'Technical', 'Quality', 'Valuation', 'Growth', 'Risk', 'Macro'] as const;
+const FAMILY_ORDER = ['Momentum', 'Technical', 'Quality', 'Valuation', 'Growth', 'Risk', 'Macro',
+  'Ownership', 'Insider', 'ShortVol', 'FTD', 'Earnings'] as const;
 
 function cleanFactorName(factor: string): string {
   return factor.replace(/^z_/, '').replace(/_/g, ' ');

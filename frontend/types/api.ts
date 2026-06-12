@@ -141,7 +141,8 @@ export interface MacroBetaComponents {
 export interface P01ScorecardRow {
   factor: string;
   factor_label: string;
-  factor_family: 'Momentum' | 'Technical' | 'Quality' | 'Valuation' | 'Growth' | 'Risk' | 'Macro';
+  factor_family: 'Momentum' | 'Technical' | 'Quality' | 'Valuation' | 'Growth' | 'Risk' | 'Macro'
+    | 'Ownership' | 'Insider' | 'ShortVol' | 'FTD' | 'Earnings';
   direction: 1 | -1;
   n_months: number;
   date_from: string | null;
