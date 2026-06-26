@@ -30,7 +30,7 @@ All under `/api/v1/research/`:
 - `p01/factor/{name}/detail?universe=sp500|russell2500` — rolling IC + quintile returns for one factor
 
 ### P02 Alpha Models
-- `models/scorecard?universe=sp500|russell2500` — alpha model scorecard (sp500: M*+N* models; russell2500: MR*+NR* models)
+- `models/scorecard?universe=sp500|russell2500` — alpha model scorecard (sp500: M*+N*; russell2500: NR* only — legacy MR* are pre-audit and hidden)
 - `models/ic-correlation` — pairwise IC correlation matrix (base models only, S&P 500)
 - `models/{id}/ic` — monthly IC series
 - `models/{id}/quintiles` — quintile returns
@@ -44,9 +44,10 @@ Research page has 4 flat tabs under `/research/`:
 - `/research/factors` — S&P 500 Factor Quintile Analysis (P01, universe=sp500)
 - `/research/models` — S&P 500 Alpha Models (P02, universe=sp500, model_id M* legacy + N* current)
 - `/research/r2500-factors` — Russell 2500 Factor Quintile Analysis (P01, universe=russell2500)
-- `/research/r2500-models` — Russell 2500 Alpha Models (P02, universe=russell2500, model_id MR* legacy + NR* current)
+- `/research/r2500-models` — Russell 2500 Alpha Models (P02, universe=russell2500, model_id NR* only)
 
 Model naming: S&P 500 generation = M*/N*; Russell 2500 generation = the same IDs R-prefixed
-(MR*/NR*). Current production generation = N*/NR* (53-factor superset + new-data block);
-M*/MR* are the frozen historical record. The `models/scorecard` universe filter routes by the
-R prefix: `russell2500` = (MR* OR NR*), `sp500` = everything else.
+(MR*/NR*). Current production generation = N*/NR* (53-factor superset + new-data block).
+The `models/scorecard` universe filter: `russell2500` = NR* only, `sp500` = neither MR* nor NR*
+(i.e. M* + N*). Legacy MR* are hidden — never rebuilt on corrected data (built_from=
+'legacy-pre-audit'), superseded by NR*. M* WERE rebuilt on clean data so they stay on SP500.

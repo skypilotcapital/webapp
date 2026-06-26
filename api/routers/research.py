@@ -299,20 +299,25 @@ def get_model_scorecard(universe: str = "sp500"):
     Return aggregate IC stats and quintile spread for all published alpha models.
     One row per model, ordered by model_id.
 
-    universe: 'sp500' (default) returns S&P 500 models — M001-M019 (legacy) + N000-N015
-              (current N-series). Russell-2500 models (MR*/NR*) are excluded.
-              'russell2500' returns SMID models — MR* (legacy) + NR* (current N-series replay).
+    universe: 'sp500' (default) returns S&P 500 models — M001-M019 (clean-data legacy) +
+              N000-N015 (current N-series). Russell-2500 models (MR*/NR*) are excluded.
+              'russell2500' returns NR* only — the current N-series replay on clean data.
 
     Naming: the S&P 500 generation is M*/N*; the Russell 2500 generation is the same IDs
-    prefixed with R (MR*/NR*). The current production generation is N*/NR*; M*/MR* are the
-    frozen historical record.
+    prefixed with R (MR*/NR*). The current production generation is N*/NR*.
+
+    The legacy MR* models are deliberately NOT shown: they were never rebuilt on the
+    corrected data (built_from='legacy-pre-audit', ~169-month buggy window) and are fully
+    superseded by the NR* series. The M* models, by contrast, WERE rebuilt on clean data
+    (built_from='clean-2026-06') so they remain valid historical reference on the SP500 tab.
 
     sector_*_monthly is the preferred significance metric.
     sector_*_panel pools all date×sector ICs (supplementary only).
     """
-    # Route by model_id prefix. R2500 models are R-prefixed (MR*/NR*); everything else is S&P 500.
+    # Route by model_id prefix. R2500 = NR* (clean); legacy MR* are excluded as pre-audit.
+    # SP500 = everything that is neither MR* nor NR* (i.e. M* + N*).
     if universe == "russell2500":
-        universe_filter = "(model_id LIKE 'MR%' OR model_id LIKE 'NR%')"
+        universe_filter = "model_id LIKE 'NR%'"
     else:
         universe_filter = "(model_id NOT LIKE 'MR%' AND model_id NOT LIKE 'NR%')"
 
