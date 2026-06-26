@@ -30,7 +30,7 @@ All under `/api/v1/research/`:
 - `p01/factor/{name}/detail?universe=sp500|russell2500` — rolling IC + quintile returns for one factor
 
 ### P02 Alpha Models
-- `models/scorecard?universe=sp500|russell2500` — alpha model scorecard (sp500: M*+N*; russell2500: NR* only — legacy MR* are pre-audit and hidden)
+- `models/scorecard?universe=sp500|russell2500` — alpha model scorecard (sp500: N* only; russell2500: NR* only). The legacy M*/MR* zoo was built on bad/pre-audit data and has been purged from the DB.
 - `models/ic-correlation` — pairwise IC correlation matrix (base models only, S&P 500)
 - `models/{id}/ic` — monthly IC series
 - `models/{id}/quintiles` — quintile returns
