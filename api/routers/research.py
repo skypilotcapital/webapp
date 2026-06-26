@@ -299,17 +299,22 @@ def get_model_scorecard(universe: str = "sp500"):
     Return aggregate IC stats and quintile spread for all published alpha models.
     One row per model, ordered by model_id.
 
-    universe: 'sp500' (default) returns M001-M019 (model_id NOT LIKE 'MR%').
-              'russell2500' returns MR001, MR013, ... (model_id LIKE 'MR%').
+    universe: 'sp500' (default) returns S&P 500 models — M001-M019 (legacy) + N000-N015
+              (current N-series). Russell-2500 models (MR*/NR*) are excluded.
+              'russell2500' returns SMID models — MR* (legacy) + NR* (current N-series replay).
+
+    Naming: the S&P 500 generation is M*/N*; the Russell 2500 generation is the same IDs
+    prefixed with R (MR*/NR*). The current production generation is N*/NR*; M*/MR* are the
+    frozen historical record.
 
     sector_*_monthly is the preferred significance metric.
     sector_*_panel pools all date×sector ICs (supplementary only).
     """
-    # Build universe filter using hardcoded clause — universe param is validated by comparison
+    # Route by model_id prefix. R2500 models are R-prefixed (MR*/NR*); everything else is S&P 500.
     if universe == "russell2500":
-        universe_filter = "model_id LIKE 'MR%'"
+        universe_filter = "(model_id LIKE 'MR%' OR model_id LIKE 'NR%')"
     else:
-        universe_filter = "model_id NOT LIKE 'MR%'"
+        universe_filter = "(model_id NOT LIKE 'MR%' AND model_id NOT LIKE 'NR%')"
 
     with get_db() as conn:
         rows = conn.execute(text(f"""
