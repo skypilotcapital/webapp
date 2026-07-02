@@ -27,10 +27,12 @@ function Sparkline({
   history,
   seriesKey,
   threshold,
+  direction,
 }: {
   history: ComponentHistoryPoint[];
   seriesKey: string;
   threshold: number | null;
+  direction: 'bearish_above' | 'bearish_below';
 }) {
   const values = history
     .map((p) => p[seriesKey as keyof ComponentHistoryPoint] as number | null)
@@ -39,8 +41,13 @@ function Sparkline({
   if (valid.length < 2) return <div className="w-[140px] h-8" />;
 
   const withThreshold = threshold != null ? [...valid, threshold] : valid;
-  const min = Math.min(...withThreshold);
-  const max = Math.max(...withThreshold);
+  let min = Math.min(...withThreshold);
+  let max = Math.max(...withThreshold);
+  // pad the domain on the bearish side of the threshold so the red zone is always
+  // visible even when the series never crossed it in the window
+  const pad = (max - min || 1) * 0.12;
+  if (threshold != null && direction === 'bearish_below') min = Math.min(min, threshold - pad);
+  if (threshold != null && direction === 'bearish_above') max = Math.max(max, threshold + pad);
   const span = max - min || 1;
   const w = 140;
   const h = 32;
@@ -56,9 +63,20 @@ function Sparkline({
     .join(' ');
 
   const thresholdY = threshold != null ? h - ((threshold - min) / span) * h : null;
+  // shade the BEARISH side of the threshold so the danger direction is self-evident
+  const bearRect =
+    thresholdY == null
+      ? null
+      : direction === 'bearish_above'
+        ? { y: 0, height: Math.max(thresholdY, 0) }
+        : { y: Math.min(thresholdY, h), height: Math.max(h - thresholdY, 0) };
 
   return (
     <svg width={w} height={h} className="shrink-0">
+      {bearRect && bearRect.height > 0 && (
+        <rect x={0} y={bearRect.y} width={w} height={bearRect.height}
+              fill="#f43f5e" opacity={0.09} />
+      )}
       {thresholdY != null && (
         <line x1={0} x2={w} y1={thresholdY} y2={thresholdY} stroke="#f43f5e"
               strokeWidth={1} strokeDasharray="3 3" opacity={0.6} />
@@ -131,7 +149,8 @@ function ComponentRow({
           {fmt(c.key, c.value)}
         </p>
       </div>
-      <Sparkline history={history} seriesKey={c.key} threshold={c.threshold} />
+      <Sparkline history={history} seriesKey={c.key} threshold={c.threshold}
+                 direction={c.direction} />
     </div>
   );
 }
