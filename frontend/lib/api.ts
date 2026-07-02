@@ -23,10 +23,6 @@ import type {
   ModelICCorrelationEntry,
   BacktestSummary,
   BacktestMonthlyReturn,
-  PortfolioBacktest,
-  PortfolioDetail,
-  PortfolioHolding,
-  PortfolioSectorWeight,
 } from '@/types/api';
 import type {
   LatestState,
@@ -90,35 +86,8 @@ export const fetchModelICCorrelation = () =>
 // Reports library
 export const fetchReports = () => apiFetch<unknown[]>('/api/v1/reports');
 
-// Portfolio Backtests (LEGACY — old /backtests page; retired in the Research-Hub overhaul)
+// Portfolio Backtests
 export const fetchBacktestSummaries = () =>
   apiFetch<BacktestSummary[]>('/api/v1/portfolio/backtests');
 export const fetchBacktestReturns = (label: string) =>
   apiFetch<BacktestMonthlyReturn[]>(`/api/v1/portfolio/backtests/${encodeURIComponent(label)}/returns`);
-
-// ---------------------------------------------------------------------------
-// Portfolio (Layer-2) Research Hub — registry-backed
-// ---------------------------------------------------------------------------
-export interface PortfolioFilter {
-  universe?: string; strategy?: string; variant?: string;
-  experiment?: string; model?: string; includeLegacy?: boolean;
-}
-export const fetchPortfolioBacktests = (f: PortfolioFilter = {}) => {
-  const q = new URLSearchParams();
-  if (f.universe) q.set('universe', f.universe);
-  if (f.strategy) q.set('strategy', f.strategy);
-  if (f.variant) q.set('variant', f.variant);
-  if (f.experiment) q.set('experiment', f.experiment);
-  if (f.model) q.set('model', f.model);
-  if (f.includeLegacy) q.set('include_legacy', 'true');
-  const qs = q.toString();
-  return apiFetch<PortfolioBacktest[]>(`/api/v1/portfolio/backtests${qs ? `?${qs}` : ''}`);
-};
-export const fetchPortfolioDetail = (label: string) =>
-  apiFetch<PortfolioDetail>(`/api/v1/portfolio/backtests/${encodeURIComponent(label)}`);
-export const fetchPortfolioHoldings = (label: string, date?: string) =>
-  apiFetch<PortfolioHolding[]>(
-    `/api/v1/portfolio/backtests/${encodeURIComponent(label)}/holdings${date ? `?date=${encodeURIComponent(date)}` : ''}`);
-export const fetchPortfolioSectorAllocation = (label: string) =>
-  apiFetch<PortfolioSectorWeight[]>(
-    `/api/v1/portfolio/backtests/${encodeURIComponent(label)}/sector-allocation`);
