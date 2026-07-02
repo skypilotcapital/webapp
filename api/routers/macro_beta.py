@@ -83,6 +83,18 @@ class EpisodeRow(BaseModel):
     dd_threshold: Optional[float] = None
 
 
+class SpellRow(BaseModel):
+    start_date: str
+    end_date: str
+    days: int
+    ongoing: bool
+    episode_overlap: float
+    verdict: str                  # 'episode' | 'partial' | 'false_alarm'
+    mkt_return_during: Optional[float]
+    mkt_xs_pp: Optional[float]
+    entry_trigger: Optional[str]
+
+
 class StatRow(BaseModel):
     window: str
     metric: str
@@ -269,6 +281,23 @@ def episodes(universe: str = Query("sp500", pattern=UNIVERSE_PATTERN)):
             """
         ), {"u": universe}).mappings().all()
     return [EpisodeRow(**r) for r in rows]
+
+
+@router.get("/spells", response_model=List[SpellRow])
+def spells(universe: str = Query("sp500", pattern=UNIVERSE_PATTERN)):
+    """The full defense-spell ledger, newest first (false alarms = zero episode overlap)."""
+    with get_db() as conn:
+        rows = conn.execute(text(
+            """
+            SELECT start_date::text, end_date::text, days, ongoing,
+                   episode_overlap::float, verdict, mkt_return_during::float,
+                   mkt_xs_pp::float, entry_trigger
+            FROM macro_signal.beta_defense_spells
+            WHERE universe = :u
+            ORDER BY start_date DESC
+            """
+        ), {"u": universe}).mappings().all()
+    return [SpellRow(**r) for r in rows]
 
 
 @router.get("/stats", response_model=List[StatRow])

@@ -63,6 +63,18 @@ export interface EpisodeRow {
   dd_threshold: number | null;
 }
 
+export interface SpellRow {
+  start_date: string;
+  end_date: string;
+  days: number;
+  ongoing: boolean;
+  episode_overlap: number;
+  verdict: 'episode' | 'partial' | 'false_alarm';
+  mkt_return_during: number | null;
+  mkt_xs_pp: number | null;
+  entry_trigger: string | null;
+}
+
 export interface StatRow {
   window: string;
   metric: string;

@@ -33,6 +33,7 @@ import type {
   TimelinePoint,
   ComponentHistoryPoint,
   EpisodeRow,
+  SpellRow,
   StatRow,
   DialSim,
   MacroBetaHealthV2,
@@ -62,6 +63,8 @@ export const fetchMacroBetaEpisodes = (universe = 'sp500') =>
   apiFetch<EpisodeRow[]>(`/api/v1/macro-beta/episodes?universe=${universe}`);
 export const fetchMacroBetaStats = (universe = 'sp500') =>
   apiFetch<StatRow[]>(`/api/v1/macro-beta/stats?universe=${universe}`);
+export const fetchMacroBetaSpells = (universe = 'sp500') =>
+  apiFetch<SpellRow[]>(`/api/v1/macro-beta/spells?universe=${universe}`);
 export const fetchMacroBetaDialSim = (universe = 'sp500') =>
   apiFetch<DialSim[]>(`/api/v1/macro-beta/dial-sim?universe=${universe}`);
 export const fetchMacroBetaHealth = () => apiFetch<MacroBetaHealthV2>('/api/v1/macro-beta/health');

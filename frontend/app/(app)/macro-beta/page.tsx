@@ -5,6 +5,7 @@ import { ComponentBoard } from '@/components/macro_beta/ComponentBoard';
 import { CostOfInsurance } from '@/components/macro_beta/CostOfInsurance';
 import { DialSimulator } from '@/components/macro_beta/DialSimulator';
 import { EpisodeScorecard } from '@/components/macro_beta/EpisodeScorecard';
+import { FalseAlarmLedger } from '@/components/macro_beta/FalseAlarmLedger';
 import { HeroStatus } from '@/components/macro_beta/HeroStatus';
 import { MethodologyNote } from '@/components/macro_beta/MethodologyNote';
 import { RegimeTimeline } from '@/components/macro_beta/RegimeTimeline';
@@ -56,6 +57,7 @@ export default function MacroBetaPage() {
       <ComponentBoard universe={universe} />
       <RegimeTimeline universe={universe} />
       <EpisodeScorecard universe={universe} />
+      <FalseAlarmLedger universe={universe} />
       <CostOfInsurance universe={universe} />
       <DialSimulator universe={universe} />
       <MethodologyNote />
