@@ -6,7 +6,7 @@ import {
   fetchMacroBetaComponentsHistory,
 } from '@/lib/api';
 import { Card, CardContent, CardHeader } from '@/components/ui/card';
-import type { ComponentHistoryPoint, ComponentReading } from '@/types/macroBeta';
+import type { ComponentHistoryPoint, ComponentReading, Universe } from '@/types/macroBeta';
 
 const PCT_KEYS = new Set(['trend_50_200_pct', 'trend_10m_pct']);
 const PCTL_KEYS = new Set(['rv21_pct10y']);
@@ -101,10 +101,12 @@ function ComponentRow({
   );
 }
 
-export function ComponentBoard() {
-  const { data: latest } = useSWR('macro-beta-latest', fetchMacroBetaLatest);
-  const { data: history } = useSWR('macro-beta-comp-history', () =>
-    fetchMacroBetaComponentsHistory(24)
+export function ComponentBoard({ universe }: { universe: Universe }) {
+  const { data: latest } = useSWR(['macro-beta-latest', universe], () =>
+    fetchMacroBetaLatest(universe)
+  );
+  const { data: history } = useSWR(['macro-beta-comp-history', universe], () =>
+    fetchMacroBetaComponentsHistory(universe, 24)
   );
 
   const cycle = (latest?.components ?? []).filter((c) => c.group === 'cycle');

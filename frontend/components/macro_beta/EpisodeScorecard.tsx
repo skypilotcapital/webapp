@@ -3,6 +3,7 @@
 import useSWR from 'swr';
 import { fetchMacroBetaEpisodes } from '@/lib/api';
 import { Card, CardContent, CardHeader } from '@/components/ui/card';
+import type { Universe } from '@/types/macroBeta';
 
 function CoverageBadge({ share }: { share: number | null }) {
   if (share == null) return <span className="text-[var(--tx-dim,#94a3b8)]">—</span>;
@@ -20,8 +21,13 @@ function CoverageBadge({ share }: { share: number | null }) {
   );
 }
 
-export function EpisodeScorecard() {
-  const { data, error, isLoading } = useSWR('macro-beta-episodes', fetchMacroBetaEpisodes);
+export function EpisodeScorecard({ universe }: { universe: Universe }) {
+  const { data, error, isLoading } = useSWR(['macro-beta-episodes', universe], () =>
+    fetchMacroBetaEpisodes(universe)
+  );
+  const thresholdPct = data?.[0]?.dd_threshold != null
+    ? `${(data[0].dd_threshold * 100).toFixed(0)}%`
+    : universe === 'smid' ? '20%' : '15%';
 
   return (
     <Card>
@@ -30,9 +36,11 @@ export function EpisodeScorecard() {
           Drawdown Report Card
         </h2>
         <p className="text-sm text-[var(--tx-mut,#64748b)] mt-2">
-          Every ≥15% peak-to-trough episode in the signal&apos;s history, and what the model
-          did. This is the product: coverage of the deep macro-led bears. Fast shocks
-          (2018-, 2025-type) are a documented gap — see the model document.
+          Every ≥{thresholdPct} peak-to-trough episode in the signal&apos;s history, and what
+          the model did. This is the product: coverage of the deep macro-led bears.
+          {universe === 'smid'
+            ? ' Relative small-cap bears without macro stress (1983-, 2024-type) are a documented gap — see the model document.'
+            : ' Fast shocks (2018-, 2025-type) are a documented gap — see the model document.'}
         </p>
       </CardHeader>
       <CardContent>

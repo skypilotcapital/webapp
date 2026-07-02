@@ -4,9 +4,12 @@ import { useMemo, useState } from 'react';
 import useSWR from 'swr';
 import { fetchMacroBetaDialSim } from '@/lib/api';
 import { Card, CardContent, CardHeader } from '@/components/ui/card';
+import type { Universe } from '@/types/macroBeta';
 
-export function DialSimulator() {
-  const { data, error, isLoading } = useSWR('macro-beta-dial-sim', fetchMacroBetaDialSim);
+export function DialSimulator({ universe }: { universe: Universe }) {
+  const { data, error, isLoading } = useSWR(['macro-beta-dial-sim', universe], () =>
+    fetchMacroBetaDialSim(universe)
+  );
   const [dial, setDial] = useState(0.5);
 
   const sim = useMemo(

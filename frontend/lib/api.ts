@@ -50,14 +50,20 @@ export const fetchTableStatus   = () => apiFetch<TableStatus[]>('/api/v1/data-mo
 export const fetchRunLog        = () => apiFetch<RunLogEntry[]>('/api/v1/data-monitor/run-log');
 export const fetchGapDetection  = () => apiFetch<TableGap[]>('/api/v1/data-monitor/gap-detection');
 export const fetchFactorCoverage = () => apiFetch<FactorCoverage>('/api/v1/data-monitor/factor-coverage');
-// Macro Beta Signal v1.5 (two-state defense/normal)
-export const fetchMacroBetaLatest = () => apiFetch<LatestState>('/api/v1/macro-beta/latest');
-export const fetchMacroBetaTimeline = () => apiFetch<TimelinePoint[]>('/api/v1/macro-beta/timeline');
-export const fetchMacroBetaComponentsHistory = (months = 24) =>
-  apiFetch<ComponentHistoryPoint[]>(`/api/v1/macro-beta/components-history?months=${months}`);
-export const fetchMacroBetaEpisodes = () => apiFetch<EpisodeRow[]>('/api/v1/macro-beta/episodes');
-export const fetchMacroBetaStats = () => apiFetch<StatRow[]>('/api/v1/macro-beta/stats');
-export const fetchMacroBetaDialSim = () => apiFetch<DialSim[]>('/api/v1/macro-beta/dial-sim');
+// Macro Beta Signal (two-state defense/normal; universe = sp500 | smid)
+export const fetchMacroBetaLatest = (universe = 'sp500') =>
+  apiFetch<LatestState>(`/api/v1/macro-beta/latest?universe=${universe}`);
+export const fetchMacroBetaTimeline = (universe = 'sp500') =>
+  apiFetch<TimelinePoint[]>(`/api/v1/macro-beta/timeline?universe=${universe}`);
+export const fetchMacroBetaComponentsHistory = (universe = 'sp500', months = 24) =>
+  apiFetch<ComponentHistoryPoint[]>(
+    `/api/v1/macro-beta/components-history?universe=${universe}&months=${months}`);
+export const fetchMacroBetaEpisodes = (universe = 'sp500') =>
+  apiFetch<EpisodeRow[]>(`/api/v1/macro-beta/episodes?universe=${universe}`);
+export const fetchMacroBetaStats = (universe = 'sp500') =>
+  apiFetch<StatRow[]>(`/api/v1/macro-beta/stats?universe=${universe}`);
+export const fetchMacroBetaDialSim = (universe = 'sp500') =>
+  apiFetch<DialSim[]>(`/api/v1/macro-beta/dial-sim?universe=${universe}`);
 export const fetchMacroBetaHealth = () => apiFetch<MacroBetaHealthV2>('/api/v1/macro-beta/health');
 
 // P01 Factor Quintile Analysis

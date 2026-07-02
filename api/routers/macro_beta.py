@@ -1,8 +1,9 @@
-"""Macro beta signal endpoints (v1.5 — two-state defense/normal model).
+"""Macro beta signal endpoints (two-state defense/normal model, v1.6).
 
 Reads macro_signal.beta_signal_daily / beta_episodes / beta_signal_stats /
-beta_dial_sim plus clean-layer freshness. The v1 three-state API was replaced
-2026-07 alongside the model (see macro_beta_v1_5_model_document.pdf).
+beta_dial_sim plus clean-layer freshness. All endpoints take ?universe=sp500|smid
+(2026-07-02: SMID variant = same rules with the credit latch on HY OAS and the
+Russell 2000 TR splice as the evaluation asset).
 """
 
 from __future__ import annotations
@@ -62,7 +63,7 @@ class ComponentHistoryPoint(BaseModel):
     trend_50_200_pct: Optional[float]
     trend_10m_pct: Optional[float]
     rv21_pct10y: Optional[float]
-    bbb_4_12_diff: Optional[float]
+    credit_4_12_diff: Optional[float]
     claims_ratio_12m_low: Optional[float]
     sahm_gap: Optional[float]
     u3_vs_12mma: Optional[float]
@@ -79,6 +80,7 @@ class EpisodeRow(BaseModel):
     days_to_first_defense: Optional[int]
     recovery_days: Optional[int]
     recovery_defense_share: Optional[float]
+    dd_threshold: Optional[float] = None
 
 
 class StatRow(BaseModel):
@@ -124,21 +126,26 @@ class MacroBetaHealth(BaseModel):
 # ----------------------------------------------------------------- component spec
 # Mirrors the FROZEN thresholds in pipeline/macro_beta_signal.py — display only.
 
-COMPONENT_SPEC = [
-    ("trend_50_200_pct", "S&P 500 trend (50d vs 200d MA)", "cycle", 0.0, "bearish_below"),
-    ("claims_ratio_12m_low", "Initial claims vs 12m low", "cycle", 1.10, "bearish_above"),
-    ("sahm_gap", "Unemployment Sahm gap", "cycle", 0.30, "bearish_above"),
-    ("u3_vs_12mma", "U3 vs 12m average", "cycle", 0.0, "bearish_above"),
-    ("cpi_mom_z3m60m", "CPI momentum z-score", "cycle", 0.0, "bearish_above"),
-    ("bbb_4_12_diff", "BBB OAS 4w−12w momentum (pp)", "fast", 0.10, "bearish_above"),
-    ("rv21_pct10y", "Realized vol percentile (10y)", "fast", 0.90, "bearish_above"),
-    ("trend_10m_pct", "Price vs 10-month SMA", "fast", 0.0, "bearish_below"),
-]
+UNIVERSE_PATTERN = "^(sp500|smid)$"
+CREDIT_LABEL = {"sp500": "BBB OAS 4w−12w momentum (pp)",
+                "smid": "HY OAS 4w−12w momentum (pp)"}
+
+def _component_spec(universe: str):
+    return [
+        ("trend_50_200_pct", "S&P 500 trend (50d vs 200d MA)", "cycle", 0.0, "bearish_below"),
+        ("claims_ratio_12m_low", "Initial claims vs 12m low", "cycle", 1.10, "bearish_above"),
+        ("sahm_gap", "Unemployment Sahm gap", "cycle", 0.30, "bearish_above"),
+        ("u3_vs_12mma", "U3 vs 12m average", "cycle", 0.0, "bearish_above"),
+        ("cpi_mom_z3m60m", "CPI momentum z-score", "cycle", 0.0, "bearish_above"),
+        ("credit_4_12_diff", CREDIT_LABEL[universe], "fast", 0.10, "bearish_above"),
+        ("rv21_pct10y", "Realized vol percentile (10y)", "fast", 0.90, "bearish_above"),
+        ("trend_10m_pct", "Price vs 10-month SMA", "fast", 0.0, "bearish_below"),
+    ]
 
 
-def _component_readings(row: dict) -> List[ComponentReading]:
+def _component_readings(row: dict, universe: str) -> List[ComponentReading]:
     out = []
-    for key, label, group, threshold, direction in COMPONENT_SPEC:
+    for key, label, group, threshold, direction in _component_spec(universe):
         value = row.get(key)
         firing = None
         if value is not None:
@@ -155,7 +162,7 @@ def _component_readings(row: dict) -> List[ComponentReading]:
 # ----------------------------------------------------------------- endpoints
 
 @router.get("/latest", response_model=LatestState)
-def latest():
+def latest(universe: str = Query("sp500", pattern=UNIVERSE_PATTERN)):
     with get_db() as conn:
         row = conn.execute(text(
             """
@@ -163,13 +170,14 @@ def latest():
                    trend_vote, labor_vote, inflation_vote,
                    credit_latch_on, vol_gate_on, credit_force, correction_channel,
                    trend_50_200_pct::float, trend_10m_pct::float, rv21::float,
-                   rv21_pct10y::float, bbb_oas_pp::float, bbb_4_12_diff::float,
+                   rv21_pct10y::float, credit_oas_pp::float, credit_4_12_diff::float,
                    claims_ratio_12m_low::float, sahm_gap::float, u3_vs_12mma::float,
                    cpi_yoy::float, cpi_mom_z3m60m::float, model_version
             FROM macro_signal.beta_signal_daily
+            WHERE universe = :u
             ORDER BY signal_date DESC LIMIT 1
             """
-        )).mappings().first()
+        ), {"u": universe}).mappings().first()
         state_row = conn.execute(text(
             """
             WITH runs AS (
@@ -177,6 +185,7 @@ def latest():
                        ROW_NUMBER() OVER (ORDER BY signal_date DESC) rn,
                        ROW_NUMBER() OVER (PARTITION BY final_state ORDER BY signal_date DESC) rns
                 FROM macro_signal.beta_signal_daily
+                WHERE universe = :u
             ), current_run AS (
                 SELECT signal_date FROM runs
                 WHERE final_state = (SELECT final_state FROM runs WHERE rn = 1)
@@ -185,7 +194,7 @@ def latest():
             SELECT MIN(signal_date)::text AS state_since, COUNT(*)::int AS days_in_state
             FROM current_run
             """
-        )).mappings().first()
+        ), {"u": universe}).mappings().first()
 
     d = dict(row)
     return LatestState(
@@ -202,13 +211,13 @@ def latest():
         vol_gate_on=d["vol_gate_on"],
         credit_force=d["credit_force"],
         correction_channel=d["correction_channel"],
-        components=_component_readings(d),
+        components=_component_readings(d, universe),
         model_version=d["model_version"],
     )
 
 
 @router.get("/timeline", response_model=List[TimelinePoint])
-def timeline():
+def timeline(universe: str = Query("sp500", pattern=UNIVERSE_PATTERN)):
     """Full-history regime timeline, weekly-downsampled (last obs per week)."""
     with get_db() as conn:
         rows = conn.execute(text(
@@ -216,57 +225,65 @@ def timeline():
             SELECT DISTINCT ON (DATE_TRUNC('week', signal_date))
                    signal_date::text AS date, final_state AS state, tr_level::float
             FROM macro_signal.beta_signal_daily
+            WHERE universe = :u
             ORDER BY DATE_TRUNC('week', signal_date), signal_date DESC
             """
-        )).mappings().all()
+        ), {"u": universe}).mappings().all()
     return [TimelinePoint(**r) for r in rows]
 
 
 @router.get("/components-history", response_model=List[ComponentHistoryPoint])
-def components_history(months: int = Query(24, ge=6, le=120)):
+def components_history(months: int = Query(24, ge=6, le=120),
+                       universe: str = Query("sp500", pattern=UNIVERSE_PATTERN)):
     with get_db() as conn:
         rows = conn.execute(text(
             """
             SELECT signal_date::text AS date, final_state AS state,
                    trend_50_200_pct::float, trend_10m_pct::float, rv21_pct10y::float,
-                   bbb_4_12_diff::float, claims_ratio_12m_low::float,
+                   credit_4_12_diff::float, claims_ratio_12m_low::float,
                    sahm_gap::float, u3_vs_12mma::float, cpi_mom_z3m60m::float
             FROM macro_signal.beta_signal_daily
-            WHERE signal_date >= (SELECT MAX(signal_date) FROM macro_signal.beta_signal_daily)
+            WHERE universe = :u
+              AND signal_date >= (SELECT MAX(signal_date)
+                                  FROM macro_signal.beta_signal_daily
+                                  WHERE universe = :u)
                                  - (:months || ' months')::interval
             ORDER BY signal_date
             """
-        ), {"months": months}).mappings().all()
+        ), {"months": months, "u": universe}).mappings().all()
     return [ComponentHistoryPoint(**r) for r in rows]
 
 
 @router.get("/episodes", response_model=List[EpisodeRow])
-def episodes():
+def episodes(universe: str = Query("sp500", pattern=UNIVERSE_PATTERN)):
     with get_db() as conn:
         rows = conn.execute(text(
             """
             SELECT peak_date::text, trough_date::text, recovered_date::text,
                    depth::float, dd_days, defense_share::float,
-                   days_to_first_defense, recovery_days, recovery_defense_share::float
+                   days_to_first_defense, recovery_days, recovery_defense_share::float,
+                   dd_threshold::float
             FROM macro_signal.beta_episodes
+            WHERE universe = :u
             ORDER BY peak_date
             """
-        )).mappings().all()
+        ), {"u": universe}).mappings().all()
     return [EpisodeRow(**r) for r in rows]
 
 
 @router.get("/stats", response_model=List[StatRow])
-def stats():
+def stats(universe: str = Query("sp500", pattern=UNIVERSE_PATTERN)):
     with get_db() as conn:
         rows = conn.execute(text(
             'SELECT stat_window AS "window", metric, value::float '
-            "FROM macro_signal.beta_signal_stats ORDER BY stat_window, metric"
-        )).mappings().all()
+            "FROM macro_signal.beta_signal_stats WHERE universe = :u "
+            "ORDER BY stat_window, metric"
+        ), {"u": universe}).mappings().all()
     return [StatRow(**r) for r in rows]
 
 
 @router.get("/dial-sim", response_model=List[DialSim])
-def dial_sim():
+def dial_sim(universe: str = Query("sp500", pattern=UNIVERSE_PATTERN)):
     """All dial simulations, monthly-downsampled, with their summary stats."""
     with get_db() as conn:
         series = conn.execute(text(
@@ -274,13 +291,15 @@ def dial_sim():
             SELECT DISTINCT ON (dial, DATE_TRUNC('month', date))
                    dial::float, date::text, port_level::float, bench_level::float
             FROM macro_signal.beta_dial_sim
+            WHERE universe = :u
             ORDER BY dial, DATE_TRUNC('month', date), date DESC
             """
-        )).mappings().all()
+        ), {"u": universe}).mappings().all()
         stat_rows = conn.execute(text(
             'SELECT stat_window AS "window", metric, value::float '
-            "FROM macro_signal.beta_signal_stats WHERE stat_window LIKE 'dial_%'"
-        )).mappings().all()
+            "FROM macro_signal.beta_signal_stats "
+            "WHERE universe = :u AND stat_window LIKE 'dial_%'"
+        ), {"u": universe}).mappings().all()
 
     by_dial: Dict[float, List[DialPoint]] = {}
     for r in series:
@@ -313,11 +332,14 @@ def health():
             SELECT 'CPI', MAX(data_date)::text,
                    (CURRENT_DATE - MAX(data_date))::int FROM clean.cpi_us
             UNION ALL
-            SELECT 'Credit (BBB OAS)', MAX(date)::text,
+            SELECT 'Credit (BBB + HY OAS)', MAX(date)::text,
                    (CURRENT_DATE - MAX(date))::int FROM clean.beta_credit_daily
             UNION ALL
-            SELECT 'Market', MAX(date)::text,
+            SELECT 'Market (S&P 500)', MAX(date)::text,
                    (CURRENT_DATE - MAX(date))::int FROM clean.beta_sp500_daily
+            UNION ALL
+            SELECT 'Market (Russell/SMID)', MAX(date)::text,
+                   (CURRENT_DATE - MAX(date))::int FROM clean.beta_smid_daily
             """
         )).mappings().all()
         runs = conn.execute(text(
@@ -331,7 +353,8 @@ def health():
 
     # Unemployment data_date is first-of-reference-month; normal staleness peaks ~66d
     limits = {"Claims": 21, "Unemployment": 70, "CPI": 60,
-              "Credit (BBB OAS)": 7, "Market": 7}
+              "Credit (BBB + HY OAS)": 7, "Market (S&P 500)": 7,
+              "Market (Russell/SMID)": 7}
 
     def status(label: str, lag: Optional[int]) -> str:
         if lag is None:

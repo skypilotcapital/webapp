@@ -35,13 +35,15 @@ export interface TimelinePoint {
   tr_level: number | null;
 }
 
+export type Universe = 'sp500' | 'smid';
+
 export interface ComponentHistoryPoint {
   date: string;
   state: 'defense' | 'normal';
   trend_50_200_pct: number | null;
   trend_10m_pct: number | null;
   rv21_pct10y: number | null;
-  bbb_4_12_diff: number | null;
+  credit_4_12_diff: number | null;
   claims_ratio_12m_low: number | null;
   sahm_gap: number | null;
   u3_vs_12mma: number | null;
@@ -58,6 +60,7 @@ export interface EpisodeRow {
   days_to_first_defense: number | null;
   recovery_days: number | null;
   recovery_defense_share: number | null;
+  dd_threshold: number | null;
 }
 
 export interface StatRow {

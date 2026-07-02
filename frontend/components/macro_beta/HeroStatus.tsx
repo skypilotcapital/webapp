@@ -3,6 +3,7 @@
 import useSWR from 'swr';
 import { fetchMacroBetaLatest } from '@/lib/api';
 import { Card, CardContent } from '@/components/ui/card';
+import type { Universe } from '@/types/macroBeta';
 
 function plainEnglishReasons(reasons: string | null): string[] {
   if (!reasons) return [];
@@ -37,10 +38,12 @@ function plainEnglishReasons(reasons: string | null): string[] {
   return out;
 }
 
-export function HeroStatus() {
-  const { data, error, isLoading } = useSWR('macro-beta-latest', fetchMacroBetaLatest, {
-    refreshInterval: 60_000,
-  });
+export function HeroStatus({ universe }: { universe: Universe }) {
+  const { data, error, isLoading } = useSWR(
+    ['macro-beta-latest', universe],
+    () => fetchMacroBetaLatest(universe),
+    { refreshInterval: 60_000 }
+  );
 
   const isDefense = data?.final_state === 'defense';
   const reasons = plainEnglishReasons(data?.defense_reasons ?? null);

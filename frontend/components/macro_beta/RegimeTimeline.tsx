@@ -4,6 +4,7 @@ import { useMemo, useState } from 'react';
 import useSWR from 'swr';
 import { fetchMacroBetaTimeline } from '@/lib/api';
 import { Card, CardContent, CardHeader } from '@/components/ui/card';
+import type { Universe } from '@/types/macroBeta';
 
 const WINDOWS = [
   { label: '5Y', years: 5 },
@@ -12,11 +13,16 @@ const WINDOWS = [
   { label: 'All', years: 100 },
 ];
 
-export function RegimeTimeline() {
-  const { data, error, isLoading } = useSWR('macro-beta-timeline', fetchMacroBetaTimeline, {
-    refreshInterval: 300_000,
-  });
+export function RegimeTimeline({ universe }: { universe: Universe }) {
+  const { data, error, isLoading } = useSWR(
+    ['macro-beta-timeline', universe],
+    () => fetchMacroBetaTimeline(universe),
+    { refreshInterval: 300_000 }
+  );
   const [years, setYears] = useState(100);
+  const indexLabel = universe === 'smid'
+    ? 'Russell 2000 total-return index (SMID; pre-1995 synthetic small-cap splice)'
+    : 'S&P 500 total-return index (pre-1990 total-market splice)';
 
   const points = useMemo(() => {
     const all = (data ?? []).filter((p) => p.tr_level != null);
@@ -98,9 +104,8 @@ export function RegimeTimeline() {
               Regime Timeline — the honest record
             </h2>
             <p className="text-sm text-[var(--tx-mut,#64748b)] mt-2">
-              Defense periods (shaded) over the S&amp;P 500 total-return index (log scale).
-              Both the covered bears and the false alarms are visible by design.
-              Pre-1990 market history uses a total-market splice.
+              Defense periods (shaded) over the {indexLabel}, log scale. Both the covered
+              bears and the false alarms are visible by design.
             </p>
           </div>
           <div className="flex gap-1">

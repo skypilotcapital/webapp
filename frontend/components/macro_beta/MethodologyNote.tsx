@@ -43,7 +43,8 @@ export function MethodologyNote() {
               <li>
                 <b>Not fast-shock protection.</b> Exogenous crashes without macro
                 deterioration (2018Q4-, 2025-type) are largely outside its sensing range;
-                only the volatility gate partially responds.
+                only the volatility gate partially responds. For SMID, the analogous gap
+                is relative small-cap bears with no macro stress (1983-, 2024-type).
               </li>
               <li>Not a forecast of recessions, rates, or anything else beyond its states.</li>
             </ul>

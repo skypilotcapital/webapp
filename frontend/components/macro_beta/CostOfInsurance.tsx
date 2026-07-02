@@ -3,6 +3,7 @@
 import useSWR from 'swr';
 import { fetchMacroBetaStats } from '@/lib/api';
 import { Card, CardContent, CardHeader } from '@/components/ui/card';
+import type { Universe } from '@/types/macroBeta';
 
 const WINDOW_LABELS: Record<string, string> = {
   full: 'Full history (1973+)',
@@ -19,8 +20,10 @@ function StatCell({ label, value }: { label: string; value: string }) {
   );
 }
 
-export function CostOfInsurance() {
-  const { data, error, isLoading } = useSWR('macro-beta-stats', fetchMacroBetaStats);
+export function CostOfInsurance({ universe }: { universe: Universe }) {
+  const { data, error, isLoading } = useSWR(['macro-beta-stats', universe], () =>
+    fetchMacroBetaStats(universe)
+  );
 
   const byWindow: Record<string, Record<string, number | null>> = {};
   (data ?? []).forEach((r) => {
