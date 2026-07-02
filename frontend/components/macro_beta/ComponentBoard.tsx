@@ -138,6 +138,7 @@ function ComponentRow({
         <p className="text-xs text-[var(--tx-dim,#94a3b8)]">
           {c.direction === 'bearish_above' ? 'bearish above' : 'bearish below'}{' '}
           {fmt(c.key, c.threshold)}
+          {c.detail && <span> · {c.detail}</span>}
         </p>
       </div>
       <div className="text-right w-20 shrink-0">
@@ -230,7 +231,8 @@ export function ComponentBoard({ universe }: { universe: Universe }) {
               <ComponentRow key={c.key} c={c} history={history ?? []} indent />
             ))}
 
-            <VoteHeader n={3} title="Inflation" detail="CPI momentum z-score"
+            <VoteHeader n={3} title="Inflation"
+                        detail="CPI momentum z — bearish only while CPI YoY > 3% (v1.7)"
                         vote={latest?.inflation_vote} />
             {inflation && <ComponentRow c={inflation} history={history ?? []} indent />}
 
@@ -275,6 +277,12 @@ export function ComponentBoard({ universe }: { universe: Universe }) {
                 <li>
                   <b className="text-[var(--tx,#1e293b)]">① Cycle bearish</b> — the majority
                   vote on the left is bearish (the slow, recession-grade path).
+                  {universe === 'sp500' && (
+                    <> Crater rule (v1.7): this path fires only when the index is within
+                    5% of its all-time high or already below its 10-month average — a
+                    bearish macro vote alone cannot re-fire while the market is climbing
+                    out of a crater it already fell into.</>
+                  )}
                 </li>
                 <li>
                   <b className="text-[var(--tx,#1e293b)]">② Credit force</b> — the credit

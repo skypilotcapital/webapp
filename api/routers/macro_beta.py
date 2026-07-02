@@ -148,7 +148,7 @@ def _component_spec(universe: str):
         ("claims_ratio_12m_low", "Initial claims vs 12m low", "cycle", 1.10, "bearish_above"),
         ("sahm_gap", "Unemployment Sahm gap", "cycle", 0.30, "bearish_above"),
         ("u3_vs_12mma", "U3 vs 12m average", "cycle", 0.0, "bearish_above"),
-        ("cpi_mom_z3m60m", "CPI momentum z-score", "cycle", 0.0, "bearish_above"),
+        ("cpi_mom_z3m60m", "CPI momentum z (gated by YoY > 3%)", "cycle", 0.0, "bearish_above"),
         ("credit_4_12_diff", CREDIT_LABEL[universe], "fast", 0.10, "bearish_above"),
         ("rv21_pct10y", "Realized vol percentile (10y)", "fast", 0.90, "bearish_above"),
         ("trend_10m_pct", "Price vs 10-month SMA", "fast", 0.0, "bearish_below"),
@@ -160,13 +160,24 @@ def _component_readings(row: dict, universe: str) -> List[ComponentReading]:
     for key, label, group, threshold, direction in _component_spec(universe):
         value = row.get(key)
         firing = None
+        detail = None
         if value is not None:
             firing = (float(value) > threshold if direction == "bearish_above"
                       else float(value) < threshold)
+        if key == "cpi_mom_z3m60m":
+            # v1.7: the inflation vote is level-gated — momentum only counts while
+            # CPI YoY > 3%. Reflect the ACTUAL vote condition, not just the z sign.
+            yoy = row.get("cpi_yoy")
+            if yoy is not None and value is not None:
+                gate_open = float(yoy) > 0.03
+                firing = gate_open and float(value) > threshold
+                detail = (f"CPI YoY {float(yoy) * 100:.1f}% — gate "
+                          f"{'open' if gate_open else 'closed (momentum ignored)'}")
         out.append(ComponentReading(
             key=key, label=label, group=group,
             value=float(value) if value is not None else None,
             threshold=threshold, direction=direction, firing=firing,
+            detail=detail,
         ))
     return out
 
