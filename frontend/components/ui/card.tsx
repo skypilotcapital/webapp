@@ -5,26 +5,19 @@ interface CardProps {
   className?: string;
 }
 
+// Institutional-Blue dark panel (see .panel in globals.css).
 export function Card({ children, className = '' }: CardProps) {
-  return (
-    <div className={`bg-white/70 backdrop-blur-xl border border-slate-200 rounded-3xl shadow-[0_8px_30px_rgb(0,0,0,0.04)] hover:shadow-[0_8px_30px_rgb(0,0,0,0.08)] transition-all ${className}`}>
-      {children}
-    </div>
-  );
+  return <div className={`panel ${className}`}>{children}</div>;
 }
 
 export function CardHeader({ children, className = '' }: CardProps) {
   return (
-    <div className={`px-6 py-5 border-b border-white/10 ${className}`}>
+    <div className={`px-5 py-4 ${className}`} style={{ borderBottom: '1px solid var(--border-soft)' }}>
       {children}
     </div>
   );
 }
 
 export function CardContent({ children, className = '' }: CardProps) {
-  return (
-    <div className={`px-6 py-4 ${className}`}>
-      {children}
-    </div>
-  );
+  return <div className={`px-5 py-4 ${className}`}>{children}</div>;
 }

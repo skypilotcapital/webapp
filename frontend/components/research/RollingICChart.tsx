@@ -48,12 +48,12 @@ interface RollingICChartProps {
 
 export function RollingICChart({ data, direction }: RollingICChartProps) {
   if (data.length === 0) {
-    return <p className="text-sm text-slate-400 text-center py-12">No IC data available.</p>;
+    return <p className="text-sm text-[var(--tx-dim)] text-center py-12">No IC data available.</p>;
   }
 
   const width = 860;
-  const height = 300;
-  const pad = { top: 20, right: 24, bottom: 48, left: 52 };
+  const height = 240;
+  const pad = { top: 16, right: 24, bottom: 42, left: 52 };
   const iw = width - pad.left - pad.right;
   const ih = height - pad.top - pad.bottom;
 
@@ -95,7 +95,7 @@ export function RollingICChart({ data, direction }: RollingICChartProps) {
   const goodHeight = direction === 1 ? zeroY - pad.top : ih - (zeroY - pad.top);
 
   return (
-    <div className="rounded-2xl border border-slate-100 bg-white p-4">
+    <div className="rounded-2xl border border-[var(--border-soft)] bg-[var(--panel)] p-4">
       <svg viewBox={`0 0 ${width} ${height}`} className="w-full h-auto">
         {/* Good IC shaded band */}
         <rect
@@ -103,8 +103,8 @@ export function RollingICChart({ data, direction }: RollingICChartProps) {
           y={goodTop}
           width={iw}
           height={Math.max(goodHeight, 0)}
-          fill="#4F46E5"
-          opacity="0.04"
+          fill="var(--teal)"
+          opacity="0.06"
         />
 
         {/* Grid lines */}
@@ -114,11 +114,11 @@ export function RollingICChart({ data, direction }: RollingICChartProps) {
             <g key={v}>
               <line
                 x1={pad.left} y1={y} x2={pad.left + iw} y2={y}
-                stroke={v === 0 ? '#94a3b8' : '#e2e8f0'}
+                stroke={v === 0 ? 'var(--tx-dim)' : 'var(--border-soft)'}
                 strokeWidth={v === 0 ? 1.5 : 1}
                 strokeDasharray={v === 0 ? undefined : '3 3'}
               />
-              <text x={pad.left - 8} y={y + 4} textAnchor="end" fontSize="10" fill="#94a3b8">
+              <text x={pad.left - 8} y={y + 4} textAnchor="end" fontSize="10" fill="var(--tx-dim)">
                 {v === 0 ? '0' : `${v > 0 ? '+' : ''}${v.toFixed(2)}`}
               </text>
             </g>
@@ -126,14 +126,14 @@ export function RollingICChart({ data, direction }: RollingICChartProps) {
         })}
 
         {/* Axes */}
-        <line x1={pad.left} y1={pad.top} x2={pad.left} y2={pad.top + ih} stroke="#cbd5e1" strokeWidth="1" />
-        <line x1={pad.left} y1={pad.top + ih} x2={pad.left + iw} y2={pad.top + ih} stroke="#cbd5e1" strokeWidth="1" />
+        <line x1={pad.left} y1={pad.top} x2={pad.left} y2={pad.top + ih} stroke="var(--border-soft)" strokeWidth="1" />
+        <line x1={pad.left} y1={pad.top + ih} x2={pad.left + iw} y2={pad.top + ih} stroke="var(--border-soft)" strokeWidth="1" />
 
         {/* Within-sector line (behind) */}
         <path
           d={buildPath(wsPts)}
           fill="none"
-          stroke="#0ea5e9"
+          stroke="var(--cyan)"
           strokeWidth="2"
           strokeLinejoin="round"
           strokeLinecap="round"
@@ -144,7 +144,7 @@ export function RollingICChart({ data, direction }: RollingICChartProps) {
         <path
           d={buildPath(fullPts)}
           fill="none"
-          stroke="#4F46E5"
+          stroke="var(--teal)"
           strokeWidth="2.5"
           strokeLinejoin="round"
           strokeLinecap="round"
@@ -155,8 +155,8 @@ export function RollingICChart({ data, direction }: RollingICChartProps) {
           const x = xCoord(idx);
           return (
             <g key={idx}>
-              <line x1={x} y1={pad.top + ih} x2={x} y2={pad.top + ih + 4} stroke="#cbd5e1" strokeWidth="1" />
-              <text x={x} y={pad.top + ih + 16} textAnchor="middle" fontSize="10" fill="#94a3b8">
+              <line x1={x} y1={pad.top + ih} x2={x} y2={pad.top + ih + 4} stroke="var(--border-soft)" strokeWidth="1" />
+              <text x={x} y={pad.top + ih + 16} textAnchor="middle" fontSize="10" fill="var(--tx-dim)">
                 {formatDateShort(data[idx].date)}
               </text>
             </g>
@@ -170,7 +170,7 @@ export function RollingICChart({ data, direction }: RollingICChartProps) {
           textAnchor="middle"
           transform={`rotate(-90 14 ${pad.top + ih / 2})`}
           fontSize="10"
-          fill="#94a3b8"
+          fill="var(--tx-dim)"
         >
           Rolling {WINDOW}M IC
         </text>
@@ -178,10 +178,10 @@ export function RollingICChart({ data, direction }: RollingICChartProps) {
 
       {/* Legend + caption */}
       <div className="mt-3 flex flex-wrap items-center justify-between gap-3">
-        <div className="flex flex-wrap gap-5 text-xs text-slate-500">
+        <div className="flex flex-wrap gap-5 text-xs text-[var(--tx-mut)]">
           {[
-            { label: `Full Universe`, color: '#4F46E5', weight: 2.5 },
-            { label: `Within Sector`, color: '#0ea5e9', weight: 2 },
+            { label: `Full Universe`, color: 'var(--teal)', weight: 2.5 },
+            { label: `Within Sector`, color: 'var(--cyan)', weight: 2 },
           ].map(({ label, color, weight }) => (
             <div key={label} className="flex items-center gap-2">
               <span
@@ -192,11 +192,11 @@ export function RollingICChart({ data, direction }: RollingICChartProps) {
             </div>
           ))}
           <div className="flex items-center gap-2">
-            <span className="inline-block w-3 h-3 rounded-sm" style={{ backgroundColor: '#4F46E5', opacity: 0.15 }} />
+            <span className="inline-block w-3 h-3 rounded-sm" style={{ backgroundColor: 'var(--teal)', opacity: 0.2 }} />
             <span>{direction === 1 ? 'Positive IC region (expected)' : 'Negative IC region (expected)'}</span>
           </div>
         </div>
-        <p className="text-xs text-slate-400">
+        <p className="text-xs text-[var(--tx-dim)]">
           Monthly raw IC smoothed over {WINDOW}-month rolling window
         </p>
       </div>

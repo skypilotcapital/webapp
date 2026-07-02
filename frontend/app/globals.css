@@ -1,15 +1,122 @@
 @import "tailwindcss";
 
+/* ============================================================================
+   SkyPilot Capital — "Warm Ivory" theme (warm ivory + deep teal / navy).
+   Whole-site design system: CSS variables + a small set of semantic component
+   classes so pages stay concise and consistent. Charts are hand-rolled SVG and
+   reference these variables so they follow the theme automatically.
+   ============================================================================ */
+
 :root {
-  --background: #FDFCFB; /* Sophisticated Sand White */
-  --foreground: #0F172A;
-  --accent-indigo: #4F46E5;
-  --accent-emerald: #059669;
+  --bg: #f3eee4;          /* warm ivory canvas */
+  --bg2: #ebe4d6;         /* deeper warm — table headers / kpi base */
+  --panel: #fffdf9;       /* warm white card */
+  --panel2: #f7f1e7;      /* warm inset */
+  --border: #dcd1bd;      /* warm border (strong / hover) */
+  --border-soft: #e7ddcd; /* warm hairline (default) */
+  --tx: #26303c;          /* warm charcoal-navy — primary text */
+  --tx-mut: #5f5a50;      /* warm gray — secondary text */
+  --tx-dim: #857c6d;      /* warm taupe — tertiary text */
+  --teal: #0e7c6f;        /* deep teal — brand accent */
+  --teal-dim: #0b6055;    /* darker teal — emphasis text */
+  --cyan: #1e40af;        /* navy — secondary accent role */
+  --amber: #b45309;       /* amber-700 */
+  --pos: #15803d;         /* green-700 */
+  --neg: #b91c1c;         /* red-700 */
+  --idx: #6d28d9;         /* violet-700 — index overlay */
+  --bench: #8a7f6b;       /* warm gray — benchmark line */
+  /* keep the old token names pointed at the new palette */
+  --background: #f3eee4;
+  --foreground: #26303c;
 }
 
+html, body { background-color: #f3eee4; color: var(--tx); }
+
 body {
-  background-color: #FDFCFB !important;
-  color: #0F172A !important;
   margin: 0;
   padding: 0;
+  background:
+    radial-gradient(1100px 600px at 80% -10%, rgba(14, 124, 111, 0.05), transparent 60%),
+    radial-gradient(900px 520px at 4% 112%, rgba(180, 83, 9, 0.035), transparent 55%),
+    #f3eee4 !important;
+  color: var(--tx) !important;
+  font-feature-settings: "tnum" 1, "cv01" 1;
 }
+
+*::-webkit-scrollbar { width: 9px; height: 9px; }
+*::-webkit-scrollbar-thumb { background: #d8ccb8; border-radius: 6px; }
+*::-webkit-scrollbar-thumb:hover { background: #c8b99f; }
+*::-webkit-scrollbar-track { background: transparent; }
+
+/* ---- semantic component classes (plain CSS on the theme vars) ---- */
+.mono { font-family: var(--font-geist-mono), ui-monospace, "SF Mono", Menlo, Consolas, monospace; }
+
+.panel {
+  background: var(--panel);
+  border: 1px solid var(--border-soft);
+  border-radius: 13px;
+}
+.panel-head { font-size: 12px; font-weight: 700; letter-spacing: 0.2px; color: var(--tx); }
+.panel-sub { font-size: 10px; color: var(--tx-dim); }
+
+/* KPI tile */
+.kpi {
+  background: var(--panel2);
+  border: 1px solid var(--border-soft);
+  border-radius: 11px;
+  padding: 11px 13px;
+  position: relative;
+  overflow: hidden;
+}
+.kpi-l { font-size: 9.5px; letter-spacing: 0.6px; color: var(--tx-dim); text-transform: uppercase; font-weight: 700; }
+.kpi-v { font-family: var(--font-geist-mono), ui-monospace, monospace; font-size: 19px; font-weight: 600; margin-top: 3px; line-height: 1.1; }
+.kpi-s { font-size: 9.5px; color: var(--tx-dim); margin-top: 2px; }
+
+.pos { color: var(--pos); }
+.neg { color: var(--neg); }
+.teal { color: var(--teal); }
+.muted { color: var(--tx-mut); }
+.dim { color: var(--tx-dim); }
+
+/* pills */
+.pill { font-size: 10px; font-weight: 700; padding: 3px 9px; border-radius: 6px; letter-spacing: 0.3px; display: inline-flex; align-items: center; gap: 5px; }
+.pill-teal { background: rgba(14, 124, 111, 0.11); color: var(--teal); }
+.pill-cyan { background: rgba(30, 64, 175, 0.11); color: var(--cyan); }
+.pill-ok { background: rgba(21, 128, 61, 0.12); color: var(--pos); }
+.pill-warn { background: rgba(180, 83, 9, 0.12); color: var(--amber); }
+.pill-neg { background: rgba(185, 28, 28, 0.11); color: var(--neg); }
+.pill-ghost { background: rgba(95, 90, 80, 0.10); color: var(--tx-mut); }
+
+/* data tables */
+.dtable { width: 100%; border-collapse: collapse; font-size: 11.5px; }
+.dtable th {
+  font-size: 9.5px; letter-spacing: 0.4px; color: var(--tx-dim); text-transform: uppercase;
+  font-weight: 700; text-align: right; padding: 7px 9px; border-bottom: 1px solid var(--border);
+  white-space: nowrap; position: sticky; top: 0; background: var(--bg2); z-index: 1;
+}
+.dtable th:first-child { text-align: left; }
+.dtable td { padding: 7px 9px; text-align: right; font-family: var(--font-geist-mono), ui-monospace, monospace; border-bottom: 1px solid var(--border-soft); white-space: nowrap; }
+.dtable td:first-child { text-align: left; font-family: inherit; color: var(--tx); }
+.dtable tr:last-child td { border-bottom: 0; }
+.dtable tbody tr { transition: background 0.12s; cursor: default; }
+.dtable tbody tr.clickable { cursor: pointer; }
+.dtable tbody tr.clickable:hover { background: rgba(14, 124, 111, 0.06); }
+.dtable tbody tr.selected { background: rgba(14, 124, 111, 0.10); }
+
+.takeaway {
+  font-size: 11px; color: var(--tx-mut); margin-top: 9px; padding: 8px 11px;
+  background: rgba(14, 124, 111, 0.07); border-left: 2px solid var(--teal);
+  border-radius: 0 7px 7px 0; line-height: 1.5;
+}
+.takeaway b { color: var(--teal-dim); font-weight: 600; }
+
+.chip-btn {
+  border: 1px solid var(--border-soft); background: var(--panel2); color: var(--tx-mut);
+  font-weight: 700; font-size: 11.5px; padding: 6px 13px; border-radius: 8px; cursor: pointer;
+  transition: all 0.12s;
+}
+.chip-btn:hover { color: var(--tx); border-color: var(--border); }
+.chip-btn.on { background: var(--teal); color: #fffdf9; border-color: var(--teal); }
+
+.animate-in { animation: fadein 0.2s ease-out; }
+@keyframes fadein { from { opacity: 0; transform: translateY(4px); } to { opacity: 1; transform: none; } }

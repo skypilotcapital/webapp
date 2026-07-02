@@ -4,10 +4,10 @@ import React from 'react';
 import type { ModelScorecardRow } from '@/types/api';
 
 const TYPE_STYLE: Record<string, string> = {
-  random_forest: 'bg-violet-100 text-violet-700',
-  lightgbm:      'bg-sky-100 text-sky-700',
-  lasso:         'bg-amber-100 text-amber-700',
-  ensemble:      'bg-emerald-100 text-emerald-700',
+  random_forest: 'bg-[rgba(45,212,191,0.13)] text-[var(--teal)]',
+  lightgbm:      'bg-[rgba(56,189,248,0.13)] text-[var(--cyan)]',
+  lasso:         'bg-[rgba(251,191,36,0.13)] text-[var(--amber)]',
+  ensemble:      'bg-[rgba(52,211,153,0.14)] text-[var(--pos)]',
 };
 
 const TYPE_LABEL: Record<string, string> = {
@@ -28,15 +28,15 @@ const TARGET_LABEL: Record<string, string> = {
 };
 
 function tColor(t: number | null) {
-  if (t == null) return 'text-slate-300';
+  if (t == null) return 'text-[var(--tx-dim)]';
   const abs = Math.abs(t);
-  return abs >= 3 ? 'text-emerald-600' : abs >= 2 ? 'text-blue-500' : 'text-slate-400';
+  return abs >= 3 ? 'text-[var(--pos)]' : abs >= 2 ? 'text-[var(--cyan)]' : 'text-[var(--tx-dim)]';
 }
 
 function tDot(t: number | null) {
-  if (t == null) return 'bg-slate-200';
+  if (t == null) return 'bg-[var(--border-soft)]';
   const abs = Math.abs(t);
-  return abs >= 3 ? 'bg-emerald-500' : abs >= 2 ? 'bg-blue-400' : 'bg-slate-300';
+  return abs >= 3 ? 'bg-[var(--pos)]' : abs >= 2 ? 'bg-[var(--cyan)]' : 'bg-[var(--tx-dim)]';
 }
 
 interface Props {
@@ -48,28 +48,28 @@ interface Props {
 export function ModelSidebar({ rows, selectedModel, onSelect }: Props) {
   return (
     <div className="flex flex-col">
-      <div className="px-3 py-2 border-b border-slate-100 mb-1">
-        <p className="text-[10px] uppercase tracking-[0.15em] text-slate-500 font-bold">
+      <div className="px-3 py-2 border-b border-[var(--border-soft)] mb-1">
+        <p className="text-[10px] uppercase tracking-[0.15em] text-[var(--tx-mut)] font-bold">
           {rows.length} models
         </p>
       </div>
 
       {/* Column headers */}
-      <div className="px-3 py-1 grid grid-cols-[auto_1fr_auto_auto] gap-2 items-center border-b border-slate-50 mb-0.5">
-        <span className="text-[9px] uppercase tracking-wider text-slate-500 font-bold w-10">ID</span>
-        <span className="text-[9px] uppercase tracking-wider text-slate-500 font-bold">Type / Target</span>
-        <span className="text-[9px] uppercase tracking-wider text-slate-500 font-bold text-right">Mo. t</span>
-        <span className="text-[9px] uppercase tracking-wider text-slate-500 font-bold text-right">Q5−Q1</span>
+      <div className="px-3 py-1 grid grid-cols-[auto_1fr_auto_auto] gap-2 items-center border-b border-[var(--border-soft)] mb-0.5">
+        <span className="text-[9px] uppercase tracking-wider text-[var(--tx-mut)] font-bold w-10">ID</span>
+        <span className="text-[9px] uppercase tracking-wider text-[var(--tx-mut)] font-bold">Type / Target</span>
+        <span className="text-[9px] uppercase tracking-wider text-[var(--tx-mut)] font-bold text-right">Mo. t</span>
+        <span className="text-[9px] uppercase tracking-wider text-[var(--tx-mut)] font-bold text-right">Q5−Q1</span>
       </div>
 
       <div className="flex flex-col gap-0.5 px-1">
         {rows.map((row) => {
           const isSelected = row.model_id === selectedModel;
-          const typeStyle = TYPE_STYLE[row.model_type] ?? 'bg-slate-100 text-slate-500';
+          const typeStyle = TYPE_STYLE[row.model_type] ?? 'bg-[var(--bg2)] text-[var(--tx-mut)]';
           const typeLabel = TYPE_LABEL[row.model_type] ?? row.model_type;
           const targetLabel = TARGET_LABEL[row.target] ?? row.target;
           const spread = row.q5_minus_q1_ann;
-          const spreadColor = spread != null && spread > 0 ? 'text-emerald-600' : 'text-red-500';
+          const spreadColor = spread != null && spread > 0 ? 'text-[var(--pos)]' : 'text-[var(--neg)]';
           const st = row.sector_ic_tstat_monthly ?? row.sector_ic_tstat;
 
           return (
@@ -78,14 +78,14 @@ export function ModelSidebar({ rows, selectedModel, onSelect }: Props) {
               onClick={() => onSelect(row.model_id)}
               className={`w-full text-left px-2 py-2 rounded-lg transition-colors ${
                 isSelected
-                  ? 'bg-indigo-50 border border-indigo-200'
-                  : 'hover:bg-slate-50 border border-transparent'
+                  ? 'bg-[rgba(45,212,191,0.10)] border border-[var(--teal)]'
+                  : 'hover:bg-[rgba(45,212,191,0.06)] border border-transparent'
               }`}
             >
               {/* Single compact row: ID · type · target · t-stat · spread */}
               <div className="grid grid-cols-[auto_1fr_auto_auto] gap-2 items-center">
                 <span className={`font-mono text-[10px] font-black px-1.5 py-0.5 rounded w-10 text-center ${
-                  isSelected ? 'bg-indigo-200 text-indigo-800' : 'bg-slate-100 text-slate-600'
+                  isSelected ? 'bg-[rgba(45,212,191,0.13)] text-[var(--teal)]' : 'bg-[var(--bg2)] text-[var(--tx-mut)]'
                 }`}>
                   {row.model_id}
                 </span>
@@ -93,7 +93,7 @@ export function ModelSidebar({ rows, selectedModel, onSelect }: Props) {
                   <span className={`text-[9px] font-bold px-1.5 py-0.5 rounded flex-none ${typeStyle}`}>
                     {typeLabel}
                   </span>
-                  <span className="text-[9px] font-semibold text-slate-400 bg-slate-100 px-1 py-0.5 rounded flex-none">
+                  <span className="text-[9px] font-semibold text-[var(--tx-dim)] bg-[var(--bg2)] px-1 py-0.5 rounded flex-none">
                     {targetLabel}
                   </span>
                 </div>
@@ -112,7 +112,7 @@ export function ModelSidebar({ rows, selectedModel, onSelect }: Props) {
 
               {/* Description row (only when selected or always?) — show always, small */}
               <p className={`text-[9px] mt-1 pl-0.5 truncate leading-tight ${
-                isSelected ? 'text-slate-500' : 'text-slate-400'
+                isSelected ? 'text-[var(--tx-mut)]' : 'text-[var(--tx-dim)]'
               }`}>
                 {row.description}
               </p>

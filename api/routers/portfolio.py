@@ -1,16 +1,21 @@
 """
-Portfolio Backtests endpoints.
+Portfolio (Layer-2) backtest endpoints — the Research-Hub Portfolios surface.
 
-Serves results from portfolio.returns written by run_layer2_backtest.py.
+Reads the Phase-0 registry (portfolio.backtest_meta + backtest_summary) plus portfolio.returns /
+weights and secmaster. The registry is precomputed, so the browse grid, the Sweep Explorer, the
+frontier and the base-vs-hard A/B are all derivable from ONE cheap /backtests call (121 small rows);
+the frontend slices them client-side. Per-portfolio detail, holdings and sector allocation have their
+own endpoints.
 
-Endpoints:
-    GET /api/v1/portfolio/backtests
-        Summary row per backtest run with computed performance metrics.
-        Sorted by config name.
+Endpoints (all under /api/v1/portfolio):
+    GET /backtests                              filterable registry (meta + summary) — powers Browse/Sweep/Frontier/A-B
+    GET /backtests/{label}                      one config: meta + monthly return/cumulative/drawdown series
+    GET /backtests/{label}/holdings[?date=]     holdings at a rebalance (weights x secmaster); latest if no date
+    GET /backtests/{label}/sector-allocation    portfolio sector weights at the latest rebalance
 
-    GET /api/v1/portfolio/backtests/{label}/returns
-        Full monthly return series (portfolio_gross, portfolio_net, benchmark,
-        turnover, tc_cost) for one backtest label.
+NOTE: everything served here is IN-SAMPLE (2005-2023). The 2024+ holdout is a separate sealed gate
+(not exposed by this router). Active factor-exposure attribution + published-index overlays land in
+Phase 4.
 """
 
 from __future__ import annotations
@@ -19,252 +24,236 @@ import decimal
 import math
 from typing import List, Optional
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Query
 from pydantic import BaseModel
 from sqlalchemy import text
 
 from api.db import get_db
 
-
-def _v(x) -> Optional[float]:
-    """Convert Decimal / NaN / None → float or None."""
-    if x is None:
-        return None
-    if isinstance(x, decimal.Decimal):
-        if x.is_nan():
-            return None
-        return float(x)
-    if isinstance(x, float) and math.isnan(x):
-        return None
-    return float(x)
-
-
 router = APIRouter(prefix="/api/v1/portfolio", tags=["portfolio"])
-
-
-# ---------------------------------------------------------------------------
-# Response models
-# ---------------------------------------------------------------------------
-
-class BacktestSummary(BaseModel):
-    label: str
-    period_start: Optional[str]
-    period_end: Optional[str]
-    n_months: int
-    # annualised returns
-    ann_return_gross: Optional[float]
-    ann_return_net: Optional[float]
-    ann_return_benchmark: Optional[float]
-    ann_excess_return: Optional[float]
-    # risk / reward
-    sharpe_gross: Optional[float]
-    sharpe_net: Optional[float]
-    information_ratio: Optional[float]
-    tracking_error: Optional[float]
-    max_drawdown: Optional[float]
-    ann_volatility: Optional[float]
-    hit_rate: Optional[float]
-    # costs / turnover
-    avg_monthly_turnover: Optional[float]
-    avg_tc_drag_bps: Optional[float]
-    # optimizer health
-    n_optimal: int
-    n_fallback: int
-
-
-class BacktestMonthlyReturn(BaseModel):
-    date: str
-    portfolio_gross: Optional[float]
-    portfolio_net: Optional[float]
-    benchmark: Optional[float]
-    active_return: Optional[float]       # portfolio_net - benchmark
-    turnover: Optional[float]
-    tc_cost: Optional[float]
-    n_stocks: Optional[int]
-    optimizer_status: Optional[str]
-    # running cumulative indices (base 100)
-    cum_portfolio: Optional[float]
-    cum_benchmark: Optional[float]
 
 
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
 
-def _compute_summary(label: str, rows: list) -> BacktestSummary:
-    """Compute performance metrics from raw monthly rows."""
-    if not rows:
-        raise HTTPException(status_code=404, detail=f"No data for '{label}'")
+def _v(x) -> Optional[float]:
+    """Decimal / NaN / None -> float or None (NaN is not valid JSON)."""
+    if x is None:
+        return None
+    if isinstance(x, decimal.Decimal):
+        return None if x.is_nan() else float(x)
+    if isinstance(x, float) and math.isnan(x):
+        return None
+    return x
 
-    # Only include months where both portfolio and benchmark have data (aligned)
-    aligned = [r for r in rows if r["portfolio_gross"] is not None and r["benchmark"] is not None]
-    if not aligned:
-        raise HTTPException(status_code=404, detail=f"No valid returns for '{label}'")
 
-    port_g = [_v(r["portfolio_gross"]) for r in aligned]
-    port_n = [_v(r["portfolio_net"])   for r in aligned]
-    bench  = [_v(r["benchmark"])       for r in aligned]
+def _clean(row) -> dict:
+    return {k: _v(v) for k, v in dict(row._mapping).items()}
 
-    n = len(port_n)
 
-    n_years = n / 12
+# ---------------------------------------------------------------------------
+# Response models
+# ---------------------------------------------------------------------------
 
-    def _ann(series: list[float]) -> float:
-        cum = 1.0
-        for r in series:
-            cum *= (1 + r)
-        return cum ** (1 / n_years) - 1
+class BacktestRow(BaseModel):
+    # meta
+    model_label: str
+    signal_model_id: Optional[str]
+    universe: Optional[str]
+    strategy: Optional[str]
+    experiment: Optional[str]
+    variant: Optional[str]
+    lambda_risk: Optional[float]
+    te_target: Optional[float]
+    sector_tol: Optional[float]
+    turnover_cap: Optional[float]
+    benchmark_report: Optional[str]
+    is_hard: Optional[bool]
+    is_production: Optional[bool]
+    is_legacy: Optional[bool]
+    ab_twin: Optional[str]
+    # summary
+    n_months: Optional[int]
+    period_start: Optional[str]
+    period_end: Optional[str]
+    ann_active: Optional[float]
+    ann_total_net: Optional[float]
+    ir: Optional[float]
+    sharpe_net: Optional[float]
+    realized_te: Optional[float]
+    pred_te: Optional[float]
+    max_drawdown: Optional[float]
+    avg_turnover: Optional[float]
+    tc_drag_bps: Optional[float]
+    avg_holdings: Optional[float]
+    opt_pct: Optional[float]
+    inacc_pct: Optional[float]
+    held_pct: Optional[float]
+    hit_rate: Optional[float]
 
-    def _std(series: list[float]) -> float:
-        if len(series) < 2:
-            return 0.0
-        mean = sum(series) / len(series)
-        var = sum((x - mean) ** 2 for x in series) / (len(series) - 1)
-        return var ** 0.5
 
-    def _maxdd(series: list[float]) -> float:
-        cum = 1.0
-        peak = 1.0
-        worst = 0.0
-        for r in series:
-            cum *= (1 + r)
-            peak = max(peak, cum)
-            worst = min(worst, cum / peak - 1)
-        return worst
+class MonthlyPoint(BaseModel):
+    date: str
+    portfolio_net: Optional[float]
+    benchmark: Optional[float]
+    active_return: Optional[float]
+    turnover: Optional[float]
+    tc_cost: Optional[float]
+    n_stocks: Optional[int]
+    optimizer_status: Optional[str]
+    cum_portfolio: Optional[float]     # base 100, net
+    cum_benchmark: Optional[float]     # base 100
+    drawdown: Optional[float]          # of cum_portfolio
 
-    ann_g   = _ann(port_g)
-    ann_n   = _ann(port_n)
-    ann_b   = _ann(bench)
-    excess  = [p - b for p, b in zip(port_n, bench)]
-    ann_exc = ann_n - ann_b
-    vol_n   = _std(port_n) * (12 ** 0.5)
-    te      = _std(excess)  * (12 ** 0.5)
-    sharpe_g = ann_g / vol_n if vol_n > 0 else None
-    sharpe_n = ann_n / vol_n if vol_n > 0 else None
-    ir       = ann_exc / te  if te   > 0 else None
-    maxdd    = _maxdd(port_n)
-    hit      = sum(1 for e in excess if e > 0) / len(excess)
 
-    turnover = [_v(r["turnover"]) for r in rows if r["turnover"] is not None]
-    tc_cost  = [_v(r["tc_cost"])  for r in rows if r["tc_cost"]  is not None]
-    avg_to   = sum(turnover) / len(turnover) if turnover else None
-    avg_tc   = sum(tc_cost)  / len(tc_cost)  * 10_000 if tc_cost else None  # → bps
+class BacktestDetail(BaseModel):
+    meta: BacktestRow
+    monthly: List[MonthlyPoint]
 
-    n_opt  = sum(1 for r in rows if r.get("optimizer_status") == "optimal")
-    n_fall = sum(1 for r in rows if r.get("optimizer_status") == "fallback")
 
-    dates = sorted(r["date"].isoformat() if hasattr(r["date"], "isoformat") else str(r["date"]) for r in rows)
+class Holding(BaseModel):
+    isin: str
+    name: Optional[str]
+    ticker: Optional[str]
+    sector: Optional[str]
+    weight: Optional[float]
+    prev_weight: Optional[float]
+    trade_pct: Optional[float]
 
-    return BacktestSummary(
-        label=label,
-        period_start=dates[0]  if dates else None,
-        period_end=dates[-1]   if dates else None,
-        n_months=n,
-        ann_return_gross=round(ann_g,   4),
-        ann_return_net=round(ann_n,     4),
-        ann_return_benchmark=round(ann_b, 4),
-        ann_excess_return=round(ann_exc, 4),
-        sharpe_gross=round(sharpe_g, 3) if sharpe_g is not None else None,
-        sharpe_net=round(sharpe_n, 3)   if sharpe_n is not None else None,
-        information_ratio=round(ir, 3)  if ir       is not None else None,
-        tracking_error=round(te, 4),
-        max_drawdown=round(maxdd, 4),
-        ann_volatility=round(vol_n, 4),
-        hit_rate=round(hit, 3),
-        avg_monthly_turnover=round(avg_to, 4)   if avg_to is not None else None,
-        avg_tc_drag_bps=round(avg_tc, 2)        if avg_tc is not None else None,
-        n_optimal=n_opt,
-        n_fallback=n_fall,
-    )
+
+class SectorWeight(BaseModel):
+    sector: Optional[str]
+    weight: Optional[float]
+
+
+_ROW_COLS = """
+    m.model_label, m.signal_model_id, m.universe, m.strategy, m.experiment, m.variant,
+    m.lambda_risk, m.te_target, m.sector_tol, m.turnover_cap, m.benchmark_report,
+    m.is_hard, m.is_production, m.is_legacy, m.ab_twin,
+    s.n_months, s.period_start::text AS period_start, s.period_end::text AS period_end,
+    s.ann_active, s.ann_total_net, s.ir, s.sharpe_net, s.realized_te, s.pred_te,
+    s.max_drawdown, s.avg_turnover, s.tc_drag_bps, s.avg_holdings,
+    s.opt_pct, s.inacc_pct, s.held_pct, s.hit_rate
+"""
 
 
 # ---------------------------------------------------------------------------
 # Endpoints
 # ---------------------------------------------------------------------------
 
-@router.get("/backtests", response_model=List[BacktestSummary])
-def list_backtests():
-    """
-    Return one summary row per backtest label in portfolio.returns.
-    Performance metrics are computed on-the-fly from the monthly return series.
-    """
+@router.get("/backtests", response_model=List[BacktestRow])
+def list_backtests(
+    universe: Optional[str] = Query(None, description="sp500 | r2500"),
+    strategy: Optional[str] = Query(None, description="long_only | long_short"),
+    variant: Optional[str] = Query(None, description="bare | base | hard"),
+    experiment: Optional[str] = Query(None, description="prod | sweep | sector | te | phase5 | ls"),
+    model: Optional[str] = Query(None, description="signal model id, e.g. N014 / NR002"),
+    include_legacy: bool = Query(False, description="include the invalidated M-series"),
+):
+    """The full registry (meta + summary), filterable. Powers Browse, the Sweep Explorer, the frontier
+    and the base-vs-hard A/B — all sliced client-side from this one list."""
+    conds, params = [], {}
+    if not include_legacy:
+        conds.append("NOT m.is_legacy")
+    for col, val in (("universe", universe), ("strategy", strategy), ("variant", variant),
+                     ("experiment", experiment), ("signal_model_id", model)):
+        if val:
+            conds.append(f"m.{col} = :{col}")
+            params[col] = val
+    where = ("WHERE " + " AND ".join(conds)) if conds else ""
+    sql = text(f"""
+        SELECT {_ROW_COLS}
+        FROM portfolio.backtest_meta m
+        JOIN portfolio.backtest_summary s USING (model_label)
+        {where}
+        ORDER BY m.universe, m.signal_model_id, m.experiment, m.variant, s.ir DESC NULLS LAST
+    """)
     with get_db() as conn:
-        labels = conn.execute(text("""
-            SELECT DISTINCT model_label
-            FROM portfolio.returns
-            ORDER BY model_label
-        """)).fetchall()
-
-    if not labels:
-        return []
-
-    results = []
-    for row in labels:
-        label = row[0]
-        with get_db() as conn:
-            monthly = conn.execute(text("""
-                SELECT date, portfolio_gross, portfolio_net, benchmark,
-                       turnover, tc_cost, optimizer_status
-                FROM portfolio.returns
-                WHERE model_label = :label
-                ORDER BY date
-            """), {"label": label}).fetchall()
-
-        rows_dicts = [dict(r._mapping) for r in monthly]
-        try:
-            results.append(_compute_summary(label, rows_dicts))
-        except HTTPException:
-            pass
-
-    return results
+        rows = conn.execute(sql, params).fetchall()
+    return [BacktestRow(**_clean(r)) for r in rows]
 
 
-@router.get("/backtests/{label}/returns", response_model=List[BacktestMonthlyReturn])
-def get_backtest_returns(label: str):
-    """
-    Return full monthly return series for one backtest label, with
-    running cumulative return indices (base 100) for charting.
-    """
+@router.get("/backtests/{label}", response_model=BacktestDetail)
+def get_backtest(label: str):
+    """One config: its meta row + full monthly series with cumulative (base 100) and drawdown."""
     with get_db() as conn:
+        meta = conn.execute(text(f"""
+            SELECT {_ROW_COLS}
+            FROM portfolio.backtest_meta m
+            JOIN portfolio.backtest_summary s USING (model_label)
+            WHERE m.model_label = :label
+        """), {"label": label}).fetchone()
+        if meta is None:
+            raise HTTPException(status_code=404, detail=f"Backtest '{label}' not found in registry.")
         rows = conn.execute(text("""
-            SELECT date, portfolio_gross, portfolio_net, benchmark,
-                   turnover, tc_cost, n_stocks, optimizer_status
+            SELECT date, portfolio_net, benchmark, turnover, tc_cost, n_stocks, optimizer_status
             FROM portfolio.returns
-            WHERE model_label = :label
+            WHERE model_label = :label AND portfolio_net IS NOT NULL AND benchmark IS NOT NULL
             ORDER BY date
         """), {"label": label}).fetchall()
 
-    if not rows:
-        raise HTTPException(status_code=404, detail=f"No data for backtest '{label}'")
-
-    # Only include months where both portfolio and benchmark have data
-    rows = [r for r in rows if r._mapping["portfolio_gross"] is not None and r._mapping["benchmark"] is not None]
-
-    result = []
-    cum_p = 100.0
-    cum_b = 100.0
+    monthly, cum_p, cum_b, peak = [], 100.0, 100.0, 100.0
     for r in rows:
         d = dict(r._mapping)
-        pn = _v(d["portfolio_net"])
-        bm = _v(d["benchmark"])
+        pn, bm = _v(d["portfolio_net"]), _v(d["benchmark"])
         if pn is not None:
             cum_p *= (1 + pn)
         if bm is not None:
             cum_b *= (1 + bm)
-        active = (pn - bm) if (pn is not None and bm is not None) else None
-        date_str = d["date"].isoformat() if hasattr(d["date"], "isoformat") else str(d["date"])
-        result.append(BacktestMonthlyReturn(
-            date=date_str,
-            portfolio_gross=_v(d["portfolio_gross"]),
-            portfolio_net=pn,
-            benchmark=bm,
-            active_return=active,
-            turnover=_v(d["turnover"]),
-            tc_cost=_v(d["tc_cost"]),
-            n_stocks=d.get("n_stocks"),
+        peak = max(peak, cum_p)
+        monthly.append(MonthlyPoint(
+            date=d["date"].isoformat() if hasattr(d["date"], "isoformat") else str(d["date"]),
+            portfolio_net=pn, benchmark=bm,
+            active_return=(pn - bm) if (pn is not None and bm is not None) else None,
+            turnover=_v(d["turnover"]), tc_cost=_v(d["tc_cost"]), n_stocks=d.get("n_stocks"),
             optimizer_status=d.get("optimizer_status"),
-            cum_portfolio=round(cum_p, 2),
-            cum_benchmark=round(cum_b, 2),
+            cum_portfolio=round(cum_p, 3), cum_benchmark=round(cum_b, 3),
+            drawdown=round(cum_p / peak - 1, 4),
         ))
+    return BacktestDetail(meta=BacktestRow(**_clean(meta)), monthly=monthly)
 
-    return result
+
+def _latest_weight_date(conn, label: str):
+    row = conn.execute(text("SELECT max(date) FROM portfolio.weights WHERE model_label = :label"),
+                       {"label": label}).fetchone()
+    return row[0] if row else None
+
+
+@router.get("/backtests/{label}/holdings", response_model=List[Holding])
+def get_holdings(label: str, date: Optional[str] = Query(None, description="rebalance date; latest if omitted"),
+                 limit: int = Query(100, ge=1, le=600)):
+    """Holdings at a rebalance (portfolio.weights x secmaster for name/ticker/sector), largest first."""
+    with get_db() as conn:
+        d = date or _latest_weight_date(conn, label)
+        if d is None:
+            raise HTTPException(status_code=404, detail=f"No weights for '{label}'.")
+        rows = conn.execute(text("""
+            SELECT w.isin, s.name, s.ticker_current AS ticker, s.sector,
+                   w.weight, w.prev_weight, w.trade_pct
+            FROM portfolio.weights w
+            LEFT JOIN secmaster.securities s ON s.isin = w.isin
+            WHERE w.model_label = :label AND w.date = :d
+            ORDER BY w.weight DESC
+            LIMIT :lim
+        """), {"label": label, "d": d, "lim": limit}).fetchall()
+    return [Holding(**_clean(r)) for r in rows]
+
+
+@router.get("/backtests/{label}/sector-allocation", response_model=List[SectorWeight])
+def get_sector_allocation(label: str, date: Optional[str] = Query(None)):
+    """Portfolio sector weights (sum of holding weights by GICS sector) at a rebalance; latest if omitted.
+    (Active-vs-benchmark sector tilt + Barra factor exposure arrive in Phase 4.)"""
+    with get_db() as conn:
+        d = date or _latest_weight_date(conn, label)
+        if d is None:
+            raise HTTPException(status_code=404, detail=f"No weights for '{label}'.")
+        rows = conn.execute(text("""
+            SELECT s.sector, sum(w.weight) AS weight
+            FROM portfolio.weights w
+            LEFT JOIN secmaster.securities s ON s.isin = w.isin
+            WHERE w.model_label = :label AND w.date = :d
+            GROUP BY s.sector
+            ORDER BY weight DESC
+        """), {"label": label, "d": d}).fetchall()
+    return [SectorWeight(**_clean(r)) for r in rows]

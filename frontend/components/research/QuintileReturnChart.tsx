@@ -20,7 +20,7 @@ import type { P01QuintilePoint } from '@/types/api';
 // the chart shows this naturally: Q1 line should be highest.
 // ---------------------------------------------------------------------------
 
-const Q_COLORS = ['#ef4444', '#f97316', '#94a3b8', '#14b8a6', '#22c55e'];
+const Q_COLORS = ['#dc2626', '#ea580c', '#64748b', '#0d9488', '#16a34a'];
 const Q_LABELS = ['Q1 (bottom)', 'Q2', 'Q3 (mid)', 'Q4', 'Q5 (top)'];
 
 function formatDateShort(iso: string): string {
@@ -67,12 +67,12 @@ interface QuintileReturnChartProps {
 
 export function QuintileReturnChart({ data, title }: QuintileReturnChartProps) {
   if (data.length === 0) {
-    return <p className="text-sm text-slate-400 text-center py-12">No quintile data available.</p>;
+    return <p className="text-sm text-[var(--tx-dim)] text-center py-12">No quintile data available.</p>;
   }
 
   const width = 820;
-  const height = 320;
-  const pad = { top: 24, right: 24, bottom: 48, left: 64 };
+  const height = 250;
+  const pad = { top: 18, right: 24, bottom: 42, left: 64 };
   const iw = width - pad.left - pad.right;
   const ih = height - pad.top - pad.bottom;
 
@@ -84,7 +84,7 @@ export function QuintileReturnChart({ data, title }: QuintileReturnChartProps) {
   // Y-axis domain (log scale — values are always > 0)
   const allVals = cumSeries.flat().filter((v): v is number => v != null && v > 0);
   if (allVals.length === 0) {
-    return <p className="text-sm text-slate-400 text-center py-12">No valid returns to chart.</p>;
+    return <p className="text-sm text-[var(--tx-dim)] text-center py-12">No valid returns to chart.</p>;
   }
   const rawMin = Math.min(...allVals);
   const rawMax = Math.max(...allVals);
@@ -116,9 +116,9 @@ export function QuintileReturnChart({ data, title }: QuintileReturnChartProps) {
   );
 
   return (
-    <div className="rounded-2xl border border-slate-100 bg-white p-4">
+    <div className="rounded-2xl border border-[var(--border-soft)] bg-[var(--panel)] p-4">
       {title && (
-        <p className="text-xs font-bold uppercase tracking-[0.15em] text-slate-400 mb-3">{title}</p>
+        <p className="text-xs font-bold uppercase tracking-[0.15em] text-[var(--tx-dim)] mb-3">{title}</p>
       )}
       <svg viewBox={`0 0 ${width} ${height}`} className="w-full h-auto">
         {/* Baseline at index 100 */}
@@ -126,7 +126,7 @@ export function QuintileReturnChart({ data, title }: QuintileReturnChartProps) {
           <line
             x1={pad.left} y1={baselineY}
             x2={pad.left + iw} y2={baselineY}
-            stroke="#94a3b8" strokeWidth="1.2" strokeDasharray="4 3"
+            stroke="var(--tx-dim)" strokeWidth="1.2" strokeDasharray="4 3"
           />
         )}
 
@@ -137,8 +137,8 @@ export function QuintileReturnChart({ data, title }: QuintileReturnChartProps) {
           const label = v >= 1000 ? `${(v / 1000).toFixed(v % 1000 === 0 ? 0 : 1)}k` : `${v}`;
           return (
             <g key={v}>
-              <line x1={pad.left} y1={y} x2={pad.left + iw} y2={y} stroke="#f1f5f9" strokeWidth="1" />
-              <text x={pad.left - 8} y={y + 4} textAnchor="end" fontSize="10" fill={v === 100 ? '#64748b' : '#94a3b8'} fontWeight={v === 100 ? '600' : 'normal'}>
+              <line x1={pad.left} y1={y} x2={pad.left + iw} y2={y} stroke="var(--border-soft)" strokeWidth="1" />
+              <text x={pad.left - 8} y={y + 4} textAnchor="end" fontSize="10" fill={v === 100 ? 'var(--tx-mut)' : 'var(--tx-dim)'} fontWeight={v === 100 ? '600' : 'normal'}>
                 {label}
               </text>
             </g>
@@ -146,8 +146,8 @@ export function QuintileReturnChart({ data, title }: QuintileReturnChartProps) {
         })}
 
         {/* Axes */}
-        <line x1={pad.left} y1={pad.top} x2={pad.left} y2={pad.top + ih} stroke="#cbd5e1" strokeWidth="1" />
-        <line x1={pad.left} y1={pad.top + ih} x2={pad.left + iw} y2={pad.top + ih} stroke="#cbd5e1" strokeWidth="1" />
+        <line x1={pad.left} y1={pad.top} x2={pad.left} y2={pad.top + ih} stroke="var(--border-soft)" strokeWidth="1" />
+        <line x1={pad.left} y1={pad.top + ih} x2={pad.left + iw} y2={pad.top + ih} stroke="var(--border-soft)" strokeWidth="1" />
 
         {/* Quintile lines — render Q3 first (behind), then Q1/Q5 last (front) */}
         {[2, 1, 3, 0, 4].map((qi) => (
@@ -168,8 +168,8 @@ export function QuintileReturnChart({ data, title }: QuintileReturnChartProps) {
           const x = xCoord(idx);
           return (
             <g key={idx}>
-              <line x1={x} y1={pad.top + ih} x2={x} y2={pad.top + ih + 4} stroke="#cbd5e1" strokeWidth="1" />
-              <text x={x} y={pad.top + ih + 16} textAnchor="middle" fontSize="10" fill="#94a3b8">
+              <line x1={x} y1={pad.top + ih} x2={x} y2={pad.top + ih + 4} stroke="var(--border-soft)" strokeWidth="1" />
+              <text x={x} y={pad.top + ih + 16} textAnchor="middle" fontSize="10" fill="var(--tx-dim)">
                 {formatDateShort(data[idx].date)}
               </text>
             </g>
@@ -183,14 +183,14 @@ export function QuintileReturnChart({ data, title }: QuintileReturnChartProps) {
           textAnchor="middle"
           transform={`rotate(-90 14 ${pad.top + ih / 2})`}
           fontSize="10"
-          fill="#94a3b8"
+          fill="var(--tx-dim)"
         >
           Growth Index (log, start = 100)
         </text>
       </svg>
 
       {/* Legend */}
-      <div className="mt-3 flex flex-wrap gap-4 text-xs text-slate-500">
+      <div className="mt-3 flex flex-wrap gap-4 text-xs text-[var(--tx-mut)]">
         {Q_LABELS.map((label, qi) => (
           <div key={qi} className="flex items-center gap-2">
             <span

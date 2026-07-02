@@ -48,7 +48,7 @@ interface ModelSpreadChartProps {
 
 export function ModelSpreadChart({ data, sector }: ModelSpreadChartProps) {
   if (data.length === 0) {
-    return <p className="text-sm text-slate-400 text-center py-8">No quintile data available.</p>;
+    return <p className="text-sm text-[var(--tx-dim)] text-center py-8">No quintile data available.</p>;
   }
 
   const { dates, q1, q5 } = pivotQuintiles(data);
@@ -84,7 +84,7 @@ export function ModelSpreadChart({ data, sector }: ModelSpreadChartProps) {
   const lineMin = -lineMax; // symmetric → zero lands at same pixel as bar zero
 
   const width = 820;
-  const height = 210;
+  const height = 170;
   const pad = { top: 16, right: 58, bottom: 44, left: 58 };
   const iw = width - pad.left - pad.right;
   const ih = height - pad.top - pad.bottom;
@@ -138,7 +138,7 @@ export function ModelSpreadChart({ data, sector }: ModelSpreadChartProps) {
   const meanY = yR(overallMean);
 
   return (
-    <div className="rounded-2xl border border-slate-100 bg-white p-4">
+    <div className="rounded-2xl border border-[var(--border-soft)] bg-[var(--panel)] p-4">
       <svg viewBox={`0 0 ${width} ${height}`} className="w-full h-auto">
 
         {/* Left axis grid lines (from bar scale) */}
@@ -150,13 +150,13 @@ export function ModelSpreadChart({ data, sector }: ModelSpreadChartProps) {
             <g key={v}>
               <line
                 x1={pad.left} y1={y} x2={pad.left + iw} y2={y}
-                stroke={isZero ? '#cbd5e1' : '#f1f5f9'}
+                stroke={isZero ? 'var(--tx-dim)' : 'var(--border-soft)'}
                 strokeWidth={isZero ? 1.5 : 1}
               />
               <text
                 x={pad.left - 6} y={y + 4}
                 textAnchor="end" fontSize="10"
-                fill={isZero ? '#64748b' : '#94a3b8'}
+                fill={isZero ? 'var(--tx-mut)' : 'var(--tx-dim)'}
                 fontWeight={isZero ? '600' : 'normal'}
               >
                 {`${v > 0 ? '+' : ''}${(v * 100).toFixed(0)}%`}
@@ -169,7 +169,7 @@ export function ModelSpreadChart({ data, sector }: ModelSpreadChartProps) {
         {meanY >= pad.top && meanY <= pad.top + ih && (
           <line
             x1={pad.left} y1={meanY} x2={pad.left + iw} y2={meanY}
-            stroke="#6366f1" strokeWidth="1" strokeDasharray="5 4" opacity={0.4}
+            stroke="var(--teal)" strokeWidth="1" strokeDasharray="5 4" opacity={0.4}
           />
         )}
 
@@ -183,21 +183,21 @@ export function ModelSpreadChart({ data, sector }: ModelSpreadChartProps) {
           return (
             <rect
               key={i} x={x} y={barTop} width={barW} height={barH}
-              fill={isPos ? '#22c55e' : '#ef4444'} opacity={0.22} rx="0.5"
+              fill={isPos ? 'var(--pos)' : 'var(--neg)'} opacity={0.22} rx="0.5"
             />
           );
         })}
 
         {/* Axes */}
-        <line x1={pad.left} y1={pad.top} x2={pad.left} y2={pad.top + ih} stroke="#cbd5e1" strokeWidth="1" />
-        <line x1={pad.left + iw} y1={pad.top} x2={pad.left + iw} y2={pad.top + ih} stroke="#c7d2fe" strokeWidth="1" />
-        <line x1={pad.left} y1={pad.top + ih} x2={pad.left + iw} y2={pad.top + ih} stroke="#cbd5e1" strokeWidth="1" />
+        <line x1={pad.left} y1={pad.top} x2={pad.left} y2={pad.top + ih} stroke="var(--border-soft)" strokeWidth="1" />
+        <line x1={pad.left + iw} y1={pad.top} x2={pad.left + iw} y2={pad.top + ih} stroke="var(--border-soft)" strokeWidth="1" />
+        <line x1={pad.left} y1={pad.top + ih} x2={pad.left + iw} y2={pad.top + ih} stroke="var(--border-soft)" strokeWidth="1" />
 
         {/* Rolling 24M line (right scale) */}
         {rollingPath && (
           <path
             d={rollingPath} fill="none"
-            stroke="#6366f1" strokeWidth="2.5"
+            stroke="var(--teal)" strokeWidth="2.5"
             strokeLinejoin="round" strokeLinecap="round"
           />
         )}
@@ -212,7 +212,7 @@ export function ModelSpreadChart({ data, sector }: ModelSpreadChartProps) {
               <text
                 x={pad.left + iw + 7} y={y + 4}
                 textAnchor="start" fontSize="10"
-                fill={isZero ? '#818cf8' : '#a5b4fc'}
+                fill={isZero ? 'var(--teal)' : 'var(--teal)'}
                 fontWeight={isZero ? '600' : 'normal'}
               >
                 {`${v > 0 ? '+' : ''}${(v * 100).toFixed(0)}%`}
@@ -226,8 +226,8 @@ export function ModelSpreadChart({ data, sector }: ModelSpreadChartProps) {
           const x = xCoord(idx);
           return (
             <g key={idx}>
-              <line x1={x} y1={pad.top + ih} x2={x} y2={pad.top + ih + 4} stroke="#cbd5e1" strokeWidth="1" />
-              <text x={x} y={pad.top + ih + 16} textAnchor="middle" fontSize="10" fill="#94a3b8">
+              <line x1={x} y1={pad.top + ih} x2={x} y2={pad.top + ih + 4} stroke="var(--border-soft)" strokeWidth="1" />
+              <text x={x} y={pad.top + ih + 16} textAnchor="middle" fontSize="10" fill="var(--tx-dim)">
                 {formatDateShort(dates[idx])}
               </text>
             </g>
@@ -238,7 +238,7 @@ export function ModelSpreadChart({ data, sector }: ModelSpreadChartProps) {
         <text
           x={13} y={pad.top + ih / 2} textAnchor="middle"
           transform={`rotate(-90 13 ${pad.top + ih / 2})`}
-          fontSize="10" fill="#94a3b8"
+          fontSize="10" fill="var(--tx-dim)"
         >
           Monthly spread (ann.)
         </text>
@@ -247,34 +247,34 @@ export function ModelSpreadChart({ data, sector }: ModelSpreadChartProps) {
         <text
           x={width - 11} y={pad.top + ih / 2} textAnchor="middle"
           transform={`rotate(90 ${width - 11} ${pad.top + ih / 2})`}
-          fontSize="10" fill="#a5b4fc"
+          fontSize="10" fill="var(--teal)"
         >
           24M rolling mean (ann.)
         </text>
       </svg>
 
       <div className="mt-2 flex flex-wrap items-center justify-between gap-3">
-        <div className="flex flex-wrap gap-5 text-xs text-slate-400">
+        <div className="flex flex-wrap gap-5 text-xs text-[var(--tx-dim)]">
           <div className="flex items-center gap-1.5">
-            <span className="inline-block w-8 h-[2.5px] rounded bg-indigo-500" />
-            <span className="text-indigo-400 font-medium">24M rolling mean</span>
-            <span className="text-slate-300">(right axis)</span>
+            <span className="inline-block w-8 h-[2.5px] rounded bg-[var(--teal)]" />
+            <span className="text-[var(--teal)] font-medium">24M rolling mean</span>
+            <span className="text-[var(--tx-dim)]">(right axis)</span>
           </div>
           <div className="flex items-center gap-1.5">
-            <span className="inline-block w-3.5 h-3 rounded-sm bg-emerald-500 opacity-40" />
+            <span className="inline-block w-3.5 h-3 rounded-sm bg-[var(--pos)] opacity-40" />
             <span>Monthly Q5−Q1</span>
-            <span className="text-slate-300">(left axis)</span>
+            <span className="text-[var(--tx-dim)]">(left axis)</span>
           </div>
           <div className="flex items-center gap-1.5">
             <svg width="20" height="10" className="shrink-0">
-              <line x1="0" y1="5" x2="20" y2="5" stroke="#6366f1" strokeWidth="1.5" strokeDasharray="4 3" opacity="0.5" />
+              <line x1="0" y1="5" x2="20" y2="5" stroke="var(--teal)" strokeWidth="1.5" strokeDasharray="4 3" opacity="0.5" />
             </svg>
             <span>
               Full-period mean ({overallMean >= 0 ? '+' : ''}{(overallMean * 100).toFixed(1)}%/yr)
             </span>
           </div>
         </div>
-        <p className="text-xs text-slate-400">
+        <p className="text-xs text-[var(--tx-dim)]">
           Sector: <span className="font-semibold">{sector}</span>
         </p>
       </div>

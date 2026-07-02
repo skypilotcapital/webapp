@@ -45,10 +45,10 @@ interface StatCardProps {
 
 function StatCard({ label, value, sub, highlight, color }: StatCardProps) {
   return (
-    <div className={`rounded-xl p-3.5 border ${highlight ? 'bg-indigo-50 border-indigo-100' : 'bg-slate-50 border-slate-100'}`}>
-      <p className="text-xs uppercase tracking-[0.15em] text-slate-400 font-bold mb-1">{label}</p>
-      <p className={`text-xl font-black ${color ?? 'text-slate-800'}`}>{value ?? '—'}</p>
-      {sub && <p className="text-xs text-slate-400 mt-0.5">{sub}</p>}
+    <div className={`rounded-lg p-2.5 border ${highlight ? 'bg-[rgba(45,212,191,0.10)] border-[var(--teal)]' : 'bg-[var(--bg2)] border-[var(--border-soft)]'}`}>
+      <p className="text-[10px] uppercase tracking-[0.12em] text-[var(--tx-dim)] font-bold mb-0.5">{label}</p>
+      <p title={value ?? undefined} className={`text-lg font-black truncate ${color ?? 'text-[var(--tx)]'}`}>{value ?? '—'}</p>
+      {sub && <p className="text-[10px] text-[var(--tx-dim)] mt-0.5">{sub}</p>}
     </div>
   );
 }
@@ -74,15 +74,15 @@ function StabilitySection({ stability }: { stability: ModelSignalStability | und
   const { rank_autocorr, q1_persistence, q5_persistence, avg_persistence, n_pairs } = stability;
   return (
     <div>
-      <div className="border-t border-slate-100 my-8" />
-      <h3 className="text-xs uppercase tracking-[0.2em] text-slate-400 font-bold mb-4">Signal Stability (Universe)</h3>
+      <div className="border-t border-[var(--border-soft)] my-5" />
+      <h3 className="text-xs uppercase tracking-[0.2em] text-[var(--tx-dim)] font-bold mb-2.5">Signal Stability (Universe)</h3>
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
         <StatCard
           label="Rank Autocorr"
           value={rank_autocorr?.toFixed(3) ?? null}
           sub="score_t vs score_{t+1}"
           highlight={(rank_autocorr ?? 0) > 0.6}
-          color={(rank_autocorr ?? 0) > 0.5 ? 'text-emerald-700' : 'text-amber-600'}
+          color={(rank_autocorr ?? 0) > 0.5 ? 'text-[var(--pos)]' : 'text-[var(--amber)]'}
         />
         <StatCard
           label="Avg Quintile Persistence"
@@ -94,17 +94,17 @@ function StabilitySection({ stability }: { stability: ModelSignalStability | und
           label="Q5 Persistence"
           value={pct(q5_persistence)}
           sub="top quintile stays top"
-          color={(q5_persistence ?? 0) > 0.35 ? 'text-emerald-700' : 'text-amber-600'}
+          color={(q5_persistence ?? 0) > 0.35 ? 'text-[var(--pos)]' : 'text-[var(--amber)]'}
         />
         <StatCard
           label="Q1 Persistence"
           value={pct(q1_persistence)}
           sub="bottom quintile stays bottom"
-          color={(q1_persistence ?? 0) > 0.35 ? 'text-emerald-700' : 'text-amber-600'}
+          color={(q1_persistence ?? 0) > 0.35 ? 'text-[var(--pos)]' : 'text-[var(--amber)]'}
         />
       </div>
       {n_pairs != null && (
-        <p className="text-xs text-slate-400 mt-2">
+        <p className="text-xs text-[var(--tx-dim)] mt-2">
           Based on {n_pairs.toLocaleString()} consecutive-month stock pairs.
           Random walk baseline: avg persistence ≈ 20%, rank autocorr ≈ 0.
         </p>
@@ -117,38 +117,38 @@ function SectorBreakdownTable({ sectors }: { sectors: ModelSectorSummary[] }) {
   if (sectors.length === 0) return null;
   return (
     <div>
-      <div className="border-t border-slate-100 my-8" />
-      <div className="flex items-center justify-between mb-4">
-        <h3 className="text-xs uppercase tracking-[0.2em] text-slate-400 font-bold">IC Dispersion by Sector</h3>
-        <p className="text-xs text-slate-400">Mean IC · Std IC · ICIR = mean/std · t-stat · Hit Rate</p>
+      <div className="border-t border-[var(--border-soft)] my-5" />
+      <div className="flex items-center justify-between mb-2.5">
+        <h3 className="text-xs uppercase tracking-[0.2em] text-[var(--tx-dim)] font-bold">IC Dispersion by Sector</h3>
+        <p className="text-xs text-[var(--tx-dim)]">Mean IC · Std IC · ICIR = mean/std · t-stat · Hit Rate</p>
       </div>
       <div className="overflow-x-auto">
         <table className="w-full text-xs font-mono">
           <thead>
-            <tr className="border-b border-slate-100">
-              <th className="text-left py-1.5 pr-4 text-slate-400 font-semibold uppercase tracking-wider w-36">Sector</th>
-              <th className="text-right py-1.5 px-3 text-slate-400 font-semibold uppercase tracking-wider">N</th>
-              <th className="text-right py-1.5 px-3 text-slate-400 font-semibold uppercase tracking-wider">Mean IC</th>
-              <th className="text-right py-1.5 px-3 text-slate-400 font-semibold uppercase tracking-wider">Std IC</th>
-              <th className="text-right py-1.5 px-3 text-slate-400 font-semibold uppercase tracking-wider">ICIR</th>
-              <th className="text-right py-1.5 px-3 text-slate-400 font-semibold uppercase tracking-wider">t-stat</th>
-              <th className="text-right py-1.5 pl-3 text-slate-400 font-semibold uppercase tracking-wider">Hit%</th>
+            <tr className="border-b border-[var(--border-soft)]">
+              <th className="text-left py-1.5 pr-4 text-[var(--tx-dim)] font-semibold uppercase tracking-wider w-36">Sector</th>
+              <th className="text-right py-1.5 px-3 text-[var(--tx-dim)] font-semibold uppercase tracking-wider">N</th>
+              <th className="text-right py-1.5 px-3 text-[var(--tx-dim)] font-semibold uppercase tracking-wider">Mean IC</th>
+              <th className="text-right py-1.5 px-3 text-[var(--tx-dim)] font-semibold uppercase tracking-wider">Std IC</th>
+              <th className="text-right py-1.5 px-3 text-[var(--tx-dim)] font-semibold uppercase tracking-wider">ICIR</th>
+              <th className="text-right py-1.5 px-3 text-[var(--tx-dim)] font-semibold uppercase tracking-wider">t-stat</th>
+              <th className="text-right py-1.5 pl-3 text-[var(--tx-dim)] font-semibold uppercase tracking-wider">Hit%</th>
             </tr>
           </thead>
           <tbody>
             {sectors.map((s) => {
               const tAbs = Math.abs(s.tstat ?? 0);
-              const tColor = tAbs >= 2 ? 'text-emerald-700 font-bold' : tAbs >= 1 ? 'text-amber-600' : 'text-slate-400';
-              const icColor = (s.mean_ic ?? 0) >= 0 ? 'text-emerald-700' : 'text-red-500';
-              const icirColor = (s.icir ?? 0) >= 0.5 ? 'text-emerald-600' : (s.icir ?? 0) >= 0 ? 'text-slate-600' : 'text-red-500';
+              const tColor = tAbs >= 2 ? 'text-[var(--pos)] font-bold' : tAbs >= 1 ? 'text-[var(--amber)]' : 'text-[var(--tx-dim)]';
+              const icColor = (s.mean_ic ?? 0) >= 0 ? 'text-[var(--pos)]' : 'text-[var(--neg)]';
+              const icirColor = (s.icir ?? 0) >= 0.5 ? 'text-[var(--pos)]' : (s.icir ?? 0) >= 0 ? 'text-[var(--tx-mut)]' : 'text-[var(--neg)]';
               return (
-                <tr key={s.sector} className="border-b border-slate-50 hover:bg-slate-50/60">
-                  <td className="py-1.5 pr-4 text-slate-600 font-sans">{s.sector}</td>
-                  <td className="py-1.5 px-3 text-right text-slate-400">{s.n_months ?? '—'}</td>
+                <tr key={s.sector} className="border-b border-[var(--border-soft)] hover:bg-[rgba(45,212,191,0.06)]">
+                  <td className="py-1.5 pr-4 text-[var(--tx-mut)] font-sans">{s.sector}</td>
+                  <td className="py-1.5 px-3 text-right text-[var(--tx-dim)]">{s.n_months ?? '—'}</td>
                   <td className={`py-1.5 px-3 text-right ${icColor}`}>
                     {s.mean_ic != null ? `${s.mean_ic >= 0 ? '+' : ''}${s.mean_ic.toFixed(4)}` : '—'}
                   </td>
-                  <td className="py-1.5 px-3 text-right text-slate-500">
+                  <td className="py-1.5 px-3 text-right text-[var(--tx-mut)]">
                     {s.std_ic != null ? s.std_ic.toFixed(4) : '—'}
                   </td>
                   <td className={`py-1.5 px-3 text-right ${icirColor}`}>
@@ -157,7 +157,7 @@ function SectorBreakdownTable({ sectors }: { sectors: ModelSectorSummary[] }) {
                   <td className={`py-1.5 px-3 text-right ${tColor}`}>
                     {s.tstat != null ? `${s.tstat >= 0 ? '+' : ''}${s.tstat.toFixed(2)}` : '—'}
                   </td>
-                  <td className="py-1.5 pl-3 text-right text-slate-500">
+                  <td className="py-1.5 pl-3 text-right text-[var(--tx-mut)]">
                     {s.hit_rate != null ? `${(s.hit_rate * 100).toFixed(1)}%` : '—'}
                   </td>
                 </tr>
@@ -166,7 +166,7 @@ function SectorBreakdownTable({ sectors }: { sectors: ModelSectorSummary[] }) {
           </tbody>
         </table>
       </div>
-      <p className="text-xs text-slate-400 mt-2">
+      <p className="text-xs text-[var(--tx-dim)] mt-2">
         Rows sorted by t-stat (descending). Green t-stat = |t| ≥ 2. ICIR = mean IC ÷ std IC (Sharpe of IC stream).
         Low ICIR despite positive mean IC indicates high within-sector IC volatility — a signal that GICS grouping may be adding noise.
       </p>
@@ -186,26 +186,26 @@ function FeatureImportanceSection({
   const maxShap = Math.max(...top20.map((f) => f.mean_shap ?? 0));
   return (
     <div>
-      <div className="border-t border-slate-100 my-8" />
+      <div className="border-t border-[var(--border-soft)] my-5" />
       <div className="flex items-center justify-between mb-3">
-        <h3 className="text-xs uppercase tracking-[0.2em] text-slate-400 font-bold">
+        <h3 className="text-xs uppercase tracking-[0.2em] text-[var(--tx-dim)] font-bold">
           Feature Importance (Top 20) — {sectorLabel}
         </h3>
-        <p className="text-xs text-slate-400">Mean |SHAP| · bar = relative contribution</p>
+        <p className="text-xs text-[var(--tx-dim)]">Mean |SHAP| · bar = relative contribution</p>
       </div>
-      <div className="mb-4 rounded-lg border border-slate-100 bg-slate-50/60 px-4 py-3 text-xs text-slate-500 space-y-2">
+      <div className="mb-2.5 rounded-lg border border-[var(--border-soft)] bg-[var(--bg2)] px-4 py-3 text-xs text-[var(--tx-mut)] space-y-2">
         <p>
-          <strong className="text-slate-700">Mean |SHAP|</strong> (indigo bar) — average absolute SHAP value across all stocks and
+          <strong className="text-[var(--tx)]">Mean |SHAP|</strong> (teal bar) — average absolute SHAP value across all stocks and
           months. Measures how much each feature shifts the model&apos;s predicted return on average. Higher = more influential.
           SHAP accounts for feature interactions and is the most reliable importance metric.
         </p>
         <p>
-          <strong className="text-slate-700">Gini / MDI</strong> (grey bar, relative) — Mean Decrease in Impurity: how often
+          <strong className="text-[var(--tx)]">Gini / MDI</strong> (grey bar, relative) — Mean Decrease in Impurity: how often
           this feature is used to split trees in the Random Forest, weighted by impurity reduction. Faster to compute but
           biased toward high-cardinality features. When SHAP and Gini agree on a feature&apos;s rank, confidence is higher
           that the feature is genuinely important.
         </p>
-        <p className="text-slate-400 italic">
+        <p className="text-[var(--tx-dim)] italic">
           Selecting a sector above updates this chart to show importance for the sector-specific sub-model trained on
           that sector only.
         </p>
@@ -216,32 +216,32 @@ function FeatureImportanceSection({
           const giniPct = maxShap > 0 ? ((f.mean_gini ?? 0) / (top20[0].mean_gini ?? 1)) * 100 : 0;
           return (
             <div key={f.feature} className="flex items-center gap-3 text-xs">
-              <span className="w-6 text-right text-slate-400 font-mono shrink-0">{f.shap_rank}</span>
-              <span className="w-40 truncate text-slate-600 font-mono shrink-0">{f.feature}</span>
-              <div className="flex-1 relative h-5 bg-slate-50 rounded overflow-hidden">
+              <span className="w-6 text-right text-[var(--tx-dim)] font-mono shrink-0">{f.shap_rank}</span>
+              <span className="w-40 truncate text-[var(--tx-mut)] font-mono shrink-0">{f.feature}</span>
+              <div className="flex-1 relative h-5 bg-[var(--bg2)] rounded overflow-hidden">
                 <div
-                  className="absolute inset-y-0 left-0 bg-indigo-400/70 rounded"
+                  className="absolute inset-y-0 left-0 bg-[rgba(45,212,191,0.7)] rounded"
                   style={{ width: `${shapPct}%` }}
                 />
                 <div
-                  className="absolute inset-y-0 left-0 bg-slate-300/50 rounded"
+                  className="absolute inset-y-0 left-0 bg-[rgba(143,166,190,0.35)] rounded"
                   style={{ width: `${giniPct * 0.3}%` }}
                 />
               </div>
-              <span className="w-16 text-right font-mono text-slate-500 shrink-0">
+              <span className="w-16 text-right font-mono text-[var(--tx-mut)] shrink-0">
                 {f.mean_shap?.toExponential(2) ?? '—'}
               </span>
             </div>
           );
         })}
       </div>
-      <div className="mt-3 flex gap-6 text-xs text-slate-400">
+      <div className="mt-3 flex gap-4 text-xs text-[var(--tx-dim)]">
         <div className="flex items-center gap-2">
-          <span className="inline-block w-4 h-3 rounded bg-indigo-400/70" />
+          <span className="inline-block w-4 h-3 rounded bg-[rgba(45,212,191,0.7)]" />
           <span>Mean |SHAP|</span>
         </div>
         <div className="flex items-center gap-2">
-          <span className="inline-block w-4 h-3 rounded bg-slate-300/50" />
+          <span className="inline-block w-4 h-3 rounded bg-[rgba(143,166,190,0.35)]" />
           <span>Gini (MDI, relative)</span>
         </div>
       </div>
@@ -320,23 +320,23 @@ export function ModelDetailPanel({ row, sectorStickyTop }: ModelDetailPanelProps
   const sectorPanelTstat = isAllSector ? row.sector_ic_tstat_panel : null;
 
   return (
-    <Card className="border-indigo-100 bg-gradient-to-br from-white to-indigo-50/30">
+    <Card className="border-[var(--teal)] bg-[var(--panel)]">
       <CardHeader>
         <div className="flex items-start justify-between gap-4 flex-wrap">
           <div>
             <div className="flex items-center gap-3 flex-wrap">
-              <span className="font-mono text-lg font-black text-indigo-700 bg-indigo-100 px-3 py-1 rounded-lg">
+              <span className="font-mono text-base font-black text-[var(--teal)] bg-[rgba(45,212,191,0.13)] px-2.5 py-0.5 rounded-md">
                 {row.model_id}
               </span>
-              <span className="px-2.5 py-1 rounded-lg bg-slate-100 text-slate-600 text-xs font-semibold">
+              <span className="px-2.5 py-1 rounded-lg bg-[var(--bg2)] text-[var(--tx-mut)] text-xs font-semibold">
                 {row.model_type}
               </span>
-              <span className="px-2.5 py-1 rounded-lg bg-violet-100 text-violet-700 text-xs font-semibold">
+              <span className="px-2.5 py-1 rounded-lg bg-[rgba(56,189,248,0.13)] text-[var(--cyan)] text-xs font-semibold">
                 {TARGET_LABEL[row.target] ?? row.target}
               </span>
             </div>
-            <p className="text-sm text-slate-600 mt-2 font-medium">{row.description}</p>
-            <p className="text-xs text-slate-400 mt-1">
+            <p className="text-[12px] text-[var(--tx-mut)] mt-1.5 font-medium">{row.description}</p>
+            <p className="text-xs text-[var(--tx-dim)] mt-1">
               {row.n_months} months · {row.backtest_start} → {row.backtest_end}
               {row.feature_count != null && ` · ${row.feature_count} features (${row.feature_set})`}
             </p>
@@ -344,23 +344,23 @@ export function ModelDetailPanel({ row, sectorStickyTop }: ModelDetailPanelProps
         </div>
       </CardHeader>
 
-      <CardContent className="space-y-8">
+      <CardContent className="space-y-5">
         {/* Sector selector — sticky so it stays visible when scrolling through charts */}
         <div
-          className="sticky z-30 -mx-6 px-6 py-3 bg-white/95 backdrop-blur-sm border-b border-slate-100"
-          style={{ top: `${sectorStickyTop ?? 92}px` }}
+          className="sticky z-30 -mx-5 px-5 py-2 bg-[var(--panel)] border-b border-[var(--border-soft)]"
+          style={{ top: `${sectorStickyTop ?? 0}px` }}
         >
           <div className="flex items-center justify-between flex-wrap gap-3">
-            <h3 className="text-xs uppercase tracking-[0.2em] text-slate-400 font-bold">Sector View</h3>
+            <h3 className="text-xs uppercase tracking-[0.2em] text-[var(--tx-dim)] font-bold">Sector View</h3>
             <div className="flex flex-wrap gap-1">
               {SECTORS.map((s) => (
                 <button
                   key={s.key}
                   onClick={() => setSector(s.key)}
-                  className={`px-2.5 py-1 rounded-lg text-xs font-semibold transition-all ${
+                  className={`px-2 py-0.5 rounded-md text-[11px] font-semibold transition-all ${
                     sector === s.key
-                      ? 'bg-indigo-600 text-white shadow-sm'
-                      : 'bg-slate-100 text-slate-500 hover:bg-slate-200'
+                      ? 'bg-[var(--teal)] text-[var(--bg)] shadow-sm'
+                      : 'bg-[var(--bg2)] text-[var(--tx-mut)] hover:bg-[rgba(45,212,191,0.10)]'
                   }`}
                 >
                   {s.label}
@@ -372,13 +372,13 @@ export function ModelDetailPanel({ row, sectorStickyTop }: ModelDetailPanelProps
 
         {/* Stats — Full Universe fixed, Sector IC responds to selection */}
         <div>
-          <h3 className="text-xs uppercase tracking-[0.2em] text-slate-400 font-bold mb-4">Backtest Performance</h3>
-          <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+          <h3 className="text-xs uppercase tracking-[0.2em] text-[var(--tx-dim)] font-bold mb-2.5">Backtest Performance</h3>
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
             {/* Full Universe — always fixed */}
-            <div className="space-y-3">
+            <div className="space-y-2">
               <div className="flex items-center gap-2">
-                <span className="w-2.5 h-2.5 rounded-full bg-indigo-500 shrink-0" />
-                <span className="text-sm font-bold text-indigo-700 uppercase tracking-wider">Full Universe</span>
+                <span className="w-2.5 h-2.5 rounded-full bg-[var(--teal)] shrink-0" />
+                <span className="text-sm font-bold text-[var(--teal)] uppercase tracking-wider">Full Universe</span>
               </div>
               <div className="grid grid-cols-2 gap-2">
                 <StatCard
@@ -386,7 +386,7 @@ export function ModelDetailPanel({ row, sectorStickyTop }: ModelDetailPanelProps
                   value={fmt(row.univ_mean_ic, 4)}
                   sub={`t = ${row.univ_ic_tstat?.toFixed(2) ?? '—'}`}
                   highlight={(row.univ_ic_tstat ?? 0) > 2}
-                  color={(row.univ_mean_ic ?? 0) > 0 ? 'text-emerald-700' : 'text-red-600'}
+                  color={(row.univ_mean_ic ?? 0) > 0 ? 'text-[var(--pos)]' : 'text-[var(--neg)]'}
                 />
                 <StatCard
                   label="t-Statistic"
@@ -402,16 +402,16 @@ export function ModelDetailPanel({ row, sectorStickyTop }: ModelDetailPanelProps
                   label="Q5−Q1 Ann."
                   value={fmt(row.q5_minus_q1_ann, 1, true)}
                   sub="annualised spread"
-                  color={(row.q5_minus_q1_ann ?? 0) > 0 ? 'text-emerald-700' : 'text-red-600'}
+                  color={(row.q5_minus_q1_ann ?? 0) > 0 ? 'text-[var(--pos)]' : 'text-[var(--neg)]'}
                 />
               </div>
             </div>
 
             {/* Sector IC — responds to sector selector */}
-            <div className="space-y-3">
+            <div className="space-y-2">
               <div className="flex items-center gap-2">
-                <span className="w-2.5 h-2.5 rounded-full bg-sky-400 shrink-0" />
-                <span className="text-sm font-bold text-sky-700 uppercase tracking-wider">
+                <span className="w-2.5 h-2.5 rounded-full bg-[var(--cyan)] shrink-0" />
+                <span className="text-sm font-bold text-[var(--cyan)] uppercase tracking-wider">
                   {isAllSector ? 'Sector IC — monthly avg across all sectors' : `Sector IC — ${sectorLabel}`}
                 </span>
               </div>
@@ -427,7 +427,7 @@ export function ModelDetailPanel({ row, sectorStickyTop }: ModelDetailPanelProps
                       : undefined
                   }
                   highlight={(sectorTstat ?? 0) > 2}
-                  color={(sectorMeanIC ?? 0) > 0 ? 'text-emerald-700' : 'text-red-600'}
+                  color={(sectorMeanIC ?? 0) > 0 ? 'text-[var(--pos)]' : 'text-[var(--neg)]'}
                 />
                 <StatCard
                   label={isAllSector ? 'Monthly t-Stat' : 't-Statistic'}
@@ -446,24 +446,24 @@ export function ModelDetailPanel({ row, sectorStickyTop }: ModelDetailPanelProps
           </div>
         </div>
 
-        <div className="border-t border-slate-100" />
+        <div className="border-t border-[var(--border-soft)]" />
 
         {/* Charts */}
         <div>
           {isLoading && (
-            <div className="rounded-2xl border border-slate-100 bg-white p-12 text-center">
-              <p className="text-sm text-slate-400">Loading {row.model_id} · {sectorLabel}…</p>
+            <div className="rounded-2xl border border-[var(--border-soft)] bg-[var(--panel)] p-12 text-center">
+              <p className="text-sm text-[var(--tx-dim)]">Loading {row.model_id} · {sectorLabel}…</p>
             </div>
           )}
           {hasError && !isLoading && (
-            <div className="rounded-2xl border border-red-100 bg-red-50 p-6 text-center">
-              <p className="text-sm text-red-500">Failed to load model data. Run compute_research_tables.py first.</p>
+            <div className="rounded-2xl border border-[var(--border-soft)] bg-[rgba(248,113,113,0.10)] p-6 text-center">
+              <p className="text-sm text-[var(--neg)]">Failed to load model data. Run compute_research_tables.py first.</p>
             </div>
           )}
           {icData && !icLoading && (
-            <div className="space-y-6">
+            <div className="space-y-4">
               <div>
-                <p className="text-xs font-bold uppercase tracking-[0.15em] text-slate-400 mb-3">Rolling 12-Month IC</p>
+                <p className="text-xs font-bold uppercase tracking-[0.15em] text-[var(--tx-dim)] mb-3">Rolling 12-Month IC</p>
                 <ModelRollingICChart data={icData} sector={sector} />
               </div>
             </div>
@@ -471,14 +471,14 @@ export function ModelDetailPanel({ row, sectorStickyTop }: ModelDetailPanelProps
         </div>
 
         {qData && !qLoading && (
-          <div className="space-y-6">
+          <div className="space-y-4">
             <div>
-              <p className="text-xs font-bold uppercase tracking-[0.15em] text-slate-400 mb-3">Quintile Cumulative Returns</p>
+              <p className="text-xs font-bold uppercase tracking-[0.15em] text-[var(--tx-dim)] mb-3">Quintile Cumulative Returns</p>
               <ModelQuintileChart data={qData} sector={sector} />
             </div>
             <div>
-              <p className="text-xs font-bold uppercase tracking-[0.15em] text-slate-400 mb-1">Rolling 24-Month Q5−Q1 Spread</p>
-              <p className="text-xs text-slate-400 mb-3">
+              <p className="text-xs font-bold uppercase tracking-[0.15em] text-[var(--tx-dim)] mb-1">Rolling 24-Month Q5−Q1 Spread</p>
+              <p className="text-xs text-[var(--tx-dim)] mb-3">
                 How much the model&apos;s top vs. bottom quintile gap has varied over time — regime shifts visible as sustained positive or negative periods
               </p>
               <ModelSpreadChart data={qData} sector={sector} />

@@ -9,10 +9,10 @@ import type { P01ScorecardRow } from '@/types/api';
 type Quality = 'Strong' | 'Moderate' | 'Weak' | 'Investigate' | null;
 
 const QUALITY_STYLES: Record<string, string> = {
-  Strong:      'bg-emerald-50 text-emerald-700 border border-emerald-200',
-  Moderate:    'bg-blue-50 text-blue-700 border border-blue-200',
-  Weak:        'bg-amber-50 text-amber-700 border border-amber-200',
-  Investigate: 'bg-red-50 text-red-600 border border-red-200',
+  Strong:      'bg-[rgba(52,211,153,0.14)] text-[var(--pos)] border border-[rgba(52,211,153,0.30)]',
+  Moderate:    'bg-[rgba(56,189,248,0.13)] text-[var(--cyan)] border border-[rgba(56,189,248,0.30)]',
+  Weak:        'bg-[rgba(251,191,36,0.13)] text-[var(--amber)] border border-[rgba(251,191,36,0.30)]',
+  Investigate: 'bg-[rgba(248,113,113,0.13)] text-[var(--neg)] border border-[rgba(248,113,113,0.30)]',
 };
 
 // Display label — "Investigate" is internal; show "Negative" to users
@@ -24,9 +24,9 @@ const QUALITY_LABEL: Record<string, string> = {
 };
 
 function QualityBadge({ quality }: { quality: Quality }) {
-  if (!quality) return <span className="text-slate-300">—</span>;
+  if (!quality) return <span className="text-[var(--tx-dim)]">—</span>;
   return (
-    <span className={`inline-flex items-center px-2 py-0.5 rounded-md text-xs font-semibold ${QUALITY_STYLES[quality] ?? 'bg-slate-100 text-slate-500'}`}>
+    <span className={`inline-flex items-center px-2 py-0.5 rounded-md text-xs font-semibold ${QUALITY_STYLES[quality] ?? 'bg-[var(--bg2)] text-[var(--tx-mut)]'}`}>
       {QUALITY_LABEL[quality] ?? quality}
     </span>
   );
@@ -36,24 +36,24 @@ function QualityBadge({ quality }: { quality: Quality }) {
 // t-stat bar — bar scaled 0–5 with a reference tick at t=2 (significance)
 // ---------------------------------------------------------------------------
 function TStatBar({ tstat, direction }: { tstat: number | null; direction: 1 | -1 }) {
-  if (tstat == null) return <span className="text-slate-300 text-xs">—</span>;
+  if (tstat == null) return <span className="text-[var(--tx-dim)] text-xs">—</span>;
   const effective = tstat * direction;
   const pct = Math.min(Math.abs(tstat) / 5, 1);
   const refPct = 2 / 5; // t=2 threshold marker at 40% of bar
   return (
     <div className="flex items-center gap-2 min-w-[100px]">
-      <div className="relative flex-1 h-1.5 rounded-full bg-slate-100">
+      <div className="relative flex-1 h-1.5 rounded-full bg-[var(--bg2)]">
         <div
-          className={`h-full rounded-full ${effective > 0 ? 'bg-emerald-400' : 'bg-red-400'}`}
+          className={`h-full rounded-full ${effective > 0 ? 'bg-[var(--pos)]' : 'bg-[var(--neg)]'}`}
           style={{ width: `${pct * 100}%` }}
         />
         {/* Reference tick at t = 2 */}
         <div
-          className="absolute top-1/2 -translate-y-1/2 w-px h-3 bg-slate-400"
+          className="absolute top-1/2 -translate-y-1/2 w-px h-3 bg-[var(--tx-dim)]"
           style={{ left: `${refPct * 100}%` }}
         />
       </div>
-      <span className={`text-xs font-mono w-12 ${effective > 0 ? 'text-emerald-700' : 'text-red-600'} ${Math.abs(tstat) > 2 ? 'font-semibold' : ''}`}>
+      <span className={`text-xs font-mono w-12 ${effective > 0 ? 'text-[var(--pos)]' : 'text-[var(--neg)]'} ${Math.abs(tstat) > 2 ? 'font-semibold' : ''}`}>
         {tstat >= 0 ? '+' : ''}{tstat.toFixed(2)}
       </span>
     </div>
@@ -63,11 +63,11 @@ function TStatBar({ tstat, direction }: { tstat: number | null; direction: 1 | -
 // ---------------------------------------------------------------------------
 // Quintile sparkbar — 5 bars Q1→Q5 showing avg monthly return
 // ---------------------------------------------------------------------------
-const Q_COLORS = ['#ef4444', '#f97316', '#94a3b8', '#14b8a6', '#22c55e'];
+const Q_COLORS = ['#dc2626', '#ea580c', '#64748b', '#0d9488', '#16a34a'];
 
 function QuintileSparkbar({ row }: { row: P01ScorecardRow }) {
   const vals = [row.full_q1_avg, row.full_q2_avg, row.full_q3_avg, row.full_q4_avg, row.full_q5_avg];
-  if (vals.every(v => v == null)) return <span className="text-slate-300 text-xs">—</span>;
+  if (vals.every(v => v == null)) return <span className="text-[var(--tx-dim)] text-xs">—</span>;
 
   const w = 80;
   const h = 28;
@@ -89,7 +89,7 @@ function QuintileSparkbar({ row }: { row: P01ScorecardRow }) {
     <svg viewBox={`0 0 ${w} ${h}`} width={w} height={h} className="overflow-visible">
       {vals.map((v, i) => {
         const x = offsetX + i * (barW + gap);
-        if (v == null) return <rect key={i} x={x} y={baseY - 2} width={barW} height={2} fill="#e2e8f0" rx="1" />;
+        if (v == null) return <rect key={i} x={x} y={baseY - 2} width={barW} height={2} fill="var(--border-soft)" rx="1" />;
         const barH = Math.max((v - minVal) * scale, 1.5);
         const y = baseY - barH;
         return <rect key={i} x={x} y={y} width={barW} height={barH} fill={Q_COLORS[i]} rx="1.5" opacity={0.85} />;
@@ -105,17 +105,17 @@ const FAMILIES = ['All', 'Momentum', 'Technical', 'Quality', 'Valuation', 'Growt
 type Family = typeof FAMILIES[number];
 
 const FAMILY_COLORS: Record<string, string> = {
-  Momentum:  'bg-violet-50 text-violet-700',
-  Technical: 'bg-purple-50 text-purple-700',
-  Quality:   'bg-teal-50 text-teal-700',
-  Valuation: 'bg-sky-50 text-sky-700',
-  Growth:    'bg-lime-50 text-lime-700',
-  Risk:      'bg-orange-50 text-orange-700',
+  Momentum:  'bg-[rgba(167,139,250,0.14)] text-[#7c3aed]',
+  Technical: 'bg-[rgba(192,132,252,0.14)] text-[#9333ea]',
+  Quality:   'bg-[rgba(45,212,191,0.14)] text-[var(--teal)]',
+  Valuation: 'bg-[rgba(56,189,248,0.14)] text-[var(--cyan)]',
+  Growth:    'bg-[rgba(163,230,53,0.14)] text-[#4d7c0f]',
+  Risk:      'bg-[rgba(251,146,60,0.14)] text-[#c2410c]',
 };
 
 function FamilyPill({ family }: { family: string }) {
   return (
-    <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium ${FAMILY_COLORS[family] ?? 'bg-slate-100 text-slate-600'}`}>
+    <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium ${FAMILY_COLORS[family] ?? 'bg-[var(--bg2)] text-[var(--tx-mut)]'}`}>
       {family}
     </span>
   );
@@ -186,7 +186,7 @@ export function ScorecardTable({ rows, selectedFactor, onSelect }: ScorecardTabl
       <button
         onClick={() => handleSort(col)}
         disabled={groupByFamily}
-        className={`flex items-center gap-1 text-xs uppercase tracking-[0.15em] font-bold transition-colors ${active ? 'text-indigo-600' : 'text-slate-400 hover:text-slate-600'} ${groupByFamily ? 'cursor-default' : ''}`}
+        className={`flex items-center gap-1 text-xs uppercase tracking-[0.15em] font-bold transition-colors ${active ? 'text-[var(--teal)]' : 'text-[var(--tx-dim)] hover:text-[var(--tx-mut)]'} ${groupByFamily ? 'cursor-default' : ''}`}
       >
         {label}
         {!groupByFamily && <span className="text-[10px]">{active ? (sortAsc ? '▲' : '▼') : '⇅'}</span>}
@@ -201,13 +201,13 @@ export function ScorecardTable({ rows, selectedFactor, onSelect }: ScorecardTabl
         key={row.factor}
         onClick={() => onSelect(isSelected ? '' : row.factor)}
         className={`cursor-pointer transition-colors group ${
-          isSelected ? 'bg-indigo-50/70 border-l-2 border-indigo-400' : 'hover:bg-slate-50/80'
+          isSelected ? 'bg-[rgba(45,212,191,0.10)] border-l-2 border-[var(--teal)]' : 'hover:bg-[rgba(45,212,191,0.06)]'
         }`}
       >
         <td className="px-5 py-3">
           <div>
-            <p className="font-semibold text-slate-800 text-sm leading-tight">{row.factor_label}</p>
-            <p className="text-xs text-slate-400 mt-0.5 font-mono">{row.factor}</p>
+            <p className="font-semibold text-[var(--tx)] text-sm leading-tight">{row.factor_label}</p>
+            <p className="text-xs text-[var(--tx-dim)] mt-0.5 font-mono">{row.factor}</p>
           </div>
         </td>
         <td className="px-3 py-3">
@@ -221,12 +221,12 @@ export function ScorecardTable({ rows, selectedFactor, onSelect }: ScorecardTabl
           <TStatBar tstat={row.full_ic_tstat} direction={row.direction} />
         </td>
         <td className="px-3 py-3">
-          <span className={`text-xs font-mono ${Math.abs(row.full_icir ?? 0) > 0.3 ? 'text-indigo-700 font-semibold' : 'text-slate-400'}`}>
+          <span className={`text-xs font-mono ${Math.abs(row.full_icir ?? 0) > 0.3 ? 'text-[var(--teal)] font-semibold' : 'text-[var(--tx-dim)]'}`}>
             {row.full_icir != null ? (row.full_icir >= 0 ? '+' : '') + row.full_icir.toFixed(3) : '—'}
           </span>
         </td>
         <td className="px-3 py-3">
-          <span className="text-xs font-mono text-slate-400">
+          <span className="text-xs font-mono text-[var(--tx-dim)]">
             {row.full_mean_ic != null ? (row.full_mean_ic >= 0 ? '+' : '') + row.full_mean_ic.toFixed(4) : '—'}
           </span>
         </td>
@@ -235,24 +235,24 @@ export function ScorecardTable({ rows, selectedFactor, onSelect }: ScorecardTabl
           <TStatBar tstat={row.ws_ic_tstat} direction={row.direction} />
         </td>
         <td className="px-3 py-3">
-          <span className={`text-xs font-mono ${Math.abs(row.ws_icir ?? 0) > 0.3 ? 'text-sky-700 font-semibold' : 'text-slate-400'}`}>
+          <span className={`text-xs font-mono ${Math.abs(row.ws_icir ?? 0) > 0.3 ? 'text-[var(--cyan)] font-semibold' : 'text-[var(--tx-dim)]'}`}>
             {row.ws_icir != null ? (row.ws_icir >= 0 ? '+' : '') + row.ws_icir.toFixed(3) : '—'}
           </span>
         </td>
         <td className="px-3 py-3">
           <div className="flex flex-col gap-1">
             <div className="flex items-center gap-1.5">
-              <span className="text-[9px] font-bold uppercase tracking-wider text-indigo-400 w-4">F</span>
+              <span className="text-[9px] font-bold uppercase tracking-wider text-[var(--teal)] w-4">F</span>
               <QualityBadge quality={row.full_signal_quality} />
             </div>
             <div className="flex items-center gap-1.5">
-              <span className="text-[9px] font-bold uppercase tracking-wider text-sky-400 w-4">S</span>
+              <span className="text-[9px] font-bold uppercase tracking-wider text-[var(--cyan)] w-4">S</span>
               <QualityBadge quality={row.ws_signal_quality} />
             </div>
           </div>
         </td>
         <td className="px-3 py-3 text-right">
-          <span className={`text-slate-300 text-xs transition-transform inline-block ${isSelected ? 'rotate-90' : 'group-hover:text-slate-400'}`}>▶</span>
+          <span className={`text-[var(--tx-dim)] text-xs transition-transform inline-block ${isSelected ? 'rotate-90' : 'group-hover:text-[var(--tx-mut)]'}`}>▶</span>
         </td>
       </tr>
     );
@@ -267,15 +267,15 @@ export function ScorecardTable({ rows, selectedFactor, onSelect }: ScorecardTabl
         {/* Family filter — hidden in group mode */}
         {!groupByFamily && (
           <div className="flex flex-wrap gap-2">
-            <span className="self-center text-xs text-slate-400 font-medium">Filter:</span>
+            <span className="self-center text-xs text-[var(--tx-dim)] font-medium">Filter:</span>
             {FAMILIES.map((f) => (
               <button
                 key={f}
                 onClick={() => setFamily(f)}
                 className={`px-3 py-1.5 rounded-xl text-xs font-semibold border transition-all ${
                   family === f
-                    ? 'bg-[#4F46E5] text-white border-[#4F46E5] shadow-sm'
-                    : 'bg-white text-slate-500 border-slate-200 hover:border-indigo-300 hover:text-indigo-600'
+                    ? 'bg-[var(--teal)] text-[#fffdf9] border-[var(--teal)] shadow-sm'
+                    : 'bg-[var(--panel)] text-[var(--tx-mut)] border-[var(--border-soft)] hover:border-[var(--teal)] hover:text-[var(--teal)]'
                 }`}
               >
                 {f}
@@ -289,8 +289,8 @@ export function ScorecardTable({ rows, selectedFactor, onSelect }: ScorecardTabl
           onClick={() => { setGroupByFamily((v) => !v); setFamily('All'); }}
           className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-semibold border transition-all ${
             groupByFamily
-              ? 'bg-[#4F46E5] text-white border-[#4F46E5] shadow-sm'
-              : 'bg-white text-slate-500 border-slate-200 hover:border-indigo-300 hover:text-indigo-600'
+              ? 'bg-[var(--teal)] text-[#fffdf9] border-[var(--teal)] shadow-sm'
+              : 'bg-[var(--panel)] text-[var(--tx-mut)] border-[var(--border-soft)] hover:border-[var(--teal)] hover:text-[var(--teal)]'
           }`}
         >
           <span>⊞</span> Group by Family
@@ -298,31 +298,31 @@ export function ScorecardTable({ rows, selectedFactor, onSelect }: ScorecardTabl
       </div>
 
       {/* Table */}
-      <div className="rounded-2xl border border-slate-100 bg-white overflow-hidden">
+      <div className="rounded-2xl border border-[var(--border-soft)] bg-[var(--panel)] overflow-hidden">
         <div className="overflow-x-auto overflow-y-auto max-h-[520px]">
           <table className="w-full text-sm">
-            <thead className="sticky top-0 z-10 bg-slate-50">
-              <tr className="border-b border-slate-100 bg-slate-50">
+            <thead className="sticky top-0 z-10 bg-[var(--bg2)]">
+              <tr className="border-b border-[var(--border-soft)] bg-[var(--bg2)]">
                 <th className="px-5 py-3.5 text-left">
                   <SortHeader label="Factor" col="factor_label" />
                 </th>
                 <th className="px-3 py-3.5 text-left w-24">
-                  <span className="text-xs uppercase tracking-[0.15em] text-slate-400 font-bold">
+                  <span className="text-xs uppercase tracking-[0.15em] text-[var(--tx-dim)] font-bold">
                     {groupByFamily ? '' : 'Family'}
                   </span>
                 </th>
                 <th className="px-3 py-3.5 text-left">
-                  <span className="text-xs uppercase tracking-[0.15em] text-slate-400 font-bold">Q1→Q5</span>
+                  <span className="text-xs uppercase tracking-[0.15em] text-[var(--tx-dim)] font-bold">Q1→Q5</span>
                 </th>
                 <th className="px-3 py-3.5 text-left" colSpan={3}>
-                  <span className="text-xs uppercase tracking-[0.15em] text-indigo-500 font-bold">Full Universe</span>
+                  <span className="text-xs uppercase tracking-[0.15em] text-[var(--teal)] font-bold">Full Universe</span>
                 </th>
                 <th className="px-3 py-3.5 text-left" colSpan={3}>
-                  <span className="text-xs uppercase tracking-[0.15em] text-sky-500 font-bold">Within Sector</span>
+                  <span className="text-xs uppercase tracking-[0.15em] text-[var(--cyan)] font-bold">Within Sector</span>
                 </th>
                 <th className="px-3 py-3.5 w-6" />
               </tr>
-              <tr className="border-b border-slate-100 bg-slate-50">
+              <tr className="border-b border-[var(--border-soft)] bg-[var(--bg2)]">
                 <th className="px-5 py-2" />
                 <th className="px-3 py-2" />
                 <th className="px-3 py-2" />
@@ -332,20 +332,20 @@ export function ScorecardTable({ rows, selectedFactor, onSelect }: ScorecardTabl
                 <th className="px-3 py-2 text-left"><SortHeader label="t-stat" col="ws_ic_tstat" /></th>
                 <th className="px-3 py-2 text-left"><SortHeader label="ICIR" col="ws_icir" /></th>
                 <th className="px-3 py-2 text-left">
-                  <span className="text-xs uppercase tracking-[0.15em] text-slate-400 font-bold">Quality</span>
+                  <span className="text-xs uppercase tracking-[0.15em] text-[var(--tx-dim)] font-bold">Quality</span>
                 </th>
                 <th className="px-3 py-2" />
               </tr>
             </thead>
-            <tbody className="divide-y divide-slate-50">
+            <tbody className="divide-y divide-[var(--border-soft)]">
               {groupByFamily && grouped
                 ? Array.from(grouped.entries()).filter(([, fRows]) => fRows.length > 0).map(([fam, fRows]) => (
                     <React.Fragment key={fam}>
-                      <tr className="bg-slate-50/80">
+                      <tr className="bg-[var(--bg2)]">
                         <td colSpan={10} className="px-5 py-2">
                           <div className="flex items-center gap-2">
                             <FamilyPill family={fam} />
-                            <span className="text-xs text-slate-400">{fRows.length} factor{fRows.length !== 1 ? 's' : ''}</span>
+                            <span className="text-xs text-[var(--tx-dim)]">{fRows.length} factor{fRows.length !== 1 ? 's' : ''}</span>
                           </div>
                         </td>
                       </tr>
@@ -359,13 +359,13 @@ export function ScorecardTable({ rows, selectedFactor, onSelect }: ScorecardTabl
         </div>
 
         {/* Footer */}
-        <div className="px-5 py-3 border-t border-slate-100 bg-slate-50/30 flex items-center justify-between">
-          <p className="text-xs text-slate-400">
+        <div className="px-5 py-3 border-t border-[var(--border-soft)] bg-[var(--bg2)] flex items-center justify-between">
+          <p className="text-xs text-[var(--tx-dim)]">
             {totalShown} factor{totalShown !== 1 ? 's' : ''} shown
             {rows[0]?.date_from ? ` · ${rows[0].date_from} → ${rows[0].date_to}` : ''}
             {rows[0]?.n_months ? ` · ${rows[0].n_months} months` : ''}
           </p>
-          <p className="text-xs text-slate-400">
+          <p className="text-xs text-[var(--tx-dim)]">
             Q1→Q5 = avg monthly return by quintile (red→green) · F = Full Universe · S = Within Sector · Negative = IC in wrong direction
           </p>
         </div>

@@ -18,23 +18,23 @@ export function GapDetectionSection() {
   return (
     <Card>
       <CardHeader>
-        <div className="flex items-center justify-between pb-3 border-b border-black/5/[0.03] mb-4">
-          <h2 className="text-lg font-semibold text-[#0F172A] tracking-tight">Gap Detection</h2>
+        <div className="flex items-center justify-between pb-3 border-b border-[var(--border-soft)] mb-4">
+          <h2 className="text-lg font-semibold text-[var(--tx)] tracking-tight">Gap Detection</h2>
           {updatedAt && (
-            <span className="text-xs text-xs text-[#0F172A]/80 uppercase tracking-[0.1em] tracking-[0.2em] font-black font-medium">Updated {secondsAgo(updatedAt)}</span>
+            <span className="text-xs text-xs text-[var(--tx-dim)] uppercase tracking-[0.1em] tracking-[0.2em] font-black font-medium">Updated {secondsAgo(updatedAt)}</span>
           )}
         </div>
-        <p className="text-sm text-slate-600 mb-6">
+        <p className="text-sm text-[var(--tx-mut)] mb-6">
           Daily tables missing trading days present in raw.prices (last 90 days)
         </p>
       </CardHeader>
       <CardContent className="p-0">
-        {isLoading && <p className="text-sm text-slate-600 px-6 py-4">Loading…</p>}
-        {error     && <p className="text-sm text-red-500 px-6 py-4">Failed to load</p>}
+        {isLoading && <p className="text-sm text-[var(--tx-mut)] px-6 py-4">Loading…</p>}
+        {error     && <p className="text-sm text-[var(--neg)] px-6 py-4">Failed to load</p>}
         {data && (
           <table className="w-full text-sm">
             <thead>
-              <tr className="border-b border-black/5/[0.03] text-left text-xs text-slate-600 font-medium tracking-wide">
+              <tr className="border-b border-[var(--border-soft)] text-left text-xs text-[var(--tx-mut)] font-medium tracking-wide">
                 <th className="px-6 py-4">Table</th>
                 <th className="px-6 py-4">Missing Dates</th>
                 <th className="px-6 py-4 text-right">Count</th>
@@ -45,25 +45,25 @@ export function GapDetectionSection() {
               if (layerData.length === 0) return null;
               
               return (
-                <tbody key={layer} className="divide-y divide-slate-100/50">
+                <tbody key={layer} className="divide-y divide-[var(--border-soft)]">
                   <tr>
-                    <td colSpan={3} className="px-6 pt-6 pb-2 text-[10px] font-black text-indigo-500 uppercase tracking-widest bg-slate-50/30">
+                    <td colSpan={3} className="px-6 pt-6 pb-2 text-[10px] font-black text-[var(--teal)] uppercase tracking-widest bg-[var(--bg2)]">
                       {layer} Layer
                     </td>
                   </tr>
                   {layerData.map((row) => (
-                    <tr key={`${row.schema_name}.${row.table_name}`} className="hover:bg-white/60 backdrop-blur-xl/[0.02] transition-colors">
-                      <td className="px-6 py-4 font-mono text-[#0F172A] text-xs">
+                    <tr key={`${row.schema_name}.${row.table_name}`} className="hover:bg-[rgba(45,212,191,0.06)] transition-colors">
+                      <td className="px-6 py-4 font-mono text-[var(--tx)] text-xs">
                         {row.table_name}
                       </td>
                       <td className="px-6 py-3">
                         {row.gap_count === 0 ? (
-                          <span className="text-emerald-600 font-semibold text-xs">✓ No gaps</span>
+                          <span className="text-[var(--pos)] font-semibold text-xs">✓ No gaps</span>
                         ) : (
-                          <span className="text-rose-600 font-bold text-xs">✗ {row.gap_count} gap{row.gap_count > 1 ? 's' : ''}</span>
+                          <span className="text-[var(--neg)] font-bold text-xs">✗ {row.gap_count} gap{row.gap_count > 1 ? 's' : ''}</span>
                         )}
                       </td>
-                      <td className="px-6 py-3 text-slate-600 text-xs font-mono text-right">
+                      <td className="px-6 py-3 text-[var(--tx-mut)] text-xs font-mono text-right">
                         {row.gap_count === 0
                           ? '—'
                           : row.missing_dates.slice(0, 3).join(', ') + (row.missing_dates.length > 3 ? ` +${row.missing_dates.length - 3} more` : '')

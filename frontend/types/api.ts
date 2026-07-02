@@ -331,3 +331,80 @@ export interface BacktestMonthlyReturn {
   cum_portfolio: number | null;
   cum_benchmark: number | null;
 }
+
+// ---------------------------------------------------------------------------
+// Portfolio (Layer-2) Research Hub — registry-backed (portfolio.backtest_meta + summary)
+// ---------------------------------------------------------------------------
+
+export type Universe = 'sp500' | 'r2500';
+export type Strategy = 'long_only' | 'long_short';
+export type Variant = 'bare' | 'base' | 'hard';
+
+export interface PortfolioBacktest {
+  model_label: string;
+  signal_model_id: string | null;
+  universe: string | null;
+  strategy: string | null;
+  experiment: string | null;   // prod | sweep | sector | te | phase5 | ls | legacy
+  variant: string | null;      // bare | base | hard
+  lambda_risk: number | null;
+  te_target: number | null;
+  sector_tol: number | null;
+  turnover_cap: number | null;
+  benchmark_report: string | null;
+  is_hard: boolean | null;
+  is_production: boolean | null;
+  is_legacy: boolean | null;
+  ab_twin: string | null;
+  n_months: number | null;
+  period_start: string | null;
+  period_end: string | null;
+  ann_active: number | null;
+  ann_total_net: number | null;
+  ir: number | null;
+  sharpe_net: number | null;
+  realized_te: number | null;
+  pred_te: number | null;
+  max_drawdown: number | null;
+  avg_turnover: number | null;
+  tc_drag_bps: number | null;
+  avg_holdings: number | null;
+  opt_pct: number | null;
+  inacc_pct: number | null;
+  held_pct: number | null;
+  hit_rate: number | null;
+}
+
+export interface PortfolioMonthlyPoint {
+  date: string;
+  portfolio_net: number | null;
+  benchmark: number | null;
+  active_return: number | null;
+  turnover: number | null;
+  tc_cost: number | null;
+  n_stocks: number | null;
+  optimizer_status: string | null;
+  cum_portfolio: number | null;   // base 100, net
+  cum_benchmark: number | null;   // base 100
+  drawdown: number | null;
+}
+
+export interface PortfolioDetail {
+  meta: PortfolioBacktest;
+  monthly: PortfolioMonthlyPoint[];
+}
+
+export interface PortfolioHolding {
+  isin: string;
+  name: string | null;
+  ticker: string | null;
+  sector: string | null;
+  weight: number | null;
+  prev_weight: number | null;
+  trade_pct: number | null;
+}
+
+export interface PortfolioSectorWeight {
+  sector: string | null;
+  weight: number | null;
+}

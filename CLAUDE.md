@@ -38,16 +38,50 @@ All under `/api/v1/research/`:
 - `models/{id}/feature-importance` — SHAP feature importance
 - `models/{id}/sector-summary` — per-sector IC breakdown
 
-## Research UI (4-tab layout)
+### L2 Portfolios (optimized backtests) — router prefix `/api/v1/portfolio` (NOT `/research`)
+- `portfolio/backtests?universe=&strategy=&variant=&model=` — filterable registry (meta + summary)
+- `portfolio/backtests/{label}` — one backtest: meta + monthly series (cum return, drawdown)
+- `portfolio/backtests/{label}/holdings` — latest-rebalance holdings (weight + trade)
+- `portfolio/backtests/{label}/sector-allocation` — latest portfolio weight by sector
 
-Research page has 4 flat tabs under `/research/`:
-- `/research/factors` — S&P 500 Factor Quintile Analysis (P01, universe=sp500)
-- `/research/models` — S&P 500 Alpha Models (P02, universe=sp500, model_id M* legacy + N* current)
-- `/research/r2500-factors` — Russell 2500 Factor Quintile Analysis (P01, universe=russell2500)
-- `/research/r2500-models` — Russell 2500 Alpha Models (P02, universe=russell2500, model_id NR* only)
+Backed by `portfolio.*` + `optimizer.*` DB tables. Needs `GRANT SELECT ... TO skypilot_app` in prod;
+`api/routers/portfolio.py` is a NEW router, so the droplet needs the manual `git pull + restart
+skypilot-api` for these endpoints to exist.
+
+## Research UI (decision hub)
+
+The whole authenticated app lives under the route group `app/(app)/` — the app shell (fixed
+sidebar + top bar; only `<main>` scrolls). `/login` sits on the bare root layout (no chrome). The
+research section is a decision hub with a persistent layer switch (Factors P01 · Alpha Models P02 ·
+Portfolios L2) + a universe toggle (S&P 500 / Russell 2500), rendered by `research/ResearchNav.tsx`.
+
+Pages:
+- `/research/factors` · `/research/r2500-factors` — Factor Quintile Analysis (P01)
+- `/research/models` · `/research/r2500-models` — Alpha Models (P02)
+- `/research/portfolios?u=sp500|r2500` — Layer-2 optimized-backtest hub (Sweep Explorer / Browse /
+  Decision tabs), with a per-backtest drill-down report at `/research/portfolios/[label]`
+
+Scroll architecture (LOCKED — do not revert to whole-page scroll): fixed-height frame via
+`h-screen overflow-hidden` → `flex-1 min-h-0 overflow-y-auto`, with `min-h-0` at EVERY flex level.
+On the master-detail pages the chrome (condensed one-line page header + info bars) is frozen; the
+list pane and the detail pane each scroll independently — never the whole page. Density is
+"Balanced": tight spacing/headings, data numbers kept ≥11px, charts ~240–250px tall.
 
 Model naming: S&P 500 generation = M*/N*; Russell 2500 generation = the same IDs R-prefixed
 (MR*/NR*). Current production generation = N*/NR* (53-factor superset + new-data block).
 The `models/scorecard` universe filter: `russell2500` = NR* only, `sp500` = neither MR* nor NR*
 (i.e. M* + N*). Legacy MR* are hidden — never rebuilt on corrected data (built_from=
 'legacy-pre-audit'), superseded by NR*. M* WERE rebuilt on clean data so they stay on SP500.
+
+## Theme — "Warm Ivory" (light)
+
+Whole-site theme defined in `app/globals.css` as CSS variables on `:root` (used via Tailwind
+arbitrary values like `bg-[var(--panel)]` and the semantic classes `.panel/.kpi/.pill*/.dtable/
+.takeaway/.chip-btn`). Switched from the old dark "Institutional Blue" to a light warm-ivory palette
+(2026-07): `--bg #f3eee4` (ivory canvas), `--panel #fffdf9` (warm-white cards), `--border-soft
+#e7ddcd`, `--tx #26303c` (charcoal-navy text), `--tx-mut #5f5a50`, `--tx-dim #857c6d`, `--teal
+#0e7c6f` (brand accent), `--cyan #1e40af` (navy secondary), `--pos #15803d`, `--neg #b91c1c`,
+`--amber #b45309`. Hand-rolled SVG charts read these variables (stroke/fill = `var(--…)`) so they
+follow the theme automatically; the quintile ramp is `#dc2626/#ea580c/#64748b/#0d9488/#16a34a`
+(red→green, light-legible). To re-theme, swap the variable VALUES — layout/components are
+palette-agnostic. Text on the teal accent is `#fffdf9` (cream), never near-black.
