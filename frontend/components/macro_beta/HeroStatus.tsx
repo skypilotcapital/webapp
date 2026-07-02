@@ -29,6 +29,11 @@ function plainEnglishReasons(reasons: string | null): string[] {
       .join(' + ');
     out.push(`Correction channel: ${src} with price below its 10-month average.`);
   }
+  if (reasons === 'exit_confirm_holding') {
+    out.push(
+      'Defense triggers have released; the 10-day exit confirmation is running before the signal returns to normal.'
+    );
+  }
   return out;
 }
 

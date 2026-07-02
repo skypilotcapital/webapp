@@ -156,6 +156,9 @@ export function ComponentBoard() {
                 <p>
                   Defense fires on: cycle bearish · credit latch while cycle not bullish ·
                   (credit latch OR vol gate) while price is below its 10-month average.
+                  Entries publish immediately; exits carry a 10-day confirmation (v1.6) —
+                  the signal returns to normal only after all triggers have stayed quiet
+                  for 10 straight sessions.
                 </p>
               </div>
             )}
