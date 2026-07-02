@@ -72,13 +72,24 @@ Pages:
 - `/research/factors` · `/research/r2500-factors` — Factor Quintile Analysis (P01)
 - `/research/models` · `/research/r2500-models` — Alpha Models (P02)
 - `/research/portfolios?u=sp500|r2500` — Layer-2 optimized-backtest hub (Sweep Explorer / Browse /
-  Decision tabs), with a per-backtest drill-down report at `/research/portfolios/[label]`
+  Compare Models tabs), with a per-backtest drill-down report at `/research/portfolios/[label]`
 
 Scroll architecture (LOCKED — do not revert to whole-page scroll): fixed-height frame via
 `h-screen overflow-hidden` → `flex-1 min-h-0 overflow-y-auto`, with `min-h-0` at EVERY flex level.
 On the master-detail pages the chrome (condensed one-line page header + info bars) is frozen; the
 list pane and the detail pane each scroll independently — never the whole page. Density is
 "Balanced": tight spacing/headings, data numbers kept ≥11px, charts ~240–250px tall.
+
+Compare Models tab: holds ONE standard config fixed (no dropdown — S&P 500 hard/te5/sec5/turn30%,
+R2500 …/turn60%, picked by `defaultCompareConfig`) and compares every model that ran that config:
+a "Models compared" description key (from `models/scorecard` — the P02 descriptions are the single
+source of truth), a metrics table, a metric-vs-metric scatter with Y/X axis pickers, and interactive
+rolling IR / batting / excess-return charts (12/24/36M) + a cumulative reference, all driven by
+shared model-visibility chips. TO ADD A MODEL to the comparison: run its Layer-2 optimizer backtest
+at the standard config ONLY — `Code_Repo/alpha/backtest_configs/<model>_<uni>_sweep_hard.yaml` with
+a single `max_turnover` (0.30 SP500 / 0.60 R2500), then `python -m scripts.run_optimizer_backtest
+--config … --persist` self-registers it and it appears automatically (Compare groups by
+variant|strategy|te|sec|to; needs the model's `optimizer.expected_returns` to exist first).
 
 Model naming: S&P 500 generation = M*/N*; Russell 2500 generation = the same IDs R-prefixed
 (MR*/NR*). Current production generation = N*/NR* (53-factor superset + new-data block).

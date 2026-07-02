@@ -115,3 +115,111 @@ export function buildABPairs(rows: PortfolioBacktest[]): ABPair[] {
   }
   return pairs;
 }
+
+// --------------------------------------------------------------- Model comparison
+// A config (optimizer settings) shared by >=2 of the carried-forward models, so the models can be
+// held to the SAME settings and compared apples-to-apples (sweep = fix model, vary params; compare
+// = fix params, vary model).
+export interface CompareConfig {
+  key: string;
+  label: string;
+  variant: string | null;
+  strategy: string | null;
+  te: number | null;
+  sec: number | null;
+  to: number | null;
+  rows: PortfolioBacktest[]; // one per model, sorted by model id
+}
+
+const cfgKey = (r: PortfolioBacktest) =>
+  [r.variant, r.strategy, r.te_target, r.sector_tol, r.turnover_cap].join('|');
+
+// Group the (already universe-scoped, non-legacy) rows into configs run by >=2 distinct models.
+export function buildCompareConfigs(rows: PortfolioBacktest[]): CompareConfig[] {
+  const groups = new Map<string, PortfolioBacktest[]>();
+  for (const r of rows) {
+    const k = cfgKey(r);
+    const arr = groups.get(k);
+    if (arr) arr.push(r); else groups.set(k, [r]);
+  }
+  // priority when the same model+config appears under several experiment tags — keep the best-labelled one
+  const expRank = (r: PortfolioBacktest) => r.is_production ? -1 :
+    (({ prod: 0, sweep: 1, sector: 2, te: 3, phase5: 4 } as Record<string, number>)[r.experiment ?? ''] ?? 5);
+  const out: CompareConfig[] = [];
+  for (const [key, grp] of groups) {
+    // collapse to ONE row per model (identical params can appear under sweep/sector/te experiments)
+    const byModel = new Map<string, PortfolioBacktest>();
+    for (const r of grp) {
+      const id = r.signal_model_id ?? r.model_label;
+      const cur = byModel.get(id);
+      if (!cur || expRank(r) < expRank(cur)) byModel.set(id, r);
+    }
+    if (byModel.size < 2) continue;
+    const modelRows = [...byModel.values()].sort((a, b) => (a.signal_model_id ?? '').localeCompare(b.signal_model_id ?? ''));
+    const r0 = modelRows[0];
+    const label = [
+      r0.variant ?? '—',
+      r0.strategy === 'long_short' ? 'L/S' : 'LO',
+      r0.te_target != null ? `TE ${(r0.te_target * 100).toFixed(0)}%` : 'no-TE',
+      r0.sector_tol != null ? `sec ±${(r0.sector_tol * 100).toFixed(0)}%` : 'sec off',
+      `turn ${fmtTurn(r0.turnover_cap)}`,
+    ].join(' · ');
+    out.push({
+      key, label, variant: r0.variant, strategy: r0.strategy,
+      te: r0.te_target, sec: r0.sector_tol, to: r0.turnover_cap, rows: modelRows,
+    });
+  }
+  const rank = (v: string | null) => (v === 'hard' ? 0 : v === 'base' ? 1 : 2);
+  out.sort((a, b) =>
+    rank(a.variant) - rank(b.variant) || b.rows.length - a.rows.length || (a.to ?? 9) - (b.to ?? 9));
+  return out;
+}
+
+// Default config to land on: prefer hard + long-only + the most models, turnover near the universe's
+// production pick (SP500 ~30%, R2500 ~60%).
+export function defaultCompareConfig(configs: CompareConfig[], universe: string): string {
+  if (!configs.length) return '';
+  const target = universe === 'sp500' ? 0.3 : 0.6;
+  const pref = configs.filter((c) => c.variant === 'hard' && c.strategy === 'long_only');
+  const pool = pref.length ? pref : configs;
+  const maxLen = Math.max(...pool.map((c) => c.rows.length));
+  const top = pool.filter((c) => c.rows.length === maxLen);
+  return top.reduce((a, b) =>
+    Math.abs((b.to ?? 9) - target) < Math.abs((a.to ?? 9) - target) ? b : a).key;
+}
+
+// --------------------------------------------------------------- rolling series (from monthly active returns)
+// active_return[i] = portfolio_net - benchmark for month i. Windows require a FULL window of non-nulls.
+function fullWindow(a: (number | null)[], i: number, w: number): number[] | null {
+  if (i < w - 1) return null;
+  const s = a.slice(i - w + 1, i + 1).filter((v): v is number => v != null);
+  return s.length === w ? s : null;
+}
+
+// Trailing-window annualized information ratio: mean(active)/std(active) * sqrt(12).
+export function rollingIR(active: (number | null)[], w = 12): (number | null)[] {
+  return active.map((_, i) => {
+    const s = fullWindow(active, i, w);
+    if (!s) return null;
+    const m = s.reduce((x, y) => x + y, 0) / w;
+    const sd = Math.sqrt(s.reduce((x, y) => x + (y - m) * (y - m), 0) / (w - 1));
+    return sd > 1e-9 ? (m / sd) * Math.sqrt(12) : null;
+  });
+}
+
+// Trailing-window batting average: share of months with active_return > 0.
+export function rollingBatting(active: (number | null)[], w = 12): (number | null)[] {
+  return active.map((_, i) => {
+    const s = fullWindow(active, i, w);
+    return s ? s.filter((v) => v > 0).length / w : null;
+  });
+}
+
+// Trailing-window annualized excess (active) return, compounded.
+export function rollingExcess(active: (number | null)[], w = 12): (number | null)[] {
+  return active.map((_, i) => {
+    const s = fullWindow(active, i, w);
+    if (!s) return null;
+    return s.reduce((prod, r) => prod * (1 + r), 1) ** (12 / w) - 1;
+  });
+}
