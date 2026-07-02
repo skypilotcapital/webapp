@@ -35,7 +35,7 @@ function PortfoliosInner() {
           <h1 className="text-base font-bold tracking-tight" style={{ color: 'var(--tx)' }}>Layer-2 Portfolios</h1>
           <span className="pill pill-teal">L2 · PORTFOLIOS</span>
           <span className="text-[10px] font-medium uppercase tracking-wider dim">
-            {universe === 'sp500' ? 'S&P 500' : 'Russell 2500'} · Optimized backtests · In-sample 2005–2023
+            {universe === 'sp500' ? 'S&P 500' : 'Russell 2500'} · Optimized backtests · Out-of-sample 2005–2023
           </span>
         </div>
         <p className="text-[11px] muted max-w-3xl leading-relaxed">

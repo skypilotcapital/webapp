@@ -43,7 +43,7 @@ export default function BacktestReportPage() {
         <span className="pill pill-cyan">{uni === 'sp500' ? 'S&P 500' : 'Russell 2500'}</span>
         <span className="pill pill-cyan">{m.strategy === 'long_short' ? 'Long-short' : 'Long-only'}</span>
         <span className="pill pill-ok">{pct(m.opt_pct, 0)} optimal</span>
-        <span className="pill pill-warn">In-sample 2005–2023</span>
+        <span className="pill pill-warn">Out-of-sample 2005–2023</span>
         <span className="mono text-[11px] muted">{cons}</span>
         <span className="ml-auto text-[11px] muted">Drill ▸ <Link href={modelsHref} className="teal font-semibold">{m.signal_model_id} (P02)</Link> ▸ <Link href={factorsHref} className="teal font-semibold">Factors (P01)</Link></span>
       </div>
@@ -116,7 +116,7 @@ export default function BacktestReportPage() {
       </div>
 
       <div className="text-[10px] dim mt-4" style={{ borderTop: '1px solid var(--border-soft)', paddingTop: 10 }}>
-        In-sample 2005–2023. Full institutional tearsheet (rolling vol/TE, regime table, factor-exposure attribution, published-index overlay) arrives in Phase 4. Config label: <span className="mono">{label}</span>
+        Out-of-sample 2005–2023. Full institutional tearsheet (rolling vol/TE, regime table, factor-exposure attribution, published-index overlay) arrives in Phase 4. Config label: <span className="mono">{label}</span>
       </div>
     </Back>
   );
