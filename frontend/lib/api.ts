@@ -11,14 +11,6 @@ import type {
   RunLogEntry,
   TableGap,
   FactorCoverage,
-  LatestSignal,
-  SignalHistoryPoint,
-  ChartPoint,
-  LatestInputs,
-  RegimeRow,
-  RegimeStats,
-  MacroBetaHealth,
-  MacroBetaComponents,
   P01ScorecardRow,
   P01FactorDetail,
   ModelScorecardRow,
@@ -31,7 +23,20 @@ import type {
   ModelICCorrelationEntry,
   BacktestSummary,
   BacktestMonthlyReturn,
+  PortfolioBacktest,
+  PortfolioDetail,
+  PortfolioHolding,
+  PortfolioSectorWeight,
 } from '@/types/api';
+import type {
+  LatestState,
+  TimelinePoint,
+  ComponentHistoryPoint,
+  EpisodeRow,
+  StatRow,
+  DialSim,
+  MacroBetaHealthV2,
+} from '@/types/macroBeta';
 
 const API_BASE = '/api-proxy';
 
@@ -45,14 +50,15 @@ export const fetchTableStatus   = () => apiFetch<TableStatus[]>('/api/v1/data-mo
 export const fetchRunLog        = () => apiFetch<RunLogEntry[]>('/api/v1/data-monitor/run-log');
 export const fetchGapDetection  = () => apiFetch<TableGap[]>('/api/v1/data-monitor/gap-detection');
 export const fetchFactorCoverage = () => apiFetch<FactorCoverage>('/api/v1/data-monitor/factor-coverage');
-export const fetchLatestMacroBetaSignal = () => apiFetch<LatestSignal>('/api/v1/macro-beta/latest-signal');
-export const fetchMacroBetaHistory = () => apiFetch<SignalHistoryPoint[]>('/api/v1/macro-beta/history');
-export const fetchMacroBetaChart = () => apiFetch<ChartPoint[]>('/api/v1/macro-beta/chart');
-export const fetchMacroBetaLatestInputs = () => apiFetch<LatestInputs>('/api/v1/macro-beta/latest-inputs');
-export const fetchMacroBetaRegimes = () => apiFetch<RegimeRow[]>('/api/v1/macro-beta/regimes');
-export const fetchMacroBetaRegimeStats = () => apiFetch<RegimeStats[]>('/api/v1/macro-beta/regime-stats');
-export const fetchMacroBetaHealth = () => apiFetch<MacroBetaHealth>('/api/v1/macro-beta/health');
-export const fetchMacroBetaComponents = () => apiFetch<MacroBetaComponents>('/api/v1/macro-beta/components');
+// Macro Beta Signal v1.5 (two-state defense/normal)
+export const fetchMacroBetaLatest = () => apiFetch<LatestState>('/api/v1/macro-beta/latest');
+export const fetchMacroBetaTimeline = () => apiFetch<TimelinePoint[]>('/api/v1/macro-beta/timeline');
+export const fetchMacroBetaComponentsHistory = (months = 24) =>
+  apiFetch<ComponentHistoryPoint[]>(`/api/v1/macro-beta/components-history?months=${months}`);
+export const fetchMacroBetaEpisodes = () => apiFetch<EpisodeRow[]>('/api/v1/macro-beta/episodes');
+export const fetchMacroBetaStats = () => apiFetch<StatRow[]>('/api/v1/macro-beta/stats');
+export const fetchMacroBetaDialSim = () => apiFetch<DialSim[]>('/api/v1/macro-beta/dial-sim');
+export const fetchMacroBetaHealth = () => apiFetch<MacroBetaHealthV2>('/api/v1/macro-beta/health');
 
 // P01 Factor Quintile Analysis
 export const fetchP01Scorecard = (universe = 'sp500') =>
@@ -84,8 +90,35 @@ export const fetchModelICCorrelation = () =>
 // Reports library
 export const fetchReports = () => apiFetch<unknown[]>('/api/v1/reports');
 
-// Portfolio Backtests
+// Portfolio Backtests (LEGACY — old /backtests page; retired in the Research-Hub overhaul)
 export const fetchBacktestSummaries = () =>
   apiFetch<BacktestSummary[]>('/api/v1/portfolio/backtests');
 export const fetchBacktestReturns = (label: string) =>
   apiFetch<BacktestMonthlyReturn[]>(`/api/v1/portfolio/backtests/${encodeURIComponent(label)}/returns`);
+
+// ---------------------------------------------------------------------------
+// Portfolio (Layer-2) Research Hub — registry-backed
+// ---------------------------------------------------------------------------
+export interface PortfolioFilter {
+  universe?: string; strategy?: string; variant?: string;
+  experiment?: string; model?: string; includeLegacy?: boolean;
+}
+export const fetchPortfolioBacktests = (f: PortfolioFilter = {}) => {
+  const q = new URLSearchParams();
+  if (f.universe) q.set('universe', f.universe);
+  if (f.strategy) q.set('strategy', f.strategy);
+  if (f.variant) q.set('variant', f.variant);
+  if (f.experiment) q.set('experiment', f.experiment);
+  if (f.model) q.set('model', f.model);
+  if (f.includeLegacy) q.set('include_legacy', 'true');
+  const qs = q.toString();
+  return apiFetch<PortfolioBacktest[]>(`/api/v1/portfolio/backtests${qs ? `?${qs}` : ''}`);
+};
+export const fetchPortfolioDetail = (label: string) =>
+  apiFetch<PortfolioDetail>(`/api/v1/portfolio/backtests/${encodeURIComponent(label)}`);
+export const fetchPortfolioHoldings = (label: string, date?: string) =>
+  apiFetch<PortfolioHolding[]>(
+    `/api/v1/portfolio/backtests/${encodeURIComponent(label)}/holdings${date ? `?date=${encodeURIComponent(date)}` : ''}`);
+export const fetchPortfolioSectorAllocation = (label: string) =>
+  apiFetch<PortfolioSectorWeight[]>(
+    `/api/v1/portfolio/backtests/${encodeURIComponent(label)}/sector-allocation`);

@@ -1,11 +1,16 @@
-"""Macro beta signal endpoints."""
+"""Macro beta signal endpoints (v1.5 — two-state defense/normal model).
+
+Reads macro_signal.beta_signal_daily / beta_episodes / beta_signal_stats /
+beta_dial_sim plus clean-layer freshness. The v1 three-state API was replaced
+2026-07 alongside the model (see macro_beta_v1_5_model_document.pdf).
+"""
 
 from __future__ import annotations
 
 from datetime import datetime
-from typing import List, Optional
+from typing import Dict, List, Optional
 
-from fastapi import APIRouter
+from fastapi import APIRouter, Query
 from pydantic import BaseModel
 from sqlalchemy import text
 
@@ -14,81 +19,84 @@ from api.db import get_db
 router = APIRouter(prefix="/api/v1/macro-beta", tags=["macro-beta"])
 
 
-class LatestSignal(BaseModel):
+# ------------------------------------------------------------------- models
+
+class ComponentReading(BaseModel):
+    key: str
+    label: str
+    group: str                    # 'cycle' | 'fast'
+    value: Optional[float]
+    threshold: Optional[float]
+    direction: str                # 'bearish_above' | 'bearish_below'
+    firing: Optional[bool]
+    detail: Optional[str] = None
+
+
+class LatestState(BaseModel):
     signal_date: str
-    final_beta_target: str
-    tier1_result: Optional[str]
-    tier2_rsi: Optional[str]
-    tier2_credit: Optional[str]
-    sp500_50_200_spread_raw: Optional[float]
-    sp500_50_200_spread_pct: Optional[float]
-    pmi_3m12m_diff: Optional[float]
-    cpi_mom_z3m60m: Optional[float]
-    rsi_20: Optional[float]
-    bbb_4_12_diff: Optional[float]
+    final_state: str
+    state_since: Optional[str]
+    days_in_state: Optional[int]
+    defense_reasons: Optional[str]
+    cycle_result: Optional[str]
+    trend_vote: Optional[str]
+    labor_vote: Optional[str]
+    inflation_vote: Optional[str]
+    credit_latch_on: bool
+    vol_gate_on: bool
+    credit_force: bool
+    correction_channel: bool
+    components: List[ComponentReading]
+    model_version: str
 
 
-class SignalHistoryPoint(BaseModel):
-    signal_date: str
-    final_beta_target: str
-    sp500_spot_date: Optional[str]
-    sp500_spot_level: Optional[float]
-    sp500_50_200_spread_pct: Optional[float]
-    bbb_oas_bps: Optional[float]
-
-
-class ChartPoint(BaseModel):
-    signal_date: str
-    final_beta_target: str
-    sp500_spot_level: Optional[float]
-    sp500_spot_ma50: Optional[float]
-    sp500_spot_ma200: Optional[float]
-
-
-class ComponentPoint(BaseModel):
+class TimelinePoint(BaseModel):
     date: str
+    state: str
+    tr_level: Optional[float]
+
+
+class ComponentHistoryPoint(BaseModel):
+    date: str
+    state: str
+    trend_50_200_pct: Optional[float]
+    trend_10m_pct: Optional[float]
+    rv21_pct10y: Optional[float]
+    bbb_4_12_diff: Optional[float]
+    claims_ratio_12m_low: Optional[float]
+    sahm_gap: Optional[float]
+    u3_vs_12mma: Optional[float]
+    cpi_mom_z3m60m: Optional[float]
+
+
+class EpisodeRow(BaseModel):
+    peak_date: str
+    trough_date: str
+    recovered_date: Optional[str]
+    depth: float
+    dd_days: int
+    defense_share: Optional[float]
+    days_to_first_defense: Optional[int]
+    recovery_days: Optional[int]
+    recovery_defense_share: Optional[float]
+
+
+class StatRow(BaseModel):
+    window: str
+    metric: str
     value: Optional[float]
 
 
-class MacroBetaComponents(BaseModel):
-    pmi: List[ComponentPoint]
-    cpi_yoy: List[ComponentPoint]
-    rsi: List[ComponentPoint]
-    bbb_oas_bps: List[ComponentPoint]
+class DialPoint(BaseModel):
+    date: str
+    port_level: float
+    bench_level: float
 
 
-class LatestInputs(BaseModel):
-    signal_date: str
-    pmi_data_date: Optional[str]
-    pmi_release_date: Optional[str]
-    mfg_pmi: Optional[float]
-    cpi_data_date: Optional[str]
-    cpi_release_date: Optional[str]
-    cpi_level: Optional[float]
-    sp500_date: Optional[str]
-    sp500_level: Optional[float]
-    sp500_spot_date: Optional[str]
-    sp500_spot_level: Optional[float]
-    credit_date: Optional[str]
-    bbb_oas_decimal: Optional[float]
-    bbb_oas_bps: Optional[float]
-
-
-class RegimeRow(BaseModel):
-    final_beta_target: str
-    start_date: str
-    end_date: str
-    trading_days: int
-    sp500_total_return: Optional[float]
-    sp500_annualized_return: Optional[float]
-
-
-class RegimeStats(BaseModel):
-    final_beta_target: str
-    regime_count: int
-    days_in_state: int
-    cumulative_return: Optional[float]
-    annualized_return: Optional[float]
+class DialSim(BaseModel):
+    dial: float
+    stats: Dict[str, Optional[float]]
+    series: List[DialPoint]
 
 
 class HealthItem(BaseModel):
@@ -113,348 +121,227 @@ class MacroBetaHealth(BaseModel):
     runs: List[RunStatus]
 
 
-def _status_from_lag(label: str, lag_days: Optional[int]) -> str:
-    if lag_days is None:
-        return "unknown"
-    if label in {"PMI", "CPI"}:
-        return "ok" if lag_days <= 45 else "stale"
-    return "ok" if lag_days <= 5 else "stale"
+# ----------------------------------------------------------------- component spec
+# Mirrors the FROZEN thresholds in pipeline/macro_beta_signal.py — display only.
+
+COMPONENT_SPEC = [
+    ("trend_50_200_pct", "S&P 500 trend (50d vs 200d MA)", "cycle", 0.0, "bearish_below"),
+    ("claims_ratio_12m_low", "Initial claims vs 12m low", "cycle", 1.10, "bearish_above"),
+    ("sahm_gap", "Unemployment Sahm gap", "cycle", 0.30, "bearish_above"),
+    ("u3_vs_12mma", "U3 vs 12m average", "cycle", 0.0, "bearish_above"),
+    ("cpi_mom_z3m60m", "CPI momentum z-score", "cycle", 0.0, "bearish_above"),
+    ("bbb_4_12_diff", "BBB OAS 4w−12w momentum (pp)", "fast", 0.10, "bearish_above"),
+    ("rv21_pct10y", "Realized vol percentile (10y)", "fast", 0.90, "bearish_above"),
+    ("trend_10m_pct", "Price vs 10-month SMA", "fast", 0.0, "bearish_below"),
+]
 
 
-@router.get("/latest-signal", response_model=LatestSignal)
-def latest_signal():
+def _component_readings(row: dict) -> List[ComponentReading]:
+    out = []
+    for key, label, group, threshold, direction in COMPONENT_SPEC:
+        value = row.get(key)
+        firing = None
+        if value is not None:
+            firing = (float(value) > threshold if direction == "bearish_above"
+                      else float(value) < threshold)
+        out.append(ComponentReading(
+            key=key, label=label, group=group,
+            value=float(value) if value is not None else None,
+            threshold=threshold, direction=direction, firing=firing,
+        ))
+    return out
+
+
+# ----------------------------------------------------------------- endpoints
+
+@router.get("/latest", response_model=LatestState)
+def latest():
     with get_db() as conn:
-        row = conn.execute(
-            text(
-                """
-                SELECT signal_date::text, final_beta_target, tier1_result, tier2_rsi, tier2_credit,
-                       sp500_50_200_spread_raw, sp500_50_200_spread_pct, pmi_3m12m_diff,
-                       cpi_mom_z3m60m, rsi_20, bbb_4_12_diff
+        row = conn.execute(text(
+            """
+            SELECT signal_date::text, final_state, defense_reasons, cycle_result,
+                   trend_vote, labor_vote, inflation_vote,
+                   credit_latch_on, vol_gate_on, credit_force, correction_channel,
+                   trend_50_200_pct::float, trend_10m_pct::float, rv21::float,
+                   rv21_pct10y::float, bbb_oas_pp::float, bbb_4_12_diff::float,
+                   claims_ratio_12m_low::float, sahm_gap::float, u3_vs_12mma::float,
+                   cpi_yoy::float, cpi_mom_z3m60m::float, model_version
+            FROM macro_signal.beta_signal_daily
+            ORDER BY signal_date DESC LIMIT 1
+            """
+        )).mappings().first()
+        state_row = conn.execute(text(
+            """
+            WITH runs AS (
+                SELECT signal_date, final_state,
+                       ROW_NUMBER() OVER (ORDER BY signal_date DESC) rn,
+                       ROW_NUMBER() OVER (PARTITION BY final_state ORDER BY signal_date DESC) rns
                 FROM macro_signal.beta_signal_daily
-                ORDER BY signal_date DESC
-                LIMIT 1
-                """
+            ), current_run AS (
+                SELECT signal_date FROM runs
+                WHERE final_state = (SELECT final_state FROM runs WHERE rn = 1)
+                  AND rn = rns
             )
-        ).mappings().first()
-    return LatestSignal(**row)
+            SELECT MIN(signal_date)::text AS state_since, COUNT(*)::int AS days_in_state
+            FROM current_run
+            """
+        )).mappings().first()
 
-
-@router.get("/history", response_model=List[SignalHistoryPoint])
-def history():
-    with get_db() as conn:
-        rows = conn.execute(
-            text(
-                """
-                WITH history AS (
-                    SELECT signal_date, final_beta_target, sp500_50_200_spread_pct
-                    FROM macro_signal.beta_signal_daily
-                    ORDER BY signal_date DESC
-                    LIMIT 260
-                )
-                SELECT
-                    h.signal_date::text,
-                    h.final_beta_target,
-                    spot.date::text AS sp500_spot_date,
-                    spot.value::float AS sp500_spot_level,
-                    h.sp500_50_200_spread_pct,
-                    credit.bbb_oas_bps
-                FROM (
-                    SELECT *
-                    FROM history
-                    ORDER BY signal_date
-                ) h
-                LEFT JOIN LATERAL (
-                    SELECT date, value
-                    FROM raw.macro
-                    WHERE series_id = 'SP500'
-                      AND date <= h.signal_date
-                    ORDER BY date DESC
-                    LIMIT 1
-                ) spot ON TRUE
-                LEFT JOIN LATERAL (
-                    SELECT bbb_oas_bps
-                    FROM clean.beta_credit_daily
-                    WHERE date <= h.signal_date
-                    ORDER BY date DESC
-                    LIMIT 1
-                ) credit ON TRUE
-                ORDER BY h.signal_date
-                """
-            )
-        ).mappings().all()
-    return [SignalHistoryPoint(**row) for row in rows]
-
-
-@router.get("/chart", response_model=List[ChartPoint])
-def chart():
-    with get_db() as conn:
-        rows = conn.execute(
-            text(
-                """
-                WITH spot_history AS (
-                    SELECT
-                        s.signal_date,
-                        s.final_beta_target,
-                        spot.value::float AS sp500_spot_level
-                    FROM macro_signal.beta_signal_daily s
-                    LEFT JOIN LATERAL (
-                        SELECT value
-                        FROM raw.macro
-                        WHERE series_id = 'SP500'
-                          AND date <= s.signal_date
-                        ORDER BY date DESC
-                        LIMIT 1
-                    ) spot ON TRUE
-                ),
-                spot_ma AS (
-                    SELECT
-                        signal_date,
-                        final_beta_target,
-                        sp500_spot_level,
-                        AVG(sp500_spot_level) OVER (
-                            ORDER BY signal_date
-                            ROWS BETWEEN 49 PRECEDING AND CURRENT ROW
-                        )::float AS sp500_spot_ma50,
-                        AVG(sp500_spot_level) OVER (
-                            ORDER BY signal_date
-                            ROWS BETWEEN 199 PRECEDING AND CURRENT ROW
-                        )::float AS sp500_spot_ma200
-                    FROM spot_history
-                )
-                SELECT
-                    signal_date::text,
-                    final_beta_target,
-                    sp500_spot_level,
-                    sp500_spot_ma50,
-                    sp500_spot_ma200
-                FROM spot_ma
-                ORDER BY signal_date
-                """
-            )
-        ).mappings().all()
-    return [ChartPoint(**row) for row in rows]
-
-
-@router.get("/latest-inputs", response_model=LatestInputs)
-def latest_inputs():
-    with get_db() as conn:
-        row = conn.execute(
-            text(
-                """
-                SELECT
-                    b.signal_date::text,
-                    b.pmi_data_date::text,
-                    b.pmi_release_date::text,
-                    b.mfg_pmi,
-                    b.cpi_data_date::text,
-                    b.cpi_release_date::text,
-                    b.cpi_level,
-                    b.sp500_date::text,
-                    b.sp500_level,
-                    spot.date::text AS sp500_spot_date,
-                    spot.value::float AS sp500_spot_level,
-                    b.credit_date::text,
-                    b.bbb_oas_decimal,
-                    credit.bbb_oas_bps
-                FROM macro_signal.beta_signal_daily b
-                LEFT JOIN LATERAL (
-                    SELECT date, value
-                    FROM raw.macro
-                    WHERE series_id = 'SP500'
-                      AND date <= b.signal_date
-                    ORDER BY date DESC
-                    LIMIT 1
-                ) spot ON TRUE
-                LEFT JOIN LATERAL (
-                    SELECT bbb_oas_bps
-                    FROM clean.beta_credit_daily
-                    WHERE date <= b.signal_date
-                    ORDER BY date DESC
-                    LIMIT 1
-                ) credit ON TRUE
-                ORDER BY b.signal_date DESC
-                LIMIT 1
-                """
-            )
-        ).mappings().first()
-    return LatestInputs(**row)
-
-
-@router.get("/regimes", response_model=List[RegimeRow])
-def regimes():
-    with get_db() as conn:
-        rows = conn.execute(
-            text(
-                """
-                SELECT final_beta_target, start_date::text, end_date::text, trading_days,
-                       sp500_total_return, sp500_annualized_return
-                FROM macro_signal.beta_regimes
-                ORDER BY start_date DESC
-                LIMIT 50
-                """
-            )
-        ).mappings().all()
-    return [RegimeRow(**row) for row in rows]
-
-
-@router.get("/regime-stats", response_model=List[RegimeStats])
-def regime_stats():
-    with get_db() as conn:
-        rows = conn.execute(
-            text(
-                """
-                WITH regime_counts AS (
-                    SELECT final_beta_target, COUNT(*)::int AS regime_count
-                    FROM macro_signal.beta_regimes
-                    GROUP BY final_beta_target
-                ),
-                signal_spot AS (
-                    SELECT
-                        s.signal_date,
-                        s.final_beta_target,
-                        spot.value::float AS sp500_spot_level
-                    FROM macro_signal.beta_signal_daily s
-                    LEFT JOIN LATERAL (
-                        SELECT value
-                        FROM raw.macro
-                        WHERE series_id = 'SP500'
-                          AND date <= s.signal_date
-                        ORDER BY date DESC
-                        LIMIT 1
-                    ) spot ON TRUE
-                ),
-                state_days AS (
-                    SELECT
-                        final_beta_target,
-                        COUNT(*)::int AS days_in_state,
-                        EXP(SUM(LN(1 + daily_return))) - 1 AS cumulative_return
-                    FROM (
-                        SELECT
-                            final_beta_target,
-                            CASE
-                                WHEN prev_level IS NULL OR prev_level = 0 THEN NULL
-                                ELSE (sp500_level / prev_level) - 1
-                            END AS daily_return
-                        FROM (
-                            SELECT
-                                signal_date,
-                                final_beta_target,
-                                sp500_spot_level AS sp500_level,
-                                LAG(sp500_spot_level) OVER (ORDER BY signal_date) AS prev_level
-                            FROM signal_spot
-                        ) base
-                    ) x
-                    WHERE daily_return IS NOT NULL
-                    GROUP BY final_beta_target
-                )
-                SELECT
-                    s.final_beta_target,
-                    r.regime_count,
-                    s.days_in_state,
-                    s.cumulative_return::float AS cumulative_return,
-                    CASE
-                        WHEN s.days_in_state > 0 AND s.cumulative_return IS NOT NULL
-                        THEN POWER(1 + s.cumulative_return, 252.0 / s.days_in_state) - 1
-                        ELSE NULL
-                    END::float AS annualized_return
-                FROM state_days s
-                JOIN regime_counts r USING (final_beta_target)
-                ORDER BY s.final_beta_target
-                """
-            )
-        ).mappings().all()
-    return [RegimeStats(**row) for row in rows]
-
-
-@router.get("/components", response_model=MacroBetaComponents)
-def components():
-    with get_db() as conn:
-        pmi_rows = conn.execute(
-            text(
-                """
-                SELECT data_date::text AS date, mfg_pmi::float AS value
-                FROM clean.pmi_manufacturing_us
-                ORDER BY data_date DESC
-                LIMIT 60
-                """
-            )
-        ).mappings().all()
-        cpi_rows = conn.execute(
-            text(
-                """
-                SELECT data_date::text AS date, (cpi_yoy * 100)::float AS value
-                FROM clean.cpi_us
-                ORDER BY data_date DESC
-                LIMIT 60
-                """
-            )
-        ).mappings().all()
-        rsi_rows = conn.execute(
-            text(
-                """
-                SELECT date::text AS date, rsi_20::float AS value
-                FROM clean.beta_sp500_daily
-                ORDER BY date DESC
-                LIMIT 260
-                """
-            )
-        ).mappings().all()
-        bbb_rows = conn.execute(
-            text(
-                """
-                SELECT date::text AS date, bbb_oas_bps::float AS value
-                FROM clean.beta_credit_daily
-                ORDER BY date DESC
-                LIMIT 260
-                """
-            )
-        ).mappings().all()
-
-    return MacroBetaComponents(
-        pmi=[ComponentPoint(**row) for row in reversed(pmi_rows)],
-        cpi_yoy=[ComponentPoint(**row) for row in reversed(cpi_rows)],
-        rsi=[ComponentPoint(**row) for row in reversed(rsi_rows)],
-        bbb_oas_bps=[ComponentPoint(**row) for row in reversed(bbb_rows)],
+    d = dict(row)
+    return LatestState(
+        signal_date=d["signal_date"],
+        final_state=d["final_state"],
+        state_since=state_row["state_since"] if state_row else None,
+        days_in_state=state_row["days_in_state"] if state_row else None,
+        defense_reasons=d["defense_reasons"],
+        cycle_result=d["cycle_result"],
+        trend_vote=d["trend_vote"],
+        labor_vote=d["labor_vote"],
+        inflation_vote=d["inflation_vote"],
+        credit_latch_on=d["credit_latch_on"],
+        vol_gate_on=d["vol_gate_on"],
+        credit_force=d["credit_force"],
+        correction_channel=d["correction_channel"],
+        components=_component_readings(d),
+        model_version=d["model_version"],
     )
+
+
+@router.get("/timeline", response_model=List[TimelinePoint])
+def timeline():
+    """Full-history regime timeline, weekly-downsampled (last obs per week)."""
+    with get_db() as conn:
+        rows = conn.execute(text(
+            """
+            SELECT DISTINCT ON (DATE_TRUNC('week', signal_date))
+                   signal_date::text AS date, final_state AS state, tr_level::float
+            FROM macro_signal.beta_signal_daily
+            ORDER BY DATE_TRUNC('week', signal_date), signal_date DESC
+            """
+        )).mappings().all()
+    return [TimelinePoint(**r) for r in rows]
+
+
+@router.get("/components-history", response_model=List[ComponentHistoryPoint])
+def components_history(months: int = Query(24, ge=6, le=120)):
+    with get_db() as conn:
+        rows = conn.execute(text(
+            """
+            SELECT signal_date::text AS date, final_state AS state,
+                   trend_50_200_pct::float, trend_10m_pct::float, rv21_pct10y::float,
+                   bbb_4_12_diff::float, claims_ratio_12m_low::float,
+                   sahm_gap::float, u3_vs_12mma::float, cpi_mom_z3m60m::float
+            FROM macro_signal.beta_signal_daily
+            WHERE signal_date >= (SELECT MAX(signal_date) FROM macro_signal.beta_signal_daily)
+                                 - (:months || ' months')::interval
+            ORDER BY signal_date
+            """
+        ), {"months": months}).mappings().all()
+    return [ComponentHistoryPoint(**r) for r in rows]
+
+
+@router.get("/episodes", response_model=List[EpisodeRow])
+def episodes():
+    with get_db() as conn:
+        rows = conn.execute(text(
+            """
+            SELECT peak_date::text, trough_date::text, recovered_date::text,
+                   depth::float, dd_days, defense_share::float,
+                   days_to_first_defense, recovery_days, recovery_defense_share::float
+            FROM macro_signal.beta_episodes
+            ORDER BY peak_date
+            """
+        )).mappings().all()
+    return [EpisodeRow(**r) for r in rows]
+
+
+@router.get("/stats", response_model=List[StatRow])
+def stats():
+    with get_db() as conn:
+        rows = conn.execute(text(
+            'SELECT stat_window AS "window", metric, value::float '
+            "FROM macro_signal.beta_signal_stats ORDER BY stat_window, metric"
+        )).mappings().all()
+    return [StatRow(**r) for r in rows]
+
+
+@router.get("/dial-sim", response_model=List[DialSim])
+def dial_sim():
+    """All dial simulations, monthly-downsampled, with their summary stats."""
+    with get_db() as conn:
+        series = conn.execute(text(
+            """
+            SELECT DISTINCT ON (dial, DATE_TRUNC('month', date))
+                   dial::float, date::text, port_level::float, bench_level::float
+            FROM macro_signal.beta_dial_sim
+            ORDER BY dial, DATE_TRUNC('month', date), date DESC
+            """
+        )).mappings().all()
+        stat_rows = conn.execute(text(
+            'SELECT stat_window AS "window", metric, value::float '
+            "FROM macro_signal.beta_signal_stats WHERE stat_window LIKE 'dial_%'"
+        )).mappings().all()
+
+    by_dial: Dict[float, List[DialPoint]] = {}
+    for r in series:
+        by_dial.setdefault(r["dial"], []).append(
+            DialPoint(date=r["date"], port_level=r["port_level"],
+                      bench_level=r["bench_level"]))
+    stats_by_dial: Dict[float, Dict[str, Optional[float]]] = {}
+    for r in stat_rows:
+        dial = float(r["window"].replace("dial_", ""))
+        stats_by_dial.setdefault(dial, {})[r["metric"]] = r["value"]
+
+    return [
+        DialSim(dial=dial, stats=stats_by_dial.get(dial, {}), series=points)
+        for dial, points in sorted(by_dial.items())
+    ]
 
 
 @router.get("/health", response_model=MacroBetaHealth)
 def health():
-    freshness_queries = [
-        ("PMI", "SELECT MAX(data_date)::text AS max_date FROM raw.pmi_manufacturing_us"),
-        ("CPI", "SELECT MAX(data_date)::text AS max_date FROM raw.cpi_us"),
-        ("S&P 500 TR", "SELECT MAX(date)::text AS max_date FROM clean.beta_sp500_daily"),
-        ("S&P 500 Spot", "SELECT MAX(date)::text AS max_date FROM raw.macro WHERE series_id = 'SP500'"),
-        ("Credit", "SELECT MAX(date)::text AS max_date FROM clean.beta_credit_daily"),
-        ("Signal", "SELECT MAX(signal_date)::text AS max_date FROM macro_signal.beta_signal_daily"),
-    ]
-
-    freshness: list[HealthItem] = []
     with get_db() as conn:
-        for label, sql in freshness_queries:
-            max_date = conn.execute(text(sql)).scalar()
-            lag_days = None
-            if max_date:
-                lag_days = (datetime.utcnow().date() - datetime.fromisoformat(max_date).date()).days
-            freshness.append(
-                HealthItem(
-                    label=label,
-                    max_date=max_date,
-                    lag_days=lag_days,
-                    status=_status_from_lag(label, lag_days),
-                )
-            )
+        fresh = conn.execute(text(
+            """
+            SELECT 'Claims' AS label, MAX(data_date)::text AS max_date,
+                   (CURRENT_DATE - MAX(data_date))::int AS lag_days
+            FROM clean.claims_us
+            UNION ALL
+            SELECT 'Unemployment', MAX(data_date)::text,
+                   (CURRENT_DATE - MAX(data_date))::int FROM clean.unemployment_us
+            UNION ALL
+            SELECT 'CPI', MAX(data_date)::text,
+                   (CURRENT_DATE - MAX(data_date))::int FROM clean.cpi_us
+            UNION ALL
+            SELECT 'Credit (BBB OAS)', MAX(date)::text,
+                   (CURRENT_DATE - MAX(date))::int FROM clean.beta_credit_daily
+            UNION ALL
+            SELECT 'Market', MAX(date)::text,
+                   (CURRENT_DATE - MAX(date))::int FROM clean.beta_sp500_daily
+            """
+        )).mappings().all()
+        runs = conn.execute(text(
+            """
+            SELECT flow, step, status, started_at, completed_at, rows_affected, error_msg
+            FROM pipeline.run_log
+            WHERE flow = 'macro_beta'
+            ORDER BY started_at DESC LIMIT 6
+            """
+        )).mappings().all()
 
-        run_rows = conn.execute(
-            text(
-                """
-                SELECT DISTINCT ON (step)
-                    flow, step, status, started_at, completed_at, rows_affected, error_msg
-                FROM pipeline.run_log
-                WHERE flow = 'macro_beta'
-                ORDER BY step, started_at DESC
-                """
-            )
-        ).mappings().all()
-    runs = [RunStatus(**row) for row in run_rows]
-    return MacroBetaHealth(freshness=freshness, runs=runs)
+    # Unemployment data_date is first-of-reference-month; normal staleness peaks ~66d
+    limits = {"Claims": 21, "Unemployment": 70, "CPI": 60,
+              "Credit (BBB OAS)": 7, "Market": 7}
+
+    def status(label: str, lag: Optional[int]) -> str:
+        if lag is None:
+            return "unknown"
+        return "ok" if lag <= limits.get(label, 30) else "stale"
+
+    return MacroBetaHealth(
+        freshness=[HealthItem(label=f["label"], max_date=f["max_date"],
+                              lag_days=f["lag_days"],
+                              status=status(f["label"], f["lag_days"]))
+                   for f in fresh],
+        runs=[RunStatus(**r) for r in runs],
+    )
