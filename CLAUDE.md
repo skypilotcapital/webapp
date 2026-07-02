@@ -23,6 +23,19 @@
 
 ## Key Endpoints
 
+### Macro Beta Signal — router prefix `/api/v1/macro-beta`
+All endpoints take `?universe=sp500|smid` (default sp500; smid = Russell 2000 variant,
+identical rules with the credit latch on HY OAS — model doc §3.4):
+- `latest` — current state + component readings (credit label per universe)
+- `timeline` — weekly-downsampled 1973+ state + index level (the universe's own index)
+- `components-history?months=` — daily component series for sparklines
+- `episodes` — drawdown report card (dd_threshold 0.15 sp500 / 0.20 smid)
+- `stats` — cost-of-insurance stats by window + dial_* summary rows
+- `dial-sim` — hypothetical dial portfolios (0.4/0.5/0.7), monthly-downsampled
+- `health` — input freshness (universal) + recent pipeline runs
+The /macro-beta page has a universe toggle; backed by `macro_signal.*` tables keyed by
+`universe`. API changes need the manual droplet `git pull + restart skypilot-api`.
+
 All under `/api/v1/research/`:
 
 ### P01 Factor Quintile Analysis
