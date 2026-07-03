@@ -120,11 +120,15 @@ class Holding(BaseModel):
     weight: Optional[float]
     prev_weight: Optional[float]
     trade_pct: Optional[float]
+    benchmark_weight: Optional[float] = None    # cap-weight in the universe (long-only only)
+    active_weight: Optional[float] = None        # weight - benchmark_weight
 
 
 class SectorWeight(BaseModel):
     sector: Optional[str]
     weight: Optional[float]
+    benchmark_weight: Optional[float] = None     # cap-weighted benchmark sector weight (long-only)
+    active_weight: Optional[float] = None         # weight - benchmark_weight (over/underweight)
 
 
 _ROW_COLS = """
@@ -220,11 +224,70 @@ def _latest_weight_date(conn, label: str):
     return row[0] if row else None
 
 
+def _meta_uni_strat(conn, label: str):
+    """(universe, strategy) for a backtest label, or (None, None)."""
+    row = conn.execute(text("SELECT universe, strategy FROM portfolio.backtest_meta WHERE model_label = :l"),
+                       {"l": label}).fetchone()
+    return (row[0], row[1]) if row else (None, None)
+
+
+def _benchmark_rows(conn, universe: Optional[str], d):
+    """Raw cap-weighted benchmark constituents at rebalance date `d` — list of (isin, sector, marketcap).
+
+    SP500 = the index members live on that date (secmaster.constituents); R2500 = the mcap-rank 501–3000
+    band (research.r2500_band, latest band date on-or-before d). Market cap from clean.prices (millions;
+    the unit cancels in the weight ratio). A literal date bind lets the price hypertable prune chunks."""
+    if universe == "sp500":
+        sql = text("""
+            SELECT c.isin, sec.sector, p.marketcap AS mcap
+            FROM secmaster.constituents c
+            JOIN clean.prices p ON p.isin = c.isin AND p.date = :d
+            LEFT JOIN secmaster.securities sec ON sec.isin = c.isin
+            WHERE c.start_date <= :d AND (c.end_date IS NULL OR c.end_date >= :d)
+              AND p.marketcap > 0
+        """)
+    elif universe == "r2500":
+        sql = text("""
+            SELECT b.isin, sec.sector, p.marketcap AS mcap
+            FROM research.r2500_band b
+            JOIN clean.prices p ON p.isin = b.isin AND p.date = :d
+            LEFT JOIN secmaster.securities sec ON sec.isin = b.isin
+            WHERE b.date = (SELECT max(date) FROM research.r2500_band WHERE date <= :d)
+              AND b.mcap_rank BETWEEN 501 AND 3000
+              AND p.marketcap > 0
+        """)
+    else:
+        return []
+    return conn.execute(sql, {"d": d}).fetchall()
+
+
+def _benchmark_weights(rows) -> dict:
+    """{isin: cap-weight} (sums to 1) from _benchmark_rows output."""
+    total = sum(float(r[2]) for r in rows)
+    if total <= 0:
+        return {}
+    return {r[0]: float(r[2]) / total for r in rows}
+
+
+def _benchmark_sector_weights(rows) -> dict:
+    """{sector: cap-weight} (sums to 1) from _benchmark_rows output."""
+    total = sum(float(r[2]) for r in rows)
+    if total <= 0:
+        return {}
+    out: dict = {}
+    for _isin, sector, mcap in rows:
+        out[sector] = out.get(sector, 0.0) + float(mcap) / total
+    return out
+
+
 @router.get("/backtests/{label}/holdings", response_model=List[Holding])
 def get_holdings(label: str, date: Optional[str] = Query(None, description="rebalance date; latest if omitted"),
                  limit: int = Query(100, ge=1, le=600)):
-    """Holdings at a rebalance (portfolio.weights x secmaster for name/ticker/sector), largest first."""
+    """Holdings at a rebalance (portfolio.weights x secmaster for name/ticker/sector), largest first.
+    Long-only rows also carry the per-name cap-weighted benchmark weight and the active weight
+    (weight - benchmark). L/S is market-neutral vs cash, so benchmark/active are left null."""
     with get_db() as conn:
+        uni, strat = _meta_uni_strat(conn, label)
         d = date or _latest_weight_date(conn, label)
         if d is None:
             raise HTTPException(status_code=404, detail=f"No weights for '{label}'.")
@@ -237,14 +300,27 @@ def get_holdings(label: str, date: Optional[str] = Query(None, description="reba
             ORDER BY w.weight DESC
             LIMIT :lim
         """), {"label": label, "d": d, "lim": limit}).fetchall()
-    return [Holding(**_clean(r)) for r in rows]
+        bench = _benchmark_weights(_benchmark_rows(conn, uni, d)) if strat != "long_short" else {}
+
+    out = []
+    for r in rows:
+        h = _clean(r)
+        if bench:
+            bw = bench.get(h["isin"], 0.0)      # held but not in the index -> 0% benchmark, fully active
+            h["benchmark_weight"] = bw
+            h["active_weight"] = (h["weight"] - bw) if h.get("weight") is not None else None
+        out.append(Holding(**h))
+    return out
 
 
 @router.get("/backtests/{label}/sector-allocation", response_model=List[SectorWeight])
 def get_sector_allocation(label: str, date: Optional[str] = Query(None)):
     """Portfolio sector weights (sum of holding weights by GICS sector) at a rebalance; latest if omitted.
-    (Active-vs-benchmark sector tilt + Barra factor exposure arrive in Phase 4.)"""
+    Long-only also returns the cap-weighted benchmark sector weight + active tilt (over/underweight), so
+    the report can draw portfolio-vs-benchmark bars. L/S returns net (long-short) exposure, no benchmark.
+    (Barra factor-exposure attribution arrives in Phase 4.)"""
     with get_db() as conn:
+        uni, strat = _meta_uni_strat(conn, label)
         d = date or _latest_weight_date(conn, label)
         if d is None:
             raise HTTPException(status_code=404, detail=f"No weights for '{label}'.")
@@ -254,6 +330,16 @@ def get_sector_allocation(label: str, date: Optional[str] = Query(None)):
             LEFT JOIN secmaster.securities s ON s.isin = w.isin
             WHERE w.model_label = :label AND w.date = :d
             GROUP BY s.sector
-            ORDER BY weight DESC
         """), {"label": label, "d": d}).fetchall()
-    return [SectorWeight(**_clean(r)) for r in rows]
+        bench_sec = _benchmark_sector_weights(_benchmark_rows(conn, uni, d)) if strat != "long_short" else {}
+
+    port = {r[0]: _v(r[1]) for r in rows}
+    out = []
+    for sec in set(port) | set(bench_sec):
+        pw, bw = port.get(sec), bench_sec.get(sec)
+        if pw is None and bw is not None:
+            pw = 0.0                                       # a benchmark sector the portfolio skips = 0% held
+        aw = (pw or 0.0) - (bw or 0.0) if (pw is not None or bw is not None) else None
+        out.append(SectorWeight(sector=sec, weight=pw, benchmark_weight=bw, active_weight=aw))
+    out.sort(key=lambda x: (x.weight if x.weight is not None else -1e9), reverse=True)
+    return out

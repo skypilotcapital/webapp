@@ -125,9 +125,9 @@ export const fetchPortfolioBacktests = (f: PortfolioFilter = {}) => {
 };
 export const fetchPortfolioDetail = (label: string) =>
   apiFetch<PortfolioDetail>(`/api/v1/portfolio/backtests/${encodeURIComponent(label)}`);
-export const fetchPortfolioHoldings = (label: string, date?: string) =>
+export const fetchPortfolioHoldings = (label: string, date?: string, limit = 600) =>
   apiFetch<PortfolioHolding[]>(
-    `/api/v1/portfolio/backtests/${encodeURIComponent(label)}/holdings${date ? `?date=${encodeURIComponent(date)}` : ''}`);
+    `/api/v1/portfolio/backtests/${encodeURIComponent(label)}/holdings?limit=${limit}${date ? `&date=${encodeURIComponent(date)}` : ''}`);
 export const fetchPortfolioSectorAllocation = (label: string) =>
   apiFetch<PortfolioSectorWeight[]>(
     `/api/v1/portfolio/backtests/${encodeURIComponent(label)}/sector-allocation`);

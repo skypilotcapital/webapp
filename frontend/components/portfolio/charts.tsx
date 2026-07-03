@@ -191,3 +191,30 @@ export function ScatterChart({ points, xLabel, yLabel, xFmt, yFmt, height = 300 
     </svg>
   );
 }
+
+/** Histogram — bars coloured by sign, dashed zero line (monthly active-return distribution). */
+export function Histogram({ bins, height = 150, xFmt }: {
+  bins: { x: number; count: number }[]; height?: number; xFmt: (v: number) => string;
+}) {
+  const W = 680, PL = 8, PR = 8, PT = 10, PB = 24;
+  const cw = W - PL - PR, ch = height - PT - PB;
+  if (bins.length < 2) return <div className="text-[11px] dim py-6 text-center">not enough data</div>;
+  const maxC = Math.max(...bins.map((b) => b.count), 1);
+  const mn = bins[0].x, mx = bins[bins.length - 1].x, span = mx - mn || 1;
+  const bw = cw / bins.length;
+  const zeroX = PL + ((0 - mn) / span) * cw;
+  return (
+    <svg viewBox={`0 0 ${W} ${height}`} className="w-full h-auto">
+      {bins.map((b, i) => {
+        const h = (b.count / maxC) * ch;
+        return <rect key={i} x={PL + i * bw + 0.5} y={PT + ch - h} width={Math.max(1, bw - 1)} height={Math.max(h, 0)}
+          fill={b.x >= 0 ? 'var(--pos)' : 'var(--neg)'} opacity={0.5} rx="0.5" />;
+      })}
+      {zeroX >= PL && zeroX <= PL + cw &&
+        <line x1={zeroX} y1={PT} x2={zeroX} y2={PT + ch} stroke="var(--tx-mut)" strokeWidth="1.2" strokeDasharray="3 3" />}
+      <line x1={PL} y1={PT + ch} x2={PL + cw} y2={PT + ch} stroke="var(--border-soft)" strokeWidth="1" />
+      {[0, 0.25, 0.5, 0.75, 1].map((f, i) =>
+        <text key={i} x={PL + f * cw} y={height - 8} textAnchor="middle" fontSize="9" fill="var(--tx-dim)">{xFmt(mn + f * span)}</text>)}
+    </svg>
+  );
+}

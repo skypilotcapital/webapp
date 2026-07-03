@@ -29,7 +29,8 @@ const SCATTER_AXES = {
   sharpe_net:   { label: 'Sharpe (net)',         get: (r: PortfolioBacktest) => r.sharpe_net,    fmt: (v: number) => num(v) },
   realized_te:  { label: 'Tracking error',       get: (r: PortfolioBacktest) => r.realized_te,   fmt: (v: number) => pct(v, 1) },
   max_drawdown: { label: 'Max drawdown',         get: (r: PortfolioBacktest) => r.max_drawdown,  fmt: (v: number) => pct(v, 0) },
-  avg_turnover: { label: 'Turnover / mo',        get: (r: PortfolioBacktest) => r.avg_turnover,  fmt: (v: number) => pct(v, 0) },
+  avg_turnover: { label: 'Turnover @ cap',       get: (r: PortfolioBacktest) => r.avg_turnover,  fmt: (v: number) => pct(v, 0) },
+  nat_turnover: { label: 'Turnover (uncapped)',  get: (r: PortfolioBacktest) => (r as { nat_turnover?: number | null }).nat_turnover ?? null, fmt: (v: number) => pct(v, 0) },
   hit_rate:     { label: 'Hit rate',             get: (r: PortfolioBacktest) => r.hit_rate,      fmt: (v: number) => pct(v, 0) },
 } as const;
 type AxisKey = keyof typeof SCATTER_AXES;
@@ -270,6 +271,15 @@ function Compare({ rows, universe }: { rows: PortfolioBacktest[]; universe: stri
   const modelRows = cfg?.rows ?? [];
   const labels = modelRows.map((r) => r.model_label);
   const colorOf = (label: string) => CMP_COLORS[Math.max(0, modelRows.findIndex((r) => r.model_label === label)) % CMP_COLORS.length];
+  // natural (uncapped) turnover per model = its turnover=none run in the same config family
+  const natTurn = (label: string): number | null => {
+    const r = modelRows.find((m) => m.model_label === label);
+    if (!r) return null;
+    const unc = rows.find((x) => x.signal_model_id === r.signal_model_id && x.strategy === r.strategy
+      && x.variant === r.variant && x.te_target === r.te_target && x.sector_tol === r.sector_tol
+      && x.turnover_cap == null);
+    return unc?.avg_turnover ?? null;
+  };
 
   const { data: series, isLoading } = useSWR(
     labels.length ? ['cmp', ...labels] : null,
@@ -311,7 +321,8 @@ function Compare({ rows, universe }: { rows: PortfolioBacktest[]; universe: stri
       ? { title: `Rolling ${win}-month batting average`, sub: 'share of the trailing months that beat the benchmark · above 50% = more hits than misses', refY: 0.5, refLabel: '50%', yFmt: (v: number) => `${(v * 100).toFixed(0)}%`, yDomain: [0, 1] as [number, number] | undefined }
       : { title: `Rolling ${win}-month excess return (annualized)`, sub: 'compounded active return over the trailing window, annualized · above 0 beats the benchmark', refY: 0, refLabel: '0%', yFmt: (v: number) => `${(v * 100).toFixed(0)}%`, yDomain: undefined as [number, number] | undefined };
 
-  const scatterPts = modelRows
+  const augRows = modelRows.map((r) => ({ ...r, nat_turnover: natTurn(r.model_label) }));
+  const scatterPts = augRows
     .filter((r) => isVis(r.model_label) && SCATTER_AXES[xAxis].get(r) != null && SCATTER_AXES[yAxis].get(r) != null)
     .map((r) => ({ label: r.signal_model_id ?? '', color: colorOf(r.model_label), x: SCATTER_AXES[xAxis].get(r) as number, y: SCATTER_AXES[yAxis].get(r) as number, highlight: !!r.is_production }));
 
@@ -353,7 +364,7 @@ function Compare({ rows, universe }: { rows: PortfolioBacktest[]; universe: stri
         <div className="overflow-x-auto">
           <table className="dtable">
             <thead><tr>
-              <th>Model</th><th>IR</th><th>Sharpe</th><th>Ann Active</th><th>Real TE</th><th>Max DD</th><th>Turn</th><th>Hold</th><th>opt%</th>
+              <th>Model</th><th>IR</th><th>Sharpe</th><th>Ann Active</th><th>Real TE</th><th>Max DD</th><th>Turn</th><th>Nat. turn</th><th>Hold</th><th>opt%</th>
             </tr></thead>
             <tbody>
               {modelRows.map((r) => (
@@ -372,6 +383,7 @@ function Compare({ rows, universe }: { rows: PortfolioBacktest[]; universe: stri
                   <td>{pct(r.realized_te)}</td>
                   <td className="neg">{pct(r.max_drawdown, 0)}</td>
                   <td className="dim">{pct(r.avg_turnover, 0)}</td>
+                  <td>{natTurn(r.model_label) != null ? pct(natTurn(r.model_label), 0) : <span className="dim">—</span>}</td>
                   <td className="dim">{r.avg_holdings?.toFixed(0) ?? '—'}</td>
                   <td style={{ color: (r.opt_pct ?? 0) >= 0.98 ? 'var(--pos)' : 'var(--amber)' }}>{pct(r.opt_pct, 0)}</td>
                 </tr>
@@ -379,7 +391,7 @@ function Compare({ rows, universe }: { rows: PortfolioBacktest[]; universe: stri
             </tbody>
           </table>
         </div>
-        <div className="panel-sub mt-2">Best per metric in <span className="pos">green</span> · click a row for its full report</div>
+        <div className="panel-sub mt-2">Best per metric in <span className="pos">green</span> · click a row for its full report. <b>Turn</b> = realized at the config&apos;s cap (binds for every model here, so it&apos;s not a differentiator); <b>Nat. turn</b> = uncapped natural rate — 3-month-blended models trade less.</div>
       </div>
 
       {/* interactive charts (shared model selector drives all three) */}

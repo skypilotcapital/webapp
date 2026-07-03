@@ -1,7 +1,7 @@
 // Client-side helpers for the Portfolios (Layer-2) hub: formatting, sweep grouping, and
 // auto-generated per-sweep takeaways (derived from backtest_summary deltas — no hand-curation).
 
-import type { PortfolioBacktest } from '@/types/api';
+import type { PortfolioBacktest, PortfolioMonthlyPoint } from '@/types/api';
 
 export const pct = (v: number | null | undefined, d = 1) =>
   v == null || isNaN(v) ? '—' : `${(v * 100).toFixed(d)}%`;
@@ -222,4 +222,75 @@ export function rollingExcess(active: (number | null)[], w = 12): (number | null
     if (!s) return null;
     return s.reduce((prod, r) => prod * (1 + r), 1) ** (12 / w) - 1;
   });
+}
+
+// Trailing-window annualized tracking error (std of active return × √12).
+export function rollingVol(active: (number | null)[], w = 12): (number | null)[] {
+  return active.map((_, i) => {
+    const s = fullWindow(active, i, w);
+    if (!s) return null;
+    const m = s.reduce((x, y) => x + y, 0) / w;
+    return Math.sqrt(s.reduce((x, y) => x + (y - m) ** 2, 0) / (w - 1)) * Math.sqrt(12);
+  });
+}
+
+// --------------------------------------------------------------- report-page analytics (monthly series)
+export interface AnnualRow { year: number; active: number; portfolio: number; benchmark: number; }
+export function buildAnnualTable(monthly: PortfolioMonthlyPoint[]): AnnualRow[] {
+  const byYear = new Map<number, { p: number; b: number }>();
+  for (const m of monthly) {
+    const y = +m.date.slice(0, 4);
+    const cur = byYear.get(y) ?? { p: 1, b: 1 };
+    cur.p *= 1 + (m.portfolio_net ?? 0);
+    cur.b *= 1 + (m.benchmark ?? 0);
+    byYear.set(y, cur);
+  }
+  return [...byYear.entries()].sort((a, b) => a[0] - b[0]).map(([year, v]) => ({
+    year, portfolio: v.p - 1, benchmark: v.b - 1, active: (v.p - 1) - (v.b - 1),
+  }));
+}
+
+export interface DrawdownRow { depth: number; peak: string; trough: string; recovery: string | null; }
+export function buildDrawdownTable(monthly: PortfolioMonthlyPoint[], topN = 5): DrawdownRow[] {
+  const pts = monthly.filter((m) => m.portfolio_net != null);
+  let cum = 1, peak = 1, peakDate = pts[0]?.date ?? '', inDD = false, troughVal = 1, troughDate = '';
+  const dds: DrawdownRow[] = [];
+  for (const m of pts) {
+    cum *= 1 + (m.portfolio_net ?? 0);
+    if (cum >= peak) {
+      if (inDD) { dds.push({ depth: troughVal / peak - 1, peak: peakDate, trough: troughDate, recovery: m.date }); inDD = false; }
+      peak = cum; peakDate = m.date;
+    } else {
+      if (!inDD) { inDD = true; troughVal = cum; troughDate = m.date; }
+      if (cum < troughVal) { troughVal = cum; troughDate = m.date; }
+    }
+  }
+  if (inDD) dds.push({ depth: troughVal / peak - 1, peak: peakDate, trough: troughDate, recovery: null });
+  return dds.sort((a, b) => a.depth - b.depth).slice(0, topN);
+}
+
+// up/down capture: avg portfolio return in up- (down-) benchmark months ÷ avg benchmark return there.
+export function captureRatios(monthly: PortfolioMonthlyPoint[]): { up: number | null; down: number | null } {
+  let upP = 0, upB = 0, dnP = 0, dnB = 0;
+  for (const m of monthly) {
+    const p = m.portfolio_net, b = m.benchmark;
+    if (p == null || b == null) continue;
+    if (b > 0) { upP += p; upB += b; } else if (b < 0) { dnP += p; dnB += b; }
+  }
+  return { up: upB !== 0 ? upP / upB : null, down: dnB !== 0 ? dnP / dnB : null };
+}
+
+export function activeStats(monthly: PortfolioMonthlyPoint[]): { best: number; worst: number; hit: number; n: number } | null {
+  const a = monthly.map((m) => m.active_return).filter((v): v is number => v != null);
+  if (!a.length) return null;
+  return { best: Math.max(...a), worst: Math.min(...a), hit: a.filter((v) => v > 0).length / a.length, n: a.length };
+}
+
+// equal-width histogram bins (for the monthly active-return distribution).
+export function histogram(vals: number[], nBins = 21): { x: number; count: number }[] {
+  if (!vals.length) return [];
+  const mn = Math.min(...vals), mx = Math.max(...vals), w = (mx - mn) / nBins || 1;
+  const bins = Array.from({ length: nBins }, (_, i) => ({ x: mn + (i + 0.5) * w, count: 0 }));
+  for (const v of vals) bins[Math.min(nBins - 1, Math.max(0, Math.floor((v - mn) / w)))].count++;
+  return bins;
 }

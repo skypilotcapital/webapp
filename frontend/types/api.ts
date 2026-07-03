@@ -402,9 +402,13 @@ export interface PortfolioHolding {
   weight: number | null;
   prev_weight: number | null;
   trade_pct: number | null;
+  benchmark_weight: number | null;   // cap-weight in the universe (long-only)
+  active_weight: number | null;       // weight - benchmark_weight
 }
 
 export interface PortfolioSectorWeight {
   sector: string | null;
   weight: number | null;
+  benchmark_weight: number | null;    // cap-weighted benchmark sector weight (long-only)
+  active_weight: number | null;        // weight - benchmark_weight (over/underweight)
 }
