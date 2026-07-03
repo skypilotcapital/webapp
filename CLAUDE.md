@@ -54,8 +54,14 @@ All under `/api/v1/research/`:
 ### L2 Portfolios (optimized backtests) — router prefix `/api/v1/portfolio` (NOT `/research`)
 - `portfolio/backtests?universe=&strategy=&variant=&model=` — filterable registry (meta + summary)
 - `portfolio/backtests/{label}` — one backtest: meta + monthly series (cum return, drawdown)
-- `portfolio/backtests/{label}/holdings` — latest-rebalance holdings (weight + trade)
-- `portfolio/backtests/{label}/sector-allocation` — latest portfolio weight by sector
+- `portfolio/backtests/{label}/holdings` — latest-rebalance holdings (weight + trade). Long-only rows
+  also carry `benchmark_weight` (cap-weight in the universe) + `active_weight` (weight − benchmark);
+  L/S leaves them null (market-neutral vs cash).
+- `portfolio/backtests/{label}/sector-allocation` — latest portfolio weight by sector; long-only also
+  returns `benchmark_weight` + `active_weight` per sector (portfolio-vs-benchmark bars on the report).
+  Benchmark = cap-weighted universe at the rebalance date (SP500 = live `secmaster.constituents`,
+  R2500 = `research.r2500_band` mcap-rank 501–3000), market cap from `clean.prices`. The date bind is
+  split into distinct param names so it survives the Windows pg8000 dev driver (repeated-param bug).
 
 Backed by `portfolio.*` + `optimizer.*` DB tables. Needs `GRANT SELECT ... TO skypilot_app` in prod;
 `api/routers/portfolio.py` is a NEW router, so the droplet needs the manual `git pull + restart

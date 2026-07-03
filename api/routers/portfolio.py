@@ -236,29 +236,34 @@ def _benchmark_rows(conn, universe: Optional[str], d):
 
     SP500 = the index members live on that date (secmaster.constituents); R2500 = the mcap-rank 501–3000
     band (research.r2500_band, latest band date on-or-before d). Market cap from clean.prices (millions;
-    the unit cancels in the weight ratio). A literal date bind lets the price hypertable prune chunks."""
+    the unit cancels in the weight ratio). A date-equality bind lets the price hypertable prune chunks.
+
+    NOTE: the date bind is given DISTINCT names per occurrence — pg8000 (the Windows dev driver) miscounts
+    a named param that repeats in one query; psycopg2 (droplet) is fine either way. See CLAUDE.md 'DB Driver'."""
     if universe == "sp500":
         sql = text("""
             SELECT c.isin, sec.sector, p.marketcap AS mcap
             FROM secmaster.constituents c
-            JOIN clean.prices p ON p.isin = c.isin AND p.date = :d
+            JOIN clean.prices p ON p.isin = c.isin AND p.date = :d_price
             LEFT JOIN secmaster.securities sec ON sec.isin = c.isin
-            WHERE c.start_date <= :d AND (c.end_date IS NULL OR c.end_date >= :d)
+            WHERE c.start_date <= :d_start AND (c.end_date IS NULL OR c.end_date >= :d_end)
               AND p.marketcap > 0
         """)
+        params = {"d_price": d, "d_start": d, "d_end": d}
     elif universe == "r2500":
         sql = text("""
             SELECT b.isin, sec.sector, p.marketcap AS mcap
             FROM research.r2500_band b
-            JOIN clean.prices p ON p.isin = b.isin AND p.date = :d
+            JOIN clean.prices p ON p.isin = b.isin AND p.date = :d_price
             LEFT JOIN secmaster.securities sec ON sec.isin = b.isin
-            WHERE b.date = (SELECT max(date) FROM research.r2500_band WHERE date <= :d)
+            WHERE b.date = (SELECT max(date) FROM research.r2500_band WHERE date <= :d_band)
               AND b.mcap_rank BETWEEN 501 AND 3000
               AND p.marketcap > 0
         """)
+        params = {"d_price": d, "d_band": d}
     else:
         return []
-    return conn.execute(sql, {"d": d}).fetchall()
+    return conn.execute(sql, params).fetchall()
 
 
 def _benchmark_weights(rows) -> dict:
