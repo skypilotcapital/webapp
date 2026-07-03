@@ -16,6 +16,8 @@ export interface LatestState {
   final_state: 'defense' | 'normal';
   state_since: string | null;
   days_in_state: number | null;
+  month_end_state: 'defense' | 'normal' | null;
+  month_end_date: string | null;
   defense_reasons: string | null;
   cycle_result: string | null;
   trend_vote: string | null;

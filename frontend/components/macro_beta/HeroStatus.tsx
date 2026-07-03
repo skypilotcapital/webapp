@@ -99,6 +99,25 @@ export function HeroStatus({ universe }: { universe: Universe }) {
                   this as an ordinary market environment.
                 </p>
               )}
+              {data.month_end_state && (
+                <p className="text-sm text-[var(--tx-mut,#64748b)]">
+                  <span className="font-bold text-[var(--tx,#334155)]">Month-end view:</span>{' '}
+                  <span
+                    className={`px-2 py-0.5 rounded-full text-[11px] font-black uppercase tracking-wide border ${
+                      data.month_end_state === 'defense'
+                        ? 'bg-rose-500/10 text-rose-500 border-rose-500/30'
+                        : 'bg-emerald-500/10 text-emerald-500 border-emerald-500/30'
+                    }`}
+                  >
+                    {data.month_end_state}
+                  </span>{' '}
+                  <span className="text-xs">
+                    as of {data.month_end_date} — the daily state sampled at each
+                    month-end and held (committee cadence, ~1.3 switches/yr historically).
+                    The daily state above remains the executable signal.
+                  </span>
+                </p>
+              )}
               <p className="text-xs text-[var(--tx-dim,#94a3b8)] font-medium">
                 {data.model_version} · two-state drawdown-defense signal · updated daily after
                 US close

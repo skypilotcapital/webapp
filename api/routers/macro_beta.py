@@ -38,6 +38,8 @@ class LatestState(BaseModel):
     final_state: str
     state_since: Optional[str]
     days_in_state: Optional[int]
+    month_end_state: Optional[str] = None      # committee-cadence view: state at the
+    month_end_date: Optional[str] = None       # last completed month-end, held
     defense_reasons: Optional[str]
     cycle_result: Optional[str]
     trend_vote: Optional[str]
@@ -218,6 +220,17 @@ def latest(universe: str = Query("sp500", pattern=UNIVERSE_PATTERN)):
             FROM current_run
             """
         ), {"u": universe}).mappings().first()
+        me_row = conn.execute(text(
+            """
+            SELECT signal_date::text AS d, final_state AS s
+            FROM macro_signal.beta_signal_daily
+            WHERE universe = :u
+              AND signal_date < DATE_TRUNC('month',
+                    (SELECT MAX(signal_date) FROM macro_signal.beta_signal_daily
+                     WHERE universe = :u))
+            ORDER BY signal_date DESC LIMIT 1
+            """
+        ), {"u": universe}).mappings().first()
 
     d = dict(row)
     return LatestState(
@@ -225,6 +238,8 @@ def latest(universe: str = Query("sp500", pattern=UNIVERSE_PATTERN)):
         final_state=d["final_state"],
         state_since=state_row["state_since"] if state_row else None,
         days_in_state=state_row["days_in_state"] if state_row else None,
+        month_end_state=me_row["s"] if me_row else None,
+        month_end_date=me_row["d"] if me_row else None,
         defense_reasons=d["defense_reasons"],
         cycle_result=d["cycle_result"],
         trend_vote=d["trend_vote"],
