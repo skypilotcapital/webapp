@@ -412,3 +412,36 @@ export interface PortfolioSectorWeight {
   benchmark_weight: number | null;    // cap-weighted benchmark sector weight (long-only)
   active_weight: number | null;        // weight - benchmark_weight (over/underweight)
 }
+
+// ---- Factor attribution ----
+export interface AttrSummaryRow {
+  factor: string;                       // FACTOR_NAMES | 'specific' | 'total'
+  factor_group: string | null;          // Market | Sector | Style | Specific | Total
+  avg_active_exposure: number | null;
+  ann_ret_contrib: number | null;       // annualized realized return contribution
+  pct_active_return: number | null;     // share of total active return
+  contrib_tstat: number | null;
+  pct_active_variance: number | null;   // avg share of active variance (ex-ante)
+  n_months: number | null;
+}
+
+export interface AttrExposure {
+  factor: string;
+  factor_group: string | null;
+  active_exposure: number | null;
+}
+
+export interface PortfolioAttribution {
+  summary: AttrSummaryRow[];
+  latest_date: string | null;
+  latest_exposures: AttrExposure[];
+}
+
+export interface AttrCumPoint {
+  date: string;
+  specific: number | null;
+  market: number | null;
+  sector: number | null;
+  style: number | null;
+  total: number | null;
+}

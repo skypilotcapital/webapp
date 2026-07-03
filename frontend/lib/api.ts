@@ -27,6 +27,8 @@ import type {
   PortfolioDetail,
   PortfolioHolding,
   PortfolioSectorWeight,
+  PortfolioAttribution,
+  AttrCumPoint,
 } from '@/types/api';
 import type {
   LatestState,
@@ -131,3 +133,9 @@ export const fetchPortfolioHoldings = (label: string, date?: string, limit = 600
 export const fetchPortfolioSectorAllocation = (label: string) =>
   apiFetch<PortfolioSectorWeight[]>(
     `/api/v1/portfolio/backtests/${encodeURIComponent(label)}/sector-allocation`);
+export const fetchPortfolioAttribution = (label: string) =>
+  apiFetch<PortfolioAttribution>(
+    `/api/v1/portfolio/backtests/${encodeURIComponent(label)}/attribution`);
+export const fetchPortfolioAttributionTimeseries = (label: string) =>
+  apiFetch<AttrCumPoint[]>(
+    `/api/v1/portfolio/backtests/${encodeURIComponent(label)}/attribution/timeseries`);

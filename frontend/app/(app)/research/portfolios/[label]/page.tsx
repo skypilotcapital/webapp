@@ -4,13 +4,27 @@ import { useMemo, useState } from 'react';
 import Link from 'next/link';
 import { useParams } from 'next/navigation';
 import useSWR from 'swr';
-import { fetchPortfolioDetail, fetchPortfolioHoldings, fetchPortfolioSectorAllocation } from '@/lib/api';
+import {
+  fetchPortfolioDetail, fetchPortfolioHoldings, fetchPortfolioSectorAllocation,
+  fetchPortfolioAttribution, fetchPortfolioAttributionTimeseries,
+} from '@/lib/api';
 import {
   pct, pctSign, num, fmtSector, fmtTurn,
   buildAnnualTable, buildDrawdownTable, captureRatios, activeStats, histogram, rollingIR, rollingVol,
 } from '@/lib/portfolio';
-import { CumulativeChart, DrawdownChart, MultiLineChart, Histogram } from '@/components/portfolio/charts';
+import { CumulativeChart, DrawdownChart, MultiLineChart, Histogram, HBarChart } from '@/components/portfolio/charts';
 import type { PortfolioHolding } from '@/types/api';
+
+const STYLE_ORDER = ['beta', 'size', 'resid_vol', 'momentum', 'value', 'earnings_yield', 'growth',
+  'profitability', 'earnings_qual', 'leverage', 'liquidity', 'dividend_yield'];
+const FACTOR_LABELS: Record<string, string> = {
+  market: 'Market', beta: 'Beta', size: 'Size', resid_vol: 'Residual Vol', momentum: 'Momentum',
+  value: 'Value', earnings_yield: 'Earnings Yield', growth: 'Growth', profitability: 'Profitability',
+  earnings_qual: 'Earnings Quality', leverage: 'Leverage', liquidity: 'Liquidity', dividend_yield: 'Dividend Yield',
+};
+const prettyFactor = (f: string) =>
+  FACTOR_LABELS[f] ?? (f.startsWith('sec_')
+    ? f.slice(4).replace(/_/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase()) : f);
 
 // ------------------------------------------------------------ sortable holdings table (longs or shorts)
 type HCol = 'ticker' | 'name' | 'sector' | 'weight' | 'benchmark_weight' | 'active_weight' | 'trade_pct';
@@ -70,6 +84,132 @@ function Stat({ label, value, sub, color }: { label: string; value: string; sub?
       <div className="kpi-l">{label}</div>
       <div className="kpi-v" style={{ color: color ?? 'var(--tx)' }}>{value}</div>
       {sub && <div className="kpi-s">{sub}</div>}
+    </div>
+  );
+}
+
+// ------------------------------------------------------------ factor attribution (Phase-4 headline)
+function AttributionSection({ label, isLS }: { label: string; isLS: boolean }) {
+  const { data, error } = useSWR(['pf-attr', label], () => fetchPortfolioAttribution(label), { revalidateOnFocus: false });
+  const { data: ts } = useSWR(['pf-attr-ts', label], () => fetchPortfolioAttributionTimeseries(label), { revalidateOnFocus: false });
+  if (error) return null;                                  // not computed for this label → hide the section
+  if (!data) return <div className="panel p-6 muted text-sm mt-4">Loading factor attribution…</div>;
+
+  const sm = new Map(data.summary.map((r) => [r.factor, r]));
+  const g = (f: string) => sm.get(f);
+  const specific = g('specific');
+  const secRows = data.summary.filter((r) => r.factor_group === 'Sector');
+  const secAgg = {
+    ann: secRows.reduce((s, r) => s + (r.ann_ret_contrib ?? 0), 0),
+    pctRet: secRows.reduce((s, r) => s + (r.pct_active_return ?? 0), 0),
+    pctVar: secRows.reduce((s, r) => s + (r.pct_active_variance ?? 0), 0),
+  };
+  const rowOf = (name: string, r: typeof specific, hi = false) => ({
+    name, hi, exp: r?.avg_active_exposure ?? null, ann: r?.ann_ret_contrib ?? null,
+    pctRet: r?.pct_active_return ?? null, t: r?.contrib_tstat ?? null, pctVar: r?.pct_active_variance ?? null,
+  });
+  const tableRows = [
+    rowOf('Specific (selection)', specific, true),
+    rowOf('Market', g('market')),
+    ...STYLE_ORDER.map((f) => rowOf(prettyFactor(f), g(f))),
+    { name: 'Sector (net)', hi: false, exp: null, ann: secAgg.ann, pctRet: secAgg.pctRet, t: null, pctVar: secAgg.pctVar },
+  ];
+
+  const expMap = new Map(data.latest_exposures.map((e) => [e.factor, e.active_exposure ?? 0]));
+  const expBars = ['market', ...STYLE_ORDER].map((f) => ({ label: prettyFactor(f), value: expMap.get(f) ?? 0 }))
+    .filter((b) => Math.abs(b.value) > 0.005).sort((a, b) => Math.abs(b.value) - Math.abs(a.value));
+  const riskBars = [
+    { label: 'Specific', value: specific?.pct_active_variance ?? 0 },
+    { label: 'Sector (net)', value: secAgg.pctVar },
+    { label: 'Market', value: g('market')?.pct_active_variance ?? 0 },
+    ...STYLE_ORDER.map((f) => ({ label: prettyFactor(f), value: g(f)?.pct_active_variance ?? 0 })),
+  ].filter((b) => b.value > 0.003).sort((a, b) => b.value - a.value).slice(0, 9);
+
+  const dates = (ts ?? []).map((p) => p.date);
+  const cumSeries = [
+    { label: 'Specific', color: 'var(--teal)', values: (ts ?? []).map((p) => p.specific) },
+    { label: 'Style', color: 'var(--cyan)', values: (ts ?? []).map((p) => p.style) },
+    { label: 'Sector', color: 'var(--amber)', values: (ts ?? []).map((p) => p.sector) },
+    { label: 'Market', color: 'var(--bench)', values: (ts ?? []).map((p) => p.market) },
+    { label: 'Total', color: 'var(--tx)', values: (ts ?? []).map((p) => p.total) },
+  ];
+  const retName = isLS ? 'book P&L' : 'active return';
+
+  return (
+    <div className="mt-5">
+      <div className="flex items-center gap-3 flex-wrap mb-2">
+        <h2 className="text-base font-bold tracking-tight" style={{ color: 'var(--tx)' }}>Factor Attribution</h2>
+        <span className="text-[11px] muted">decomposes the {retName} into the risk model’s 24 factors + specific (stock selection)</span>
+      </div>
+      {specific?.ann_ret_contrib != null && (
+        <div className="takeaway mb-3 text-[12px]">
+          <b>Stock selection contributed {pctSign(specific.ann_ret_contrib)}/yr</b>
+          {specific.pct_active_return != null && <> — {pct(specific.pct_active_return, 0)} of the {retName}</>}
+          {specific.contrib_tstat != null && <> (t = {num(specific.contrib_tstat, 1)})</>}
+          {specific.pct_active_variance != null && <>, and {pct(specific.pct_active_variance, 0)} of active risk</>}.
+          {isLS && <> Market/beta/sector exposure is held near zero — this is a pure-alpha, market-neutral book.</>}
+          {!isLS && <> The remainder is incidental factor &amp; sector tilts (below).</>}
+        </div>
+      )}
+
+      <div className="grid grid-cols-1 xl:grid-cols-3 gap-4">
+        {/* return attribution table */}
+        <div className="panel p-4 xl:col-span-2">
+          <div className="panel-head">Return Attribution <span className="muted" style={{ fontWeight: 400 }}>· annualized, net of nothing (gross of TC)</span></div>
+          <div className="panel-sub mb-2">factor contribution = active exposure × factor return; specific = selection. Sum = {retName}.</div>
+          <div className="overflow-x-auto" style={{ maxHeight: '46vh' }}>
+            <table className="dtable" style={{ fontSize: 11 }}>
+              <thead><tr>
+                <th style={{ textAlign: 'left' }}>Factor</th><th>Avg exp</th><th>Ann contrib</th><th>% of {isLS ? 'P&L' : 'active'}</th><th>t-stat</th><th>% of risk</th>
+              </tr></thead>
+              <tbody>
+                {tableRows.map((r) => (
+                  <tr key={r.name} style={r.hi ? { background: 'rgba(14,124,111,0.09)' } : undefined}>
+                    <td style={{ textAlign: 'left', fontFamily: 'inherit', fontWeight: r.hi ? 700 : 400 }}>{r.name}</td>
+                    <td className="dim">{r.exp == null ? '—' : num(r.exp, 2)}</td>
+                    <td style={{ color: (r.ann ?? 0) >= 0 ? 'var(--pos)' : 'var(--neg)', fontWeight: 500 }}>{r.ann == null ? '—' : pctSign(r.ann, 2)}</td>
+                    <td className="dim">{r.pctRet == null ? '—' : pct(r.pctRet, 0)}</td>
+                    <td style={{ color: r.t != null && Math.abs(r.t) >= 2 ? 'var(--tx)' : 'var(--tx-dim)' }}>{r.t == null ? '—' : num(r.t, 1)}</td>
+                    <td className="dim">{r.pctVar == null ? '—' : pct(r.pctVar, 0)}</td>
+                  </tr>
+                ))}
+                <tr style={{ borderTop: '2px solid var(--border)', fontWeight: 700 }}>
+                  <td style={{ textAlign: 'left', fontFamily: 'inherit' }}>Total {retName}</td>
+                  <td className="dim">—</td>
+                  <td style={{ color: (g('total')?.ann_ret_contrib ?? 0) >= 0 ? 'var(--pos)' : 'var(--neg)' }}>{pctSign(g('total')?.ann_ret_contrib, 2)}</td>
+                  <td className="dim">100%</td><td className="dim">—</td><td className="dim">100%</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+
+        {/* active exposure profile */}
+        <div className="panel p-4">
+          <div className="panel-head">Active Factor Exposure <span className="muted" style={{ fontWeight: 400 }}>· latest</span></div>
+          <div className="panel-sub mb-2">Bᵀ(w−b) in cross-sectional σ units · where the book tilts</div>
+          <HBarChart bars={expBars} valFmt={(v) => (v >= 0 ? '+' : '') + v.toFixed(2)} />
+        </div>
+      </div>
+
+      <div className="grid grid-cols-1 xl:grid-cols-3 gap-4 mt-4">
+        {/* cumulative return attribution */}
+        <div className="panel p-4 xl:col-span-2">
+          <div className="panel-head">Cumulative {retName === 'book P&L' ? 'P&L' : 'Active Return'} Attribution</div>
+          <div className="panel-sub mb-1">cumulative (arithmetic) contribution by group · Specific vs factor groups</div>
+          <div className="flex gap-3 text-[10px] muted mb-1 flex-wrap">
+            {cumSeries.map((s) => <span key={s.label}><span style={{ color: s.color }}>■</span> {s.label}</span>)}
+          </div>
+          <MultiLineChart dates={dates} series={cumSeries} refY={0} refLabel="0" yFmt={(v) => pct(v, 0)} height={220} />
+        </div>
+
+        {/* risk decomposition */}
+        <div className="panel p-4">
+          <div className="panel-head">Active Risk Decomposition</div>
+          <div className="panel-sub mb-2">% of active variance (ex-ante, avg) · top contributors</div>
+          <HBarChart bars={riskBars} valFmt={(v) => pct(v, 0)} diverging={false} posColor="var(--cyan)" />
+        </div>
+      </div>
     </div>
   );
 }
@@ -251,6 +391,9 @@ export default function BacktestReportPage() {
         </div>
       </div>
 
+      {/* factor attribution */}
+      <AttributionSection label={label} isLS={isLS} />
+
       {/* holdings */}
       <div className={`grid grid-cols-1 gap-4 mt-4 ${isLS ? 'xl:grid-cols-2' : ''}`}>
         <HoldingsTable rows={longs} title={isLS ? 'Top Longs' : 'Top Holdings'} showBench={!isLS}
@@ -262,7 +405,7 @@ export default function BacktestReportPage() {
       </div>
 
       <div className="text-[10px] dim mt-4" style={{ borderTop: '1px solid var(--border-soft)', paddingTop: 10 }}>
-        Out-of-sample 2005–2023. {isLS ? 'Market-neutral: benchmark = cash, so a position’s weight IS its active bet.' : 'Active weight = portfolio − cap-weighted benchmark, per name and per sector.'} Barra factor-exposure attribution is the remaining Phase-4 item. Config label: <span className="mono">{label}</span>
+        Out-of-sample 2005–2023. {isLS ? 'Market-neutral: benchmark = cash, so a position’s weight IS its active bet.' : 'Active weight = portfolio − cap-weighted benchmark, per name and per sector.'} Factor attribution decomposes the {isLS ? 'book P&L' : 'active return'} against the Phase-3 risk model (24 factors + specific); factor + specific reconciles to the realized {isLS ? 'P&L' : 'active return'} to machine precision each month. Config label: <span className="mono">{label}</span>
       </div>
     </Back>
   );

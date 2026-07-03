@@ -131,6 +131,38 @@ class SectorWeight(BaseModel):
     active_weight: Optional[float] = None         # weight - benchmark_weight (over/underweight)
 
 
+class AttrSummaryRow(BaseModel):
+    factor: str
+    factor_group: Optional[str]
+    avg_active_exposure: Optional[float]
+    ann_ret_contrib: Optional[float]              # annualized realized return contribution
+    pct_active_return: Optional[float]            # share of total active return
+    contrib_tstat: Optional[float]
+    pct_active_variance: Optional[float]          # avg share of active variance (ex-ante)
+    n_months: Optional[int]
+
+
+class AttrExposure(BaseModel):
+    factor: str
+    factor_group: Optional[str]
+    active_exposure: Optional[float]
+
+
+class AttributionResponse(BaseModel):
+    summary: List[AttrSummaryRow]                 # per factor incl 'specific' + 'total'
+    latest_date: Optional[str]
+    latest_exposures: List[AttrExposure]          # ex-ante active exposures at the latest rebalance
+
+
+class AttrCumPoint(BaseModel):
+    date: str
+    specific: Optional[float]                      # cumulative (arithmetic) return contribution by group
+    market: Optional[float]
+    sector: Optional[float]
+    style: Optional[float]
+    total: Optional[float]
+
+
 _ROW_COLS = """
     m.model_label, m.signal_model_id, m.universe, m.strategy, m.experiment, m.variant,
     m.lambda_risk, m.te_target, m.sector_tol, m.turnover_cap, m.benchmark_report,
@@ -347,4 +379,88 @@ def get_sector_allocation(label: str, date: Optional[str] = Query(None)):
         aw = (pw or 0.0) - (bw or 0.0) if (pw is not None or bw is not None) else None
         out.append(SectorWeight(sector=sec, weight=pw, benchmark_weight=bw, active_weight=aw))
     out.sort(key=lambda x: (x.weight if x.weight is not None else -1e9), reverse=True)
+    return out
+
+
+# ---------------------------------------------------------------------------
+# Factor attribution (Phase-4 item) — reads portfolio.attribution(_summary)
+# ---------------------------------------------------------------------------
+
+def _factor_group(f: str) -> str:
+    if f == "market":
+        return "Market"
+    if f.startswith("sec_"):
+        return "Sector"
+    if f == "specific":
+        return "Specific"
+    if f == "total":
+        return "Total"
+    return "Style"
+
+
+def _cum_group(f: str) -> str:
+    """Collapse the 24 factors + specific into the 4 stacked-area buckets."""
+    if f == "market":
+        return "market"
+    if f.startswith("sec_"):
+        return "sector"
+    if f == "specific":
+        return "specific"
+    return "style"
+
+
+@router.get("/backtests/{label}/attribution", response_model=AttributionResponse)
+def get_attribution(label: str):
+    """Factor attribution for one backtest: the time-aggregated summary per factor (avg active exposure,
+    annualized return contribution, % of active return, t-stat, % of active risk) — incl 'specific'
+    (stock selection) and 'total' — plus the ex-ante active exposures at the latest rebalance."""
+    with get_db() as conn:
+        summ = conn.execute(text("""
+            SELECT factor, factor_group, avg_active_exposure, ann_ret_contrib, pct_active_return,
+                   contrib_tstat, pct_active_variance, n_months
+            FROM portfolio.attribution_summary WHERE model_label = :l
+        """), {"l": label}).fetchall()
+        if not summ:
+            raise HTTPException(status_code=404,
+                                detail=f"No attribution for '{label}' (run scripts.build_attribution).")
+        latest = conn.execute(text("SELECT max(date) FROM portfolio.attribution WHERE model_label = :l"),
+                              {"l": label}).fetchone()[0]
+        exps = conn.execute(text("""
+            SELECT factor, active_exposure FROM portfolio.attribution
+            WHERE model_label = :l AND date = :d AND active_exposure IS NOT NULL
+        """), {"l": label, "d": latest}).fetchall() if latest else []
+    return AttributionResponse(
+        summary=[AttrSummaryRow(**_clean(r)) for r in summ],
+        latest_date=latest.isoformat() if latest and hasattr(latest, "isoformat") else (str(latest) if latest else None),
+        latest_exposures=[AttrExposure(factor=r[0], factor_group=_factor_group(r[0]),
+                                       active_exposure=_v(r[1])) for r in exps],
+    )
+
+
+@router.get("/backtests/{label}/attribution/timeseries", response_model=List[AttrCumPoint])
+def get_attribution_timeseries(label: str):
+    """Cumulative (arithmetic) return contribution by group — Specific / Style / Sector / Market — for the
+    stacked-area chart. Each period's contributions sum to that month's active return (exact); the running
+    sum reconciles to the arithmetic cumulative active return."""
+    with get_db() as conn:
+        rows = conn.execute(text("""
+            SELECT date, factor, ret_contrib FROM portfolio.attribution
+            WHERE model_label = :l AND factor <> 'total'
+            ORDER BY date
+        """), {"l": label}).fetchall()
+    if not rows:
+        raise HTTPException(status_code=404, detail=f"No attribution for '{label}'.")
+    per_date: dict = {}
+    for d, f, rc in rows:
+        key = d.isoformat() if hasattr(d, "isoformat") else str(d)
+        g = per_date.setdefault(key, {"specific": 0.0, "market": 0.0, "sector": 0.0, "style": 0.0})
+        g[_cum_group(f)] += (_v(rc) or 0.0)
+    cum = {"specific": 0.0, "market": 0.0, "sector": 0.0, "style": 0.0}
+    out = []
+    for key in sorted(per_date):
+        for k in cum:
+            cum[k] += per_date[key][k]
+        out.append(AttrCumPoint(date=key, specific=cum["specific"], market=cum["market"],
+                                sector=cum["sector"], style=cum["style"],
+                                total=cum["specific"] + cum["market"] + cum["sector"] + cum["style"]))
     return out

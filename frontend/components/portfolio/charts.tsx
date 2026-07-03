@@ -192,6 +192,42 @@ export function ScatterChart({ points, xLabel, yLabel, xFmt, yFmt, height = 300 
   );
 }
 
+/** Horizontal bars — diverging (from a centre zero) for signed values (exposures, return contributions)
+ *  or left-anchored for positive-only (risk %). One row per item; label left, value right. */
+export function HBarChart({ bars, valFmt, labelW = 118, rowH = 17, diverging = true,
+  posColor = 'var(--pos)', negColor = 'var(--neg)' }: {
+  bars: { label: string; value: number; color?: string }[];
+  valFmt: (v: number) => string; labelW?: number; rowH?: number; diverging?: boolean;
+  posColor?: string; negColor?: string;
+}) {
+  const W = 680, PR = 48, PT = 3, PB = 3;
+  const barX = labelW, barW = W - labelW - PR;
+  const H = PT + PB + bars.length * rowH;
+  if (!bars.length) return <div className="text-[11px] dim py-4 text-center">no data</div>;
+  const maxAbs = Math.max(1e-9, ...bars.map((b) => Math.abs(b.value)));
+  const zeroX = diverging ? barX + barW / 2 : barX;
+  const scale = (diverging ? barW / 2 : barW) / maxAbs;
+  return (
+    <svg viewBox={`0 0 ${W} ${H}`} className="w-full h-auto">
+      {diverging && <line x1={zeroX} y1={PT} x2={zeroX} y2={H - PB} stroke="var(--border)" strokeWidth="1" />}
+      {bars.map((b, i) => {
+        const y = PT + i * rowH;
+        const w = Math.max(0.5, Math.abs(b.value) * scale);
+        const x = b.value >= 0 ? zeroX : zeroX - w;
+        const col = b.color ?? (b.value >= 0 ? posColor : negColor);
+        return (
+          <g key={b.label}>
+            <text x={labelW - 6} y={y + rowH / 2 + 3} textAnchor="end" fontSize="9.5" fill="var(--tx-mut)">{b.label}</text>
+            <rect x={x} y={y + 2.5} width={w} height={rowH - 5} fill={col} opacity={0.85} rx="1.5" />
+            <text x={b.value >= 0 ? Math.min(x + w + 4, W - 2) : Math.max(x - 4, 2)} y={y + rowH / 2 + 3}
+              textAnchor={b.value >= 0 ? 'start' : 'end'} fontSize="9" fill="var(--tx-dim)" className="mono">{valFmt(b.value)}</text>
+          </g>
+        );
+      })}
+    </svg>
+  );
+}
+
 /** Histogram — bars coloured by sign, dashed zero line (monthly active-return distribution). */
 export function Histogram({ bins, height = 150, xFmt }: {
   bins: { x: number; count: number }[]; height?: number; xFmt: (v: number) => string;

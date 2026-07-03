@@ -62,6 +62,13 @@ All under `/api/v1/research/`:
   Benchmark = cap-weighted universe at the rebalance date (SP500 = live `secmaster.constituents`,
   R2500 = `research.r2500_band` mcap-rank 501–3000), market cap from `clean.prices`. The date bind is
   split into distinct param names so it survives the Windows pg8000 dev driver (repeated-param bug).
+- `portfolio/backtests/{label}/attribution` — factor attribution: time-aggregated summary per factor
+  (avg active exposure, annualized return contribution, % of active return, t-stat, % of active risk)
+  incl. `specific` (stock selection) + `total`, plus the latest-rebalance active exposures. Reads
+  `portfolio.attribution_summary` + `portfolio.attribution`. 404 (section hidden) for labels without
+  attribution or whose stored weights don't reconcile (stale pre-shorts-fix L/S).
+- `portfolio/backtests/{label}/attribution/timeseries` — cumulative (arithmetic) return contribution by
+  group (Specific / Style / Sector / Market) for the stacked cumulative chart.
 
 Backed by `portfolio.*` + `optimizer.*` DB tables. Needs `GRANT SELECT ... TO skypilot_app` in prod;
 `api/routers/portfolio.py` is a NEW router, so the droplet needs the manual `git pull + restart
@@ -78,7 +85,11 @@ Pages:
 - `/research/factors` · `/research/r2500-factors` — Factor Quintile Analysis (P01)
 - `/research/models` · `/research/r2500-models` — Alpha Models (P02)
 - `/research/portfolios?u=sp500|r2500` — Layer-2 optimized-backtest hub (Sweep Explorer / Browse /
-  Compare Models tabs), with a per-backtest drill-down report at `/research/portfolios/[label]`
+  Compare Models tabs), with a per-backtest drill-down report at `/research/portfolios/[label]`. The
+  report includes a **Factor Attribution** section (`AttributionSection`): the source-of-alpha
+  decomposition — how much of the active return is stock selection (specific) vs factor/sector tilts —
+  built from `portfolio.attribution*`. Long-only shows per-name/-sector benchmark active weights in
+  Top Holdings + Sector Allocation; L/S shows Top Longs/Shorts + net sector exposure.
 
 Scroll architecture (LOCKED — do not revert to whole-page scroll): fixed-height frame via
 `h-screen overflow-hidden` → `flex-1 min-h-0 overflow-y-auto`, with `min-h-0` at EVERY flex level.
