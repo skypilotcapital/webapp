@@ -293,13 +293,13 @@ export default function BacktestReportPage() {
           <div className="panel-head">Sector {isLS ? 'Net Exposure' : 'Allocation'} <span className="muted" style={{ fontWeight: 400 }}>· latest</span></div>
           <div className="panel-sub mb-2">{isLS ? 'net long − short weight by sector'
             : <><span style={{ color: 'var(--teal)' }}>■</span> portfolio vs <span style={{ color: 'var(--bench)' }}>■</span> cap-wtd benchmark · Active = over/underweight</>}</div>
-          <div className="space-y-1.5">
+          <div className="space-y-2.5">
             {(sectors ?? []).map((s) => {
               const w = s.weight ?? 0, frac = Math.abs(w) / maxSec;
               if (isLS) return (
-                <div key={s.sector ?? 'na'} className="flex items-center gap-2 text-[10.5px]">
-                  <span className="w-24 truncate muted text-right">{s.sector ?? '—'}</span>
-                  <div className="flex-1 relative h-2.5" style={{ background: 'var(--panel2)', borderRadius: 3 }}>
+                <div key={s.sector ?? 'na'} className="flex items-center gap-2 text-[11px]">
+                  <span className="w-28 truncate muted text-right">{s.sector ?? '—'}</span>
+                  <div className="flex-1 relative h-3.5" style={{ background: 'var(--panel2)', borderRadius: 3 }}>
                     <div style={{ position: 'absolute', left: '50%', top: 0, bottom: 0, width: 1, background: 'var(--border)' }} />
                     <div style={{ position: 'absolute', top: 0, bottom: 0, borderRadius: 2, opacity: 0.85,
                       background: w >= 0 ? 'var(--teal)' : 'var(--neg)',
@@ -311,13 +311,13 @@ export default function BacktestReportPage() {
               // long-only: portfolio bar over benchmark bar + active over/underweight
               const bw = s.benchmark_weight ?? 0, aw = s.active_weight ?? (w - bw);
               return (
-                <div key={s.sector ?? 'na'} className="flex items-center gap-2 text-[10.5px]">
-                  <span className="w-24 truncate muted text-right">{s.sector ?? '—'}</span>
-                  <div className="flex-1 space-y-0.5">
-                    <div className="relative h-2" style={{ background: 'var(--panel2)', borderRadius: 2 }}>
+                <div key={s.sector ?? 'na'} className="flex items-center gap-2 text-[11px]">
+                  <span className="w-28 truncate muted text-right">{s.sector ?? '—'}</span>
+                  <div className="flex-1 space-y-1">
+                    <div className="relative h-2.5" style={{ background: 'var(--panel2)', borderRadius: 2 }}>
                       <div style={{ position: 'absolute', top: 0, bottom: 0, left: 0, borderRadius: 2, background: 'var(--teal)', opacity: 0.9, width: `${(Math.abs(w) / maxSec) * 100}%` }} />
                     </div>
-                    <div className="relative h-2" style={{ background: 'var(--panel2)', borderRadius: 2 }}>
+                    <div className="relative h-2.5" style={{ background: 'var(--panel2)', borderRadius: 2 }}>
                       <div style={{ position: 'absolute', top: 0, bottom: 0, left: 0, borderRadius: 2, background: 'var(--bench)', opacity: 0.7, width: `${(Math.abs(bw) / maxSec) * 100}%` }} />
                     </div>
                   </div>
