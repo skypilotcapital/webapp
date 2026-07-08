@@ -29,6 +29,7 @@ import type {
   PortfolioSectorWeight,
   PortfolioAttribution,
   AttrCumPoint,
+  CostAttribution,
 } from '@/types/api';
 import type {
   LatestState,
@@ -139,3 +140,6 @@ export const fetchPortfolioAttribution = (label: string) =>
 export const fetchPortfolioAttributionTimeseries = (label: string) =>
   apiFetch<AttrCumPoint[]>(
     `/api/v1/portfolio/backtests/${encodeURIComponent(label)}/attribution/timeseries`);
+export const fetchPortfolioCostAttribution = (label: string, aum = 5) =>
+  apiFetch<CostAttribution>(
+    `/api/v1/portfolio/backtests/${encodeURIComponent(label)}/cost-attribution?aum=${aum}`);

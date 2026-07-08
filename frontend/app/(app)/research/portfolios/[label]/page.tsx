@@ -6,7 +6,7 @@ import { useParams } from 'next/navigation';
 import useSWR from 'swr';
 import {
   fetchPortfolioDetail, fetchPortfolioHoldings, fetchPortfolioSectorAllocation,
-  fetchPortfolioAttribution, fetchPortfolioAttributionTimeseries,
+  fetchPortfolioAttribution, fetchPortfolioAttributionTimeseries, fetchPortfolioCostAttribution,
 } from '@/lib/api';
 import {
   pct, pctSign, num, fmtSector, fmtTurn,
@@ -84,6 +84,99 @@ function Stat({ label, value, sub, color }: { label: string; value: string; sub?
       <div className="kpi-l">{label}</div>
       <div className="kpi-v" style={{ color: color ?? 'var(--tx)' }}>{value}</div>
       {sub && <div className="kpi-s">{sub}</div>}
+    </div>
+  );
+}
+
+// ------------------------------------------------------------ net-of-cost bridge (gross → net by cost)
+const AUM_MUSD = 5;   // website headline fund size (impact + commission priced here)
+function CostBridgeSection({ label, isLS }: { label: string; isLS: boolean }) {
+  const { data, error } = useSWR(['pf-cost', label], () => fetchPortfolioCostAttribution(label, AUM_MUSD),
+    { revalidateOnFocus: false });
+  if (error) return null;                                   // not computed for this label → hide
+  if (!data) return <div className="panel p-6 muted text-sm mt-5">Loading net-of-cost bridge…</div>;
+  const s = data.summary;
+  const gross = s.ann_gross_active ?? 0;
+  const net = s.ann_net_active ?? 0;
+  const scale = Math.max(gross, s.ann_total_cost ?? 0, Math.abs(net), 1e-4);
+  const barW = (v: number) => `${Math.min(100, (Math.abs(v) / scale) * 100)}%`;
+
+  // waterfall rows: gross (teal) → each cost (red) → net (teal/red)
+  const costRows = [
+    { name: 'Bid–ask spread', drag: s.ann_spread_drag ?? 0, bps: s.avg_spread_bps },
+    { name: 'Market impact', drag: s.ann_impact_drag ?? 0, bps: s.avg_impact_bps },
+    { name: 'Commission (IBKR Fixed)', drag: s.ann_commission_drag ?? 0, bps: s.avg_commission_bps },
+    ...(isLS || (s.ann_borrow_drag ?? 0) > 1e-6
+      ? [{ name: 'Borrow (shorts)', drag: s.ann_borrow_drag ?? 0, bps: null as number | null }] : []),
+  ];
+  const dates = data.monthly.map((p) => p.date);
+
+  return (
+    <div className="mt-5">
+      <div className="flex items-center gap-3 flex-wrap mb-2">
+        <h2 className="text-base font-bold tracking-tight" style={{ color: 'var(--tx)' }}>Net-of-Cost Bridge</h2>
+        <span className="pill pill-cyan">${AUM_MUSD}M AUM</span>
+        <span className="text-[11px] muted">how realistic trading costs turn gross {isLS ? 'book P&L' : 'active return'} into net — spread + market impact + commission{isLS ? ' + borrow' : ''}</span>
+      </div>
+      <div className="takeaway mb-3 text-[12px]">
+        <b>At ${AUM_MUSD}M, costs take gross {pctSign(gross)}/yr down to net {pctSign(net)}/yr</b>
+        {gross > 0 && s.pct_gross_kept != null && <> — you keep {pct(s.pct_gross_kept, 0)} of the gross edge</>}
+        {' '}(<b>{num(s.avg_eff_bps, 1)} bps</b> per traded dollar over {pct(s.avg_turnover, 0)}/mo turnover; net IR {num(s.ir_net)} vs gross {num(s.ir_gross)}).
+        {' '}Impact + commission scale with fund size; the spread piece does not.
+      </div>
+
+      <div className="grid grid-cols-1 xl:grid-cols-3 gap-4">
+        {/* waterfall */}
+        <div className="panel p-4 xl:col-span-2">
+          <div className="panel-head">Gross → Net Waterfall <span className="muted" style={{ fontWeight: 400 }}>· annualized</span></div>
+          <div className="panel-sub mb-3">each cost is charged per name on every traded dollar (‖Δw‖₁), priced at ${AUM_MUSD}M</div>
+          <div className="space-y-2">
+            {/* gross */}
+            <div className="flex items-center gap-2 text-[12px]">
+              <span className="w-40 text-right muted" style={{ fontWeight: 600 }}>Gross {isLS ? 'P&L' : 'active'}</span>
+              <div className="flex-1 relative h-4" style={{ background: 'var(--panel2)', borderRadius: 3 }}>
+                <div style={{ position: 'absolute', top: 0, bottom: 0, left: 0, borderRadius: 3, background: 'var(--teal)', opacity: 0.9, width: barW(gross) }} />
+              </div>
+              <span className="mono w-16 text-right" style={{ color: 'var(--tx)', fontWeight: 600 }}>{pctSign(gross)}</span>
+              <span className="mono w-14 text-right dim">bps/$</span>
+            </div>
+            {/* costs */}
+            {costRows.map((c) => (
+              <div key={c.name} className="flex items-center gap-2 text-[12px]">
+                <span className="w-40 text-right muted">− {c.name}</span>
+                <div className="flex-1 relative h-4" style={{ background: 'var(--panel2)', borderRadius: 3 }}>
+                  <div style={{ position: 'absolute', top: 0, bottom: 0, left: 0, borderRadius: 3, background: 'var(--neg)', opacity: 0.8, width: barW(c.drag) }} />
+                </div>
+                <span className="mono w-16 text-right" style={{ color: 'var(--neg)' }}>−{pct(c.drag, 2)}</span>
+                <span className="mono w-14 text-right dim">{c.bps == null ? '—' : `${num(c.bps, 1)}`}</span>
+              </div>
+            ))}
+            {/* net */}
+            <div className="flex items-center gap-2 text-[12px]" style={{ borderTop: '2px solid var(--border)', paddingTop: 8 }}>
+              <span className="w-40 text-right" style={{ fontWeight: 700, color: 'var(--tx)' }}>Net {isLS ? 'P&L' : 'active'}</span>
+              <div className="flex-1 relative h-4" style={{ background: 'var(--panel2)', borderRadius: 3 }}>
+                <div style={{ position: 'absolute', top: 0, bottom: 0, left: 0, borderRadius: 3, background: net >= 0 ? 'var(--teal)' : 'var(--neg)', opacity: 0.95, width: barW(net) }} />
+              </div>
+              <span className="mono w-16 text-right" style={{ color: net >= 0 ? 'var(--pos)' : 'var(--neg)', fontWeight: 700 }}>{pctSign(net)}</span>
+              <span className="mono w-14 text-right dim">{num(s.avg_eff_bps, 1)}</span>
+            </div>
+          </div>
+        </div>
+
+        {/* cumulative gross vs net */}
+        <div className="panel p-4">
+          <div className="panel-head">Cumulative Gross vs Net</div>
+          <div className="panel-sub mb-1">the widening wedge = cumulative cost drag</div>
+          <div className="flex gap-3 text-[10px] muted mb-1">
+            <span><span style={{ color: 'var(--teal)' }}>■</span> Gross</span>
+            <span><span style={{ color: 'var(--cyan)' }}>■</span> Net</span>
+          </div>
+          <MultiLineChart dates={dates} series={[
+            { label: 'Gross', color: 'var(--teal)', values: data.monthly.map((p) => p.cum_gross) },
+            { label: 'Net', color: 'var(--cyan)', values: data.monthly.map((p) => p.cum_net) },
+          ]} refY={0} refLabel="0" yFmt={(v) => pct(v, 0)} height={200} />
+        </div>
+      </div>
     </div>
   );
 }
@@ -255,6 +348,7 @@ export default function BacktestReportPage() {
         <span className="pill pill-cyan">{isLS ? 'Long-short' : 'Long-only'}</span>
         <span className="pill pill-ok">{pct(m.opt_pct, 0)} optimal</span>
         <span className="pill pill-warn">Out-of-sample 2005–2023</span>
+        <span className="pill pill-cyan">Net of realistic cost · $5M</span>
         <span className="mono text-[11px] muted">{cons}</span>
         <span className="ml-auto text-[11px] muted">Drill ▸ <Link href={modelsHref} className="teal font-semibold">{m.signal_model_id} (P02)</Link> ▸ <Link href={factorsHref} className="teal font-semibold">Factors (P01)</Link></span>
       </div>
@@ -331,6 +425,9 @@ export default function BacktestReportPage() {
         </div>
       </div>
 
+      {/* net-of-cost bridge */}
+      <CostBridgeSection label={label} isLS={isLS} />
+
       {/* annual returns table */}
       <div className="panel p-4 mt-4">
         <div className="panel-head mb-2">Annual Returns <span className="muted" style={{ fontWeight: 400 }}>· net, % — active shaded by magnitude</span></div>
@@ -405,7 +502,7 @@ export default function BacktestReportPage() {
       </div>
 
       <div className="text-[10px] dim mt-4" style={{ borderTop: '1px solid var(--border-soft)', paddingTop: 10 }}>
-        Out-of-sample 2005–2023. {isLS ? 'Market-neutral: benchmark = cash, so a position’s weight IS its active bet.' : 'Active weight = portfolio − cap-weighted benchmark, per name and per sector.'} Factor attribution decomposes the {isLS ? 'book P&L' : 'active return'} against the Phase-3 risk model (24 factors + specific); factor + specific reconciles to the realized {isLS ? 'P&L' : 'active return'} to machine precision each month. Config label: <span className="mono">{label}</span>
+        Out-of-sample 2005–2023. {isLS ? 'Market-neutral: benchmark = cash, so a position’s weight IS its active bet.' : 'Active weight = portfolio − cap-weighted benchmark, per name and per sector.'} Net returns are charged the realistic per-name trading cost model (Corwin–Schultz half-spread + √-law market impact + IBKR Pro Fixed commission{isLS ? ' + flat borrow on shorts' : ''}) at <b>$5M AUM</b> — see the Net-of-Cost Bridge. Factor attribution decomposes the gross {isLS ? 'book P&L' : 'active return'} against the Phase-3 risk model (24 factors + specific); factor + specific reconciles to the realized {isLS ? 'P&L' : 'active return'} to machine precision each month. Config label: <span className="mono">{label}</span>
       </div>
     </Back>
   );

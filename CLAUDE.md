@@ -69,6 +69,18 @@ All under `/api/v1/research/`:
   attribution or whose stored weights don't reconcile (stale pre-shorts-fix L/S).
 - `portfolio/backtests/{label}/attribution/timeseries` — cumulative (arithmetic) return contribution by
   group (Specific / Style / Sector / Market) for the stacked cumulative chart.
+- `portfolio/backtests/{label}/cost-attribution?aum=5` — the NET-OF-COST return bridge: gross active
+  return minus each realistic cost component (bid–ask spread / market impact / IBKR-Fixed commission /
+  borrow) = net active, under the per-name trading cost model at `aum` $M (site default 5). Returns a
+  summary row (annualized drags, gross/net IR, avg one-way bps by component, % of gross kept) + a
+  monthly cumulative gross-vs-net series. Reads `portfolio.cost_attribution(_summary)`. 404 (section
+  hidden) for labels not re-priced at that AUM. DISTINCT from `/attribution` (factor / source-of-alpha).
+
+**Realistic-cost numbers (2026-07-08):** the browse grid + report NET return/IR now reflect the
+**realistic per-name trading cost model at $5M AUM** (not flat 5bps). The registry summary reads
+`COALESCE(portfolio_net_rc, portfolio_net)` — flat-cost `portfolio_net`/`tc_cost` are retained in the
+DB, just not displayed. Rebuild via `alpha/scripts/build_cost_attribution.py --aum 5`. The `_rc25`
+Stage-2 analysis labels were retired from the browse grid.
 
 Backed by `portfolio.*` + `optimizer.*` DB tables. Needs `GRANT SELECT ... TO skypilot_app` in prod;
 `api/routers/portfolio.py` is a NEW router, so the droplet needs the manual `git pull + restart
@@ -88,8 +100,11 @@ Pages:
   Compare Models tabs), with a per-backtest drill-down report at `/research/portfolios/[label]`. The
   report includes a **Factor Attribution** section (`AttributionSection`): the source-of-alpha
   decomposition — how much of the active return is stock selection (specific) vs factor/sector tilts —
-  built from `portfolio.attribution*`. Long-only shows per-name/-sector benchmark active weights in
-  Top Holdings + Sector Allocation; L/S shows Top Longs/Shorts + net sector exposure.
+  built from `portfolio.attribution*`, AND a **Net-of-Cost Bridge** section (`CostBridgeSection`): the
+  gross→net waterfall (gross active − spread − impact − commission − borrow = net) at $5M AUM, built
+  from `portfolio.cost_attribution*` via `/cost-attribution`. Long-only shows per-name/-sector
+  benchmark active weights in Top Holdings + Sector Allocation; L/S shows Top Longs/Shorts + net
+  sector exposure.
 
 Scroll architecture (LOCKED — do not revert to whole-page scroll): fixed-height frame via
 `h-screen overflow-hidden` → `flex-1 min-h-0 overflow-y-auto`, with `min-h-0` at EVERY flex level.

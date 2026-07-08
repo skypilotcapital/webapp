@@ -445,3 +445,34 @@ export interface AttrCumPoint {
   style: number | null;
   total: number | null;
 }
+
+// Net-of-cost return bridge: gross active − spread − impact − commission − borrow = net active.
+export interface CostBridgeSummary {
+  aum_musd: number | null;
+  n_months: number | null;
+  ann_gross_active: number | null;
+  ann_spread_drag: number | null;
+  ann_impact_drag: number | null;
+  ann_commission_drag: number | null;
+  ann_borrow_drag: number | null;
+  ann_total_cost: number | null;
+  ann_net_active: number | null;
+  ir_gross: number | null;
+  ir_net: number | null;
+  avg_spread_bps: number | null;
+  avg_impact_bps: number | null;
+  avg_commission_bps: number | null;
+  avg_eff_bps: number | null;
+  avg_turnover: number | null;
+  pct_gross_kept: number | null;
+}
+export interface CostBridgePoint {
+  date: string;
+  cum_gross: number | null;
+  cum_net: number | null;
+  cum_cost: number | null;
+}
+export interface CostAttribution {
+  summary: CostBridgeSummary;
+  monthly: CostBridgePoint[];
+}

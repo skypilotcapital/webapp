@@ -163,6 +163,38 @@ class AttrCumPoint(BaseModel):
     total: Optional[float]
 
 
+class CostBridgeSummary(BaseModel):
+    aum_musd: Optional[float]
+    n_months: Optional[int]
+    ann_gross_active: Optional[float]              # gross active return (cost-free), annualized
+    ann_spread_drag: Optional[float]               # annualized cost drags (positive = a cost)
+    ann_impact_drag: Optional[float]
+    ann_commission_drag: Optional[float]
+    ann_borrow_drag: Optional[float]
+    ann_total_cost: Optional[float]
+    ann_net_active: Optional[float]                # = gross − total cost
+    ir_gross: Optional[float]
+    ir_net: Optional[float]
+    avg_spread_bps: Optional[float]                # trade-weighted one-way bps by component
+    avg_impact_bps: Optional[float]
+    avg_commission_bps: Optional[float]
+    avg_eff_bps: Optional[float]                   # total one-way per traded dollar
+    avg_turnover: Optional[float]
+    pct_gross_kept: Optional[float]                # net / gross
+
+
+class CostBridgePoint(BaseModel):
+    date: str
+    cum_gross: Optional[float]                     # cumulative (arithmetic) gross active return
+    cum_net: Optional[float]                       # cumulative net active return
+    cum_cost: Optional[float]                      # cumulative total cost drag
+
+
+class CostAttributionResponse(BaseModel):
+    summary: CostBridgeSummary
+    monthly: List[CostBridgePoint]
+
+
 _ROW_COLS = """
     m.model_label, m.signal_model_id, m.universe, m.strategy, m.experiment, m.variant,
     m.lambda_risk, m.te_target, m.sector_tol, m.turnover_cap, m.benchmark_report,
@@ -435,6 +467,41 @@ def get_attribution(label: str):
         latest_exposures=[AttrExposure(factor=r[0], factor_group=_factor_group(r[0]),
                                        active_exposure=_v(r[1])) for r in exps],
     )
+
+
+@router.get("/backtests/{label}/cost-attribution", response_model=CostAttributionResponse)
+def get_cost_attribution(label: str, aum: float = Query(5.0, description="fund size in $M (default 5)")):
+    """The NET-OF-COST return bridge for one backtest: gross active return minus each realistic cost
+    component (spread / market impact / commission / borrow) = net active return, under the per-name
+    trading cost model at `aum` $M. Distinct from /attribution (the factor / source-of-alpha split).
+    Reads portfolio.cost_attribution_summary (+ the monthly series for the cumulative gross-vs-net chart).
+    404 (section hidden) for labels without cost attribution at this AUM (e.g. legacy)."""
+    with get_db() as conn:
+        s = conn.execute(text("""
+            SELECT aum_musd, n_months, ann_gross_active, ann_spread_drag, ann_impact_drag,
+                   ann_commission_drag, ann_borrow_drag, ann_total_cost, ann_net_active,
+                   ir_gross, ir_net, avg_spread_bps, avg_impact_bps, avg_commission_bps,
+                   avg_eff_bps, avg_turnover, pct_gross_kept
+            FROM portfolio.cost_attribution_summary WHERE model_label = :l AND aum_musd = :a
+        """), {"l": label, "a": aum}).fetchone()
+        if s is None:
+            raise HTTPException(status_code=404,
+                                detail=f"No cost attribution for '{label}' at ${aum}M.")
+        rows = conn.execute(text("""
+            SELECT date, gross_active, net_active, total_cost FROM portfolio.cost_attribution
+            WHERE model_label = :l AND aum_musd = :a ORDER BY date
+        """), {"l": label, "a": aum}).fetchall()
+    cum_g = cum_n = cum_c = 0.0
+    monthly = []
+    for r in rows:
+        d = dict(r._mapping)
+        cum_g += _v(d["gross_active"]) or 0.0
+        cum_n += _v(d["net_active"]) or 0.0
+        cum_c += _v(d["total_cost"]) or 0.0
+        monthly.append(CostBridgePoint(
+            date=d["date"].isoformat() if hasattr(d["date"], "isoformat") else str(d["date"]),
+            cum_gross=round(cum_g, 5), cum_net=round(cum_n, 5), cum_cost=round(cum_c, 5)))
+    return CostAttributionResponse(summary=CostBridgeSummary(**_clean(s)), monthly=monthly)
 
 
 @router.get("/backtests/{label}/attribution/timeseries", response_model=List[AttrCumPoint])
