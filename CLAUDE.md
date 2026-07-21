@@ -129,6 +129,33 @@ The `models/scorecard` universe filter: `russell2500` = NR* only, `sp500` = neit
 (i.e. M* + N*). Legacy MR* are hidden — never rebuilt on corrected data (built_from=
 'legacy-pre-audit'), superseded by NR*. M* WERE rebuilt on clean data so they stay on SP500.
 
+## Portfolios (production tracking) — `/portfolios` (2026-07-21)
+
+Strategy-centric **tracking** surface, separate from the in-sample Research hub (Research = choose ·
+Portfolios = track). New top-level sidebar item `/portfolios` → landing with one card per `is_production`
+finalist (SP500 N014 LO · R2500 NR012 L/S): in-sample 2005–2023 headline + labeled OOS live-to-date +
+full-track spark with an in-sample/OOS boundary. Card → `/portfolios/[strategy]` (`sp500` | `r2500-ls`),
+which renders the **modeled-paper track** = the `*_LOCKED_v2_full` label (the book continued out-of-sample
+to 2026-03) with a track selector (Modeled paper now; IBKR paper / Live = "soon"). `lib/products.ts` = the
+2-product config (slug / universe / strategy + `fullLabelOf` / `slugForRow` helpers; `INSAMPLE_END` boundary).
+
+- **Report component extracted:** the per-backtest report body now lives in
+  `components/portfolio/BacktestReport.tsx` (props: `label, backHref, backLabel, periodLabel, boundaryDate,
+  topSlot`). BOTH the research drill-down (`research/portfolios/[label]`, a thin wrapper) and the portfolios
+  strategy pages reuse it. Charts (`charts.tsx`) gained an optional `boundaryDate` marker.
+- **New API (`api/routers/portfolio.py`):** `?production=true` filter on `/backtests`;
+  `/backtests/{label}/neutrality` (F2 — net dollar Σwᵢ + net beta Σwᵢ·βᵢ from `portfolio.weights` ⋈
+  `factor.risk_exposures.beta_60m`; full window); `/backtests/{label}/credited-return?haircut_bps=50` (T9 —
+  collateral-credited investor excess vs net-vs-cash; long-short only, 404 otherwise).
+- **L/S report adds** (in `BacktestReport`, `isLS`-gated): **Collateral-Credited Return** (T9, 50bps
+  surfaced haircut) + **Market-Neutrality** (F2, net-dollar & net-beta small-multiple).
+- **Data:** modeled-paper `_full` labels got $5M cost-attribution (`build_cost_attribution --like
+  '%LOCKED_v2_full%' --exec-cap 0.20 --min-trade 2000`); the 2 production labels got in-sample
+  factor-attribution (`build_attribution --label … --end 2023-12-31` → CSV → droplet psql load), restoring
+  the AttributionSection for the v2 finalists (factor_returns stops at 2023 → attribution is in-sample only).
+- Ongoing auto-update of the paper track + the IBKR track = the deferred production/live-ops phase (B).
+  Plan: `Main/Planning/technical/website_research_hub_IA_2026-07.md` 2026-07-20 addendum.
+
 ## Theme — "Warm Ivory" (light)
 
 Whole-site theme defined in `app/globals.css` as CSS variables on `:root` (used via Tailwind
