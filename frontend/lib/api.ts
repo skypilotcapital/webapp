@@ -30,6 +30,8 @@ import type {
   PortfolioAttribution,
   AttrCumPoint,
   CostAttribution,
+  PortfolioNeutrality,
+  PortfolioCreditedReturn,
 } from '@/types/api';
 import type {
   LatestState,
@@ -113,7 +115,7 @@ export const fetchBacktestReturns = (label: string) =>
 // ---------------------------------------------------------------------------
 export interface PortfolioFilter {
   universe?: string; strategy?: string; variant?: string;
-  experiment?: string; model?: string; includeLegacy?: boolean;
+  experiment?: string; model?: string; includeLegacy?: boolean; production?: boolean;
 }
 export const fetchPortfolioBacktests = (f: PortfolioFilter = {}) => {
   const q = new URLSearchParams();
@@ -123,6 +125,7 @@ export const fetchPortfolioBacktests = (f: PortfolioFilter = {}) => {
   if (f.experiment) q.set('experiment', f.experiment);
   if (f.model) q.set('model', f.model);
   if (f.includeLegacy) q.set('include_legacy', 'true');
+  if (f.production) q.set('production', 'true');
   const qs = q.toString();
   return apiFetch<PortfolioBacktest[]>(`/api/v1/portfolio/backtests${qs ? `?${qs}` : ''}`);
 };
@@ -143,3 +146,9 @@ export const fetchPortfolioAttributionTimeseries = (label: string) =>
 export const fetchPortfolioCostAttribution = (label: string, aum = 5) =>
   apiFetch<CostAttribution>(
     `/api/v1/portfolio/backtests/${encodeURIComponent(label)}/cost-attribution?aum=${aum}`);
+export const fetchPortfolioNeutrality = (label: string) =>
+  apiFetch<PortfolioNeutrality>(
+    `/api/v1/portfolio/backtests/${encodeURIComponent(label)}/neutrality`);
+export const fetchPortfolioCreditedReturn = (label: string, haircutBps = 50) =>
+  apiFetch<PortfolioCreditedReturn>(
+    `/api/v1/portfolio/backtests/${encodeURIComponent(label)}/credited-return?haircut_bps=${haircutBps}`);

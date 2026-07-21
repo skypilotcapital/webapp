@@ -195,6 +195,47 @@ class CostAttributionResponse(BaseModel):
     monthly: List[CostBridgePoint]
 
 
+# --- F2: long-short neutrality (dollar & beta over time) ---------------------
+class NeutralityPoint(BaseModel):
+    date: str
+    net_dollar: Optional[float]                    # Σ wᵢ  (≈ 0 by the dollar-neutral constraint)
+    net_beta: Optional[float]                      # Σ wᵢ·βᵢ (raw 60m market beta) — the one that matters
+
+
+class NeutralitySummary(BaseModel):
+    n_months: Optional[int]
+    avg_net_dollar: Optional[float]
+    avg_net_beta: Optional[float]
+    max_abs_net_beta: Optional[float]
+
+
+class NeutralityResponse(BaseModel):
+    summary: NeutralitySummary
+    monthly: List[NeutralityPoint]
+
+
+# --- T9: collateral-credited investor return (long-short) --------------------
+class CreditedSummary(BaseModel):
+    n_months: Optional[int]
+    haircut_bps: Optional[float]                   # collateral haircut assumption (annualized bps)
+    ann_net_active: Optional[float]                # excess vs cash, current convention (charges the RF hurdle)
+    ir_net_active: Optional[float]
+    ann_credited: Optional[float]                  # collateral-credited investor excess (RF on collateral cancels the hurdle)
+    ir_credited: Optional[float]
+    avg_rf_ann: Optional[float]                    # avg risk-free credited on collateral (annualized)
+
+
+class CreditedPoint(BaseModel):
+    date: str
+    cum_net_active: Optional[float]                # growth of 100, current (vs-cash) convention
+    cum_credited: Optional[float]                  # growth of 100, collateral-credited convention
+
+
+class CreditedResponse(BaseModel):
+    summary: CreditedSummary
+    monthly: List[CreditedPoint]
+
+
 _ROW_COLS = """
     m.model_label, m.signal_model_id, m.universe, m.strategy, m.experiment, m.variant,
     m.lambda_risk, m.te_target, m.sector_tol, m.turnover_cap, m.benchmark_report,
@@ -218,12 +259,16 @@ def list_backtests(
     experiment: Optional[str] = Query(None, description="prod | sweep | sector | te | phase5 | ls"),
     model: Optional[str] = Query(None, description="signal model id, e.g. N014 / NR002"),
     include_legacy: bool = Query(False, description="include the invalidated M-series"),
+    production: bool = Query(False, description="only the is_production finalists (the Live/Portfolios pair)"),
 ):
     """The full registry (meta + summary), filterable. Powers Browse, the Sweep Explorer, the frontier
-    and the base-vs-hard A/B — all sliced client-side from this one list."""
+    and the base-vs-hard A/B — all sliced client-side from this one list. `production=true` returns just
+    the two is_production finalists (used by the Portfolios tracking landing)."""
     conds, params = [], {}
     if not include_legacy:
         conds.append("NOT m.is_legacy")
+    if production:
+        conds.append("m.is_production")
     for col, val in (("universe", universe), ("strategy", strategy), ("variant", variant),
                      ("experiment", experiment), ("signal_model_id", model)):
         if val:
@@ -531,3 +576,105 @@ def get_attribution_timeseries(label: str):
                                 sector=cum["sector"], style=cum["style"],
                                 total=cum["specific"] + cum["market"] + cum["sector"] + cum["style"]))
     return out
+
+
+def _iso(d) -> str:
+    return d.isoformat() if hasattr(d, "isoformat") else str(d)
+
+
+def _ann(series: list) -> Optional[float]:
+    """Annualize a monthly return stream (geometric)."""
+    if not series:
+        return None
+    comp = 1.0
+    for x in series:
+        comp *= (1.0 + x)
+    return comp ** (12.0 / len(series)) - 1.0
+
+
+def _ir(series: list) -> Optional[float]:
+    """Annualized information ratio = mean/std × √12 (population std)."""
+    n = len(series)
+    if n < 2:
+        return None
+    mean = sum(series) / n
+    var = sum((x - mean) ** 2 for x in series) / n
+    sd = var ** 0.5
+    return (mean / sd) * (12 ** 0.5) if sd > 0 else None
+
+
+@router.get("/backtests/{label}/neutrality", response_model=NeutralityResponse)
+def get_neutrality(label: str):
+    """F2 — the L/S book's neutrality over time: net dollar exposure (Σ wᵢ, held ≈ 0 by the dollar-neutral
+    constraint) and net market beta (Σ wᵢ·βᵢ on raw 60-month betas). A dollar-neutral book can still carry
+    beta if the long/short legs differ, so net beta is the one that matters — this SHOWS market-neutrality
+    is real. Reads portfolio.weights ⋈ factor.risk_exposures.beta_60m; covers the full tracked window
+    (betas run through 2026-06). 404 for labels without weights."""
+    with get_db() as conn:
+        rows = conn.execute(text("""
+            SELECT w.date,
+                   SUM(w.weight)               AS net_dollar,
+                   SUM(w.weight * r.beta_60m)  AS net_beta
+            FROM portfolio.weights w
+            LEFT JOIN factor.risk_exposures r ON r.isin = w.isin AND r.date = w.date
+            WHERE w.model_label = :l
+            GROUP BY w.date
+            ORDER BY w.date
+        """), {"l": label}).fetchall()
+    if not rows:
+        raise HTTPException(status_code=404, detail=f"No weights for '{label}'.")
+    monthly, betas, dollars = [], [], []
+    for d, nd, nb in rows:
+        ndv, nbv = _v(nd), _v(nb)
+        monthly.append(NeutralityPoint(date=_iso(d), net_dollar=ndv, net_beta=nbv))
+        if ndv is not None:
+            dollars.append(ndv)
+        if nbv is not None:
+            betas.append(nbv)
+    summary = NeutralitySummary(
+        n_months=len(monthly),
+        avg_net_dollar=(sum(dollars) / len(dollars)) if dollars else None,
+        avg_net_beta=(sum(betas) / len(betas)) if betas else None,
+        max_abs_net_beta=max((abs(b) for b in betas), default=None),
+    )
+    return NeutralityResponse(summary=summary, monthly=monthly)
+
+
+@router.get("/backtests/{label}/credited-return", response_model=CreditedResponse)
+def get_credited_return(label: str, haircut_bps: float = Query(50.0, description="collateral haircut, annualized bps")):
+    """T9 — dual display for a market-neutral book. The primary metric (net active vs cash) charges the full
+    RF hurdle; but a real MN implementation earns ~RF−haircut on its collateral + short proceeds, so the RF
+    hurdle largely CANCELS and the honest investor excess ≈ raw alpha − haircut. Returns both cumulative
+    lines. `haircut_bps` (default 50) is the single surfaced assumption — change it here or via the query.
+    Long-short only (404 otherwise)."""
+    with get_db() as conn:
+        strat = conn.execute(text(
+            "SELECT strategy FROM portfolio.backtest_meta WHERE model_label = :l"), {"l": label}).scalar()
+        if strat != "long_short":
+            raise HTTPException(status_code=404, detail="credited-return applies to long-short books only")
+        rows = conn.execute(text("""
+            SELECT date, COALESCE(portfolio_net_rc, portfolio_net) AS net, benchmark AS rf
+            FROM portfolio.returns WHERE model_label = :l ORDER BY date
+        """), {"l": label}).fetchall()
+    if not rows:
+        raise HTTPException(status_code=404, detail=f"No returns for '{label}'.")
+    hc_m = haircut_bps / 1e4 / 12.0                 # monthly haircut on collateral
+    na_stream, cr_stream, rf_stream = [], [], []
+    monthly = []
+    cum_na = cum_cr = 100.0
+    for d, net, rf in rows:
+        net = _v(net) or 0.0
+        rf = _v(rf) or 0.0
+        na = net - rf                               # net active vs cash (current convention)
+        cr = net - hc_m                             # collateral-credited excess (= na + rf − haircut)
+        na_stream.append(na); cr_stream.append(cr); rf_stream.append(rf)
+        cum_na *= (1.0 + na); cum_cr *= (1.0 + cr)
+        monthly.append(CreditedPoint(date=_iso(d), cum_net_active=round(cum_na, 4), cum_credited=round(cum_cr, 4)))
+    n = len(rf_stream)
+    summary = CreditedSummary(
+        n_months=n, haircut_bps=haircut_bps,
+        ann_net_active=_ann(na_stream), ir_net_active=_ir(na_stream),
+        ann_credited=_ann(cr_stream), ir_credited=_ir(cr_stream),
+        avg_rf_ann=(sum(rf_stream) / n * 12.0) if n else None,
+    )
+    return CreditedResponse(summary=summary, monthly=monthly)

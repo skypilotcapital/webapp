@@ -37,8 +37,8 @@ export function FrontierChart({ points, height = 96 }: { points: FrontierPoint[]
 
 interface Series { label: string; color: string; values: (number | null)[]; dash?: boolean; }
 
-/** Cumulative (base 100) multi-line chart with year ticks + legend. */
-export function CumulativeChart({ dates, series, height = 240 }: { dates: string[]; series: Series[]; height?: number }) {
+/** Cumulative (base 100) multi-line chart with year ticks + legend. Optional in-sample/OOS boundary marker. */
+export function CumulativeChart({ dates, series, height = 240, boundaryDate }: { dates: string[]; series: Series[]; height?: number; boundaryDate?: string }) {
   const W = 900, PL = 46, PR = 14, PT = 10, PB = 26;
   const cw = W - PL - PR, ch = height - PT - PB;
   const all = series.flatMap((s) => s.values).filter((v): v is number => v != null);
@@ -46,6 +46,7 @@ export function CumulativeChart({ dates, series, height = 240 }: { dates: string
   const mn = Math.min(...all) * 0.97, mx = Math.max(...all) * 1.03;
   const xAt = (i: number) => PL + (i / (dates.length - 1)) * cw;
   const yAt = (v: number) => PT + ch - ((v - mn) / (mx - mn || 1)) * ch;
+  const bIdx = boundaryDate ? dates.findIndex((d) => d >= boundaryDate) : -1;
   const pathOf = (vals: (number | null)[]) => {
     let d = '', pen = true;
     vals.forEach((v, i) => { if (v == null) { pen = true; return; } d += `${pen ? 'M' : 'L'}${xAt(i).toFixed(1)} ${yAt(v).toFixed(1)} `; pen = false; });
@@ -63,6 +64,12 @@ export function CumulativeChart({ dates, series, height = 240 }: { dates: string
           <text x={PL - 6} y={yAt(v) + 3} textAnchor="end" fontSize="8.5" fill="var(--tx-dim)">{v.toFixed(0)}</text>
         </g>
       ))}
+      {bIdx > 0 && (
+        <g>
+          <line x1={xAt(bIdx)} y1={PT} x2={xAt(bIdx)} y2={PT + ch} stroke="var(--tx-mut)" strokeWidth="1" strokeDasharray="3 3" opacity="0.65" />
+          <text x={xAt(bIdx) + 3} y={PT + 9} fontSize="8.5" fill="var(--tx-mut)">live →</text>
+        </g>
+      )}
       {series.map((s, i) => (
         <path key={`${s.label}-${i}`} d={pathOf(s.values)} fill="none" stroke={s.color} strokeWidth={s.dash ? 1.5 : 2}
           strokeDasharray={s.dash ? '5 3' : undefined} opacity={s.dash ? 0.75 : 1} />
@@ -72,8 +79,8 @@ export function CumulativeChart({ dates, series, height = 240 }: { dates: string
   );
 }
 
-/** Underwater / drawdown area. */
-export function DrawdownChart({ dates, dd, height = 120 }: { dates: string[]; dd: (number | null)[]; height?: number }) {
+/** Underwater / drawdown area. Optional in-sample/OOS boundary marker. */
+export function DrawdownChart({ dates, dd, height = 120, boundaryDate }: { dates: string[]; dd: (number | null)[]; height?: number; boundaryDate?: string }) {
   const W = 900, PL = 46, PR = 14, PT = 8, PB = 22;
   const cw = W - PL - PR, ch = height - PT - PB;
   const vals = dd.filter((v): v is number => v != null);
@@ -81,6 +88,7 @@ export function DrawdownChart({ dates, dd, height = 120 }: { dates: string[]; dd
   const mn = Math.min(...vals), mx = 0;
   const xAt = (i: number) => PL + (i / (dates.length - 1)) * cw;
   const yAt = (v: number) => PT + ch - ((v - mn) / (mx - mn || 1)) * ch;
+  const bIdx = boundaryDate ? dates.findIndex((d) => d >= boundaryDate) : -1;
   let line = '', pen = true;
   dd.forEach((v, i) => { if (v == null) { pen = true; return; } line += `${pen ? 'M' : 'L'}${xAt(i).toFixed(1)} ${yAt(v).toFixed(1)} `; pen = false; });
   const area = `${line} L${xAt(dd.length - 1).toFixed(1)} ${yAt(0).toFixed(1)} L${xAt(0).toFixed(1)} ${yAt(0).toFixed(1)} Z`;
@@ -91,6 +99,7 @@ export function DrawdownChart({ dates, dd, height = 120 }: { dates: string[]; dd
           <text x={PL - 6} y={yAt(v) + 3} textAnchor="end" fontSize="8" fill="var(--tx-dim)">{(v * 100).toFixed(0)}%</text></g>); })}
       <path d={area} fill="rgba(248,113,113,0.12)" stroke="none" />
       <path d={line} fill="none" stroke="var(--neg)" strokeWidth="1.6" />
+      {bIdx > 0 && <line x1={xAt(bIdx)} y1={PT} x2={xAt(bIdx)} y2={PT + ch} stroke="var(--tx-mut)" strokeWidth="1" strokeDasharray="3 3" opacity="0.6" />}
     </svg>
   );
 }

@@ -476,3 +476,26 @@ export interface CostAttribution {
   summary: CostBridgeSummary;
   monthly: CostBridgePoint[];
 }
+
+// F2 — long-short neutrality (net dollar & net beta over time).
+export interface NeutralityPoint { date: string; net_dollar: number | null; net_beta: number | null; }
+export interface NeutralitySummary {
+  n_months: number | null;
+  avg_net_dollar: number | null;
+  avg_net_beta: number | null;
+  max_abs_net_beta: number | null;
+}
+export interface PortfolioNeutrality { summary: NeutralitySummary; monthly: NeutralityPoint[]; }
+
+// T9 — collateral-credited investor return (long-short).
+export interface CreditedSummary {
+  n_months: number | null;
+  haircut_bps: number | null;
+  ann_net_active: number | null;
+  ir_net_active: number | null;
+  ann_credited: number | null;
+  ir_credited: number | null;
+  avg_rf_ann: number | null;
+}
+export interface CreditedPoint { date: string; cum_net_active: number | null; cum_credited: number | null; }
+export interface PortfolioCreditedReturn { summary: CreditedSummary; monthly: CreditedPoint[]; }

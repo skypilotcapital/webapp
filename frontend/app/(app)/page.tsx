@@ -4,7 +4,7 @@ const panels = [
   { title: 'Data Monitor', description: 'Pipeline health, data freshness, gap detection, and factor coverage.', href: '/monitor', active: true },
   { title: 'Macro Beta Signal', description: 'Macro regime signal, latest inputs, state history, and model health.', href: '/macro-beta', active: true },
   { title: 'Research', description: 'Factor quintile analysis (P01), alpha models (P02), and the Layer-2 portfolio backtests — the decision hub.', href: '/research/factors', active: true },
-  { title: 'Portfolio', description: 'Live production portfolio, optimizer output, and performance vs benchmark.', href: '#', active: false },
+  { title: 'Portfolios', description: 'The two production finalists tracked forward as paper portfolios — performance, neutrality, and net-of-cost analytics.', href: '/portfolios', active: true },
 ];
 
 export default function HomePage() {
