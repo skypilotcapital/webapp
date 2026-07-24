@@ -260,6 +260,7 @@ def list_backtests(
     model: Optional[str] = Query(None, description="signal model id, e.g. N014 / NR002"),
     include_legacy: bool = Query(False, description="include the invalidated M-series"),
     production: bool = Query(False, description="only the is_production finalists (the Live/Portfolios pair)"),
+    include_v1: bool = Query(False, description="include pre-v2 (v1 risk-model) labels; default = v2 only"),
 ):
     """The full registry (meta + summary), filterable. Powers Browse, the Sweep Explorer, the frontier
     and the base-vs-hard A/B — all sliced client-side from this one list. `production=true` returns just
@@ -267,6 +268,12 @@ def list_backtests(
     conds, params = [], {}
     if not include_legacy:
         conds.append("NOT m.is_legacy")
+    if not include_v1:
+        # Default research surface = the v2 risk model only (risk_model_v2 adoption 2026-07). The
+        # spent-holdout `_full` books are excluded here — they belong to the Portfolios tracking pages
+        # (fetched by label), not the in-sample research browse. include_v1=true shows the retired v1 twins.
+        conds.append(r"m.model_label LIKE '%\_v2\_%' ESCAPE '\'")
+        conds.append(r"m.model_label NOT LIKE '%\_full%' ESCAPE '\'")
     if production:
         conds.append("m.is_production")
     for col, val in (("universe", universe), ("strategy", strategy), ("variant", variant),
