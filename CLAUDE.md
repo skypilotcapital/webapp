@@ -52,7 +52,14 @@ All under `/api/v1/research/`:
 - `models/{id}/sector-summary` — per-sector IC breakdown
 
 ### L2 Portfolios (optimized backtests) — router prefix `/api/v1/portfolio` (NOT `/research`)
-- `portfolio/backtests?universe=&strategy=&variant=&model=` — filterable registry (meta + summary)
+- `portfolio/backtests?universe=&strategy=&variant=&model=` — filterable registry (meta + summary).
+  **Defaults to the v2 risk model only** (risk_model_v2 adoption); the spent-holdout `_full` books are
+  excluded from this list (they're fetched by-label on the Portfolios tracking pages). `include_v1=true`
+  restores the retired v1 twins; `production=true` returns just the two is_production finalists. NB: v2
+  labels carry the version tag AFTER the variant (`..._sweep_hard_v2_...`); the alpha registry's
+  `parse_label` lifts the single-digit `v\d` token (like `rc{aum}`) so variant/experiment/is_hard/ab_twin
+  parse correctly — if v2 rows ever show variant='bare' with a `*_hard_v2` experiment, that parser
+  regressed and the hub's hard-keyed views (Sweep/Compare/A-B) will be empty.
 - `portfolio/backtests/{label}` — one backtest: meta + monthly series (cum return, drawdown)
 - `portfolio/backtests/{label}/holdings` — latest-rebalance holdings (weight + trade). Long-only rows
   also carry `benchmark_weight` (cap-weight in the universe) + `active_weight` (weight − benchmark);
