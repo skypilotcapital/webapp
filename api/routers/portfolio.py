@@ -52,6 +52,29 @@ def _clean(row) -> dict:
     return {k: _v(v) for k, v in dict(row._mapping).items()}
 
 
+# Collateral haircut for the market-neutral (L/S) credited convention — the broker's cut on interest
+# paid on posted collateral. Matches the /credited-return default (50 bps/yr) and the frontend.
+CREDIT_HAIRCUT_ANN = 0.005
+
+
+def _add_credited(d: dict) -> dict:
+    """Single source for the collateral-credited L/S convention used by BOTH the browse grid and the
+    per-backtest report. The stored `ann_active` is net-vs-cash (port−cost−rf); a market-neutral book
+    also earns RF on its posted collateral, which cancels the cash hurdle (less a small haircut). So:
+        excess over cash (credited) = ann_active + rf − haircut
+        total return (incl. cash)   = excess + rf = ann_active + 2·rf − haircut
+        IR (credited)               = excess / realized_te   (arithmetic, like the stored `ir`)
+    Long-only rows are left null (they benchmark to the equity index, not cash)."""
+    rf = d.get("avg_rf_ann")
+    if d.get("strategy") == "long_short" and d.get("ann_active") is not None and rf is not None:
+        excess = d["ann_active"] + rf - CREDIT_HAIRCUT_ANN
+        d["ann_credited"] = excess
+        d["ann_total_credited"] = d["ann_active"] + 2 * rf - CREDIT_HAIRCUT_ANN
+        te = d.get("realized_te")
+        d["ir_credited"] = (excess / te) if te else None
+    return d
+
+
 # ---------------------------------------------------------------------------
 # Response models
 # ---------------------------------------------------------------------------
@@ -91,6 +114,11 @@ class BacktestRow(BaseModel):
     inacc_pct: Optional[float]
     held_pct: Optional[float]
     hit_rate: Optional[float]
+    # collateral-credited convention (L/S only; null for long-only) — see _add_credited
+    avg_rf_ann: Optional[float] = None
+    ann_credited: Optional[float] = None            # excess over cash, credited (the alpha)
+    ann_total_credited: Optional[float] = None      # total return incl. cash on collateral
+    ir_credited: Optional[float] = None
 
 
 class MonthlyPoint(BaseModel):
@@ -181,6 +209,7 @@ class CostBridgeSummary(BaseModel):
     avg_eff_bps: Optional[float]                   # total one-way per traded dollar
     avg_turnover: Optional[float]
     pct_gross_kept: Optional[float]                # net / gross
+    avg_rf_ann: Optional[float] = None             # avg RF on collateral, annualized (L/S waterfall → total)
 
 
 class CostBridgePoint(BaseModel):
@@ -243,7 +272,9 @@ _ROW_COLS = """
     s.n_months, s.period_start::text AS period_start, s.period_end::text AS period_end,
     s.ann_active, s.ann_total_net, s.ir, s.sharpe_net, s.realized_te, s.pred_te,
     s.max_drawdown, s.avg_turnover, s.tc_drag_bps, s.avg_holdings,
-    s.opt_pct, s.inacc_pct, s.held_pct, s.hit_rate
+    s.opt_pct, s.inacc_pct, s.held_pct, s.hit_rate,
+    (SELECT avg(r_rf.benchmark) * 12 FROM portfolio.returns r_rf
+      WHERE r_rf.model_label = m.model_label) AS avg_rf_ann
 """
 
 
@@ -291,7 +322,7 @@ def list_backtests(
     """)
     with get_db() as conn:
         rows = conn.execute(sql, params).fetchall()
-    return [BacktestRow(**_clean(r)) for r in rows]
+    return [BacktestRow(**_add_credited(_clean(r))) for r in rows]
 
 
 @router.get("/backtests/{label}", response_model=BacktestDetail)
@@ -331,7 +362,7 @@ def get_backtest(label: str):
             cum_portfolio=round(cum_p, 3), cum_benchmark=round(cum_b, 3),
             drawdown=round(cum_p / peak - 1, 4),
         ))
-    return BacktestDetail(meta=BacktestRow(**_clean(meta)), monthly=monthly)
+    return BacktestDetail(meta=BacktestRow(**_add_credited(_clean(meta))), monthly=monthly)
 
 
 def _latest_weight_date(conn, label: str):
@@ -533,8 +564,10 @@ def get_cost_attribution(label: str, aum: float = Query(5.0, description="fund s
             SELECT aum_musd, n_months, ann_gross_active, ann_spread_drag, ann_impact_drag,
                    ann_commission_drag, ann_borrow_drag, ann_total_cost, ann_net_active,
                    ir_gross, ir_net, avg_spread_bps, avg_impact_bps, avg_commission_bps,
-                   avg_eff_bps, avg_turnover, pct_gross_kept
-            FROM portfolio.cost_attribution_summary WHERE model_label = :l AND aum_musd = :a
+                   avg_eff_bps, avg_turnover, pct_gross_kept,
+                   (SELECT avg(r_rf.benchmark) * 12 FROM portfolio.returns r_rf
+                     WHERE r_rf.model_label = cs.model_label) AS avg_rf_ann
+            FROM portfolio.cost_attribution_summary cs WHERE model_label = :l AND aum_musd = :a
         """), {"l": label, "a": aum}).fetchone()
         if s is None:
             raise HTTPException(status_code=404,
