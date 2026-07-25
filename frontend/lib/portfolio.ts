@@ -236,13 +236,30 @@ export function rollingVol(active: (number | null)[], w = 12): (number | null)[]
 
 // --------------------------------------------------------------- report-page analytics (monthly series)
 export interface AnnualRow { year: number; active: number; portfolio: number; benchmark: number; }
-export function buildAnnualTable(monthly: PortfolioMonthlyPoint[]): AnnualRow[] {
+
+// Collateral haircut for the market-neutral (L/S) total-return convention. Matches the
+// /credited-return endpoint default (50 bps/yr) — the broker's cut on interest paid on
+// posted collateral. Keep in sync with fetchPortfolioCreditedReturn's haircut_bps.
+export const COLLATERAL_HAIRCUT_ANN = 0.005;
+
+// For L/S the three annual rows use the collateral-credited convention (see BacktestReport
+// annual table + the CreditedReturnSection):
+//   portfolio = TOTAL return  = book(net) + collateral RF − haircut   ← what the account earns
+//   benchmark = CASH (RF)                                             ← the rate environment
+//   active    = EXCESS over cash = total − cash                       ← the rate-neutral alpha
+// The collateral RF cancels the cash hurdle (market-neutral economics are ~rate-insensitive),
+// so `active` here is NOT the old port−cost−rf double-count; total − cash ≈ book − haircut.
+// Long-only is unchanged: portfolio = net return, benchmark = index, active = net − index.
+export function buildAnnualTable(monthly: PortfolioMonthlyPoint[], isLS = false): AnnualRow[] {
+  const hcM = isLS ? COLLATERAL_HAIRCUT_ANN / 12 : 0;
   const byYear = new Map<number, { p: number; b: number }>();
   for (const m of monthly) {
     const y = +m.date.slice(0, 4);
     const cur = byYear.get(y) ?? { p: 1, b: 1 };
-    cur.p *= 1 + (m.portfolio_net ?? 0);
-    cur.b *= 1 + (m.benchmark ?? 0);
+    const rf = m.benchmark ?? 0;
+    const net = m.portfolio_net ?? 0;
+    cur.p *= 1 + (isLS ? net + rf - hcM : net);
+    cur.b *= 1 + rf;
     byYear.set(y, cur);
   }
   return [...byYear.entries()].sort((a, b) => a[0] - b[0]).map(([year, v]) => ({
@@ -280,8 +297,11 @@ export function captureRatios(monthly: PortfolioMonthlyPoint[]): { up: number | 
   return { up: upB !== 0 ? upP / upB : null, down: dnB !== 0 ? dnP / dnB : null };
 }
 
-export function activeStats(monthly: PortfolioMonthlyPoint[]): { best: number; worst: number; hit: number; n: number } | null {
-  const a = monthly.map((m) => m.active_return).filter((v): v is number => v != null);
+// Takes the active-return series directly (the caller supplies the convention: net-vs-index for
+// long-only, collateral-credited excess for L/S) so best/worst/hit-rate match the annual table
+// and the distribution/rolling charts, which are all driven off the same array.
+export function activeStats(active: (number | null)[]): { best: number; worst: number; hit: number; n: number } | null {
+  const a = active.filter((v): v is number => v != null);
   if (!a.length) return null;
   return { best: Math.max(...a), worst: Math.min(...a), hit: a.filter((v) => v > 0).length / a.length, n: a.length };
 }

@@ -11,6 +11,7 @@ import {
 import {
   pct, pctSign, num, fmtSector, fmtTurn,
   buildAnnualTable, buildDrawdownTable, captureRatios, activeStats, histogram, rollingIR, rollingVol,
+  COLLATERAL_HAIRCUT_ANN,
 } from '@/lib/portfolio';
 import { CumulativeChart, DrawdownChart, MultiLineChart, Histogram, HBarChart } from '@/components/portfolio/charts';
 import type { PortfolioHolding } from '@/types/api';
@@ -417,14 +418,34 @@ export function BacktestReport({ label, backHref = '/research/portfolios', backL
   const factorsHref = uni === 'r2500' ? '/research/r2500-factors' : '/research/factors';
   const monthly = data.monthly;
   const dates = monthly.map((p) => p.date);
-  const active = monthly.map((p) => p.active_return);
+  // Active/excess series. Long-only: net return vs the equity index (as stored). L/S: the
+  // collateral-CREDITED excess over cash (book net − haircut), so the distribution, rolling IR,
+  // best/worst and hit-rate all match the annual table's "Excess over cash" convention rather
+  // than the old port−cost−rf double-count. (Rolling vol is ~convention-invariant either way.)
+  const active = monthly.map((p) =>
+    isLS ? (p.portfolio_net == null ? null : p.portfolio_net - COLLATERAL_HAIRCUT_ANN / 12) : p.active_return);
   const cons = [m.te_target != null ? `${isLS ? 'vol' : 'TE'} ${pct(m.te_target, 0)}` : null,
     `sector ${fmtSector(m.sector_tol)}`, `turnover ${fmtTurn(m.turnover_cap)}`, `λ${m.lambda_risk}`].filter(Boolean).join(' · ');
 
-  const annual = buildAnnualTable(monthly);
+  // L/S report-page headline in the collateral-credited convention (coherent with the annual table
+  // + distribution). NOTE: the browse-grid summary (m.ann_active / m.ir) still serves the old
+  // net-vs-cash convention until the backend summary is updated to store credited fields — that
+  // backend change (so grid and report agree) is the tracked follow-up.
+  const _annualize = (arr: (number | null)[]) => {
+    const a = arr.filter((v): v is number => v != null);
+    return a.length ? Math.pow(a.reduce((p, v) => p * (1 + v), 1), 12 / a.length) - 1 : null;
+  };
+  const annExcess = isLS ? _annualize(active) : (m.ann_active ?? null);               // credited excess over cash
+  const annTotal = isLS
+    ? _annualize(monthly.map((p) => (p.portfolio_net == null || p.benchmark == null)
+        ? null : p.portfolio_net + p.benchmark - COLLATERAL_HAIRCUT_ANN / 12))         // credited total (incl. cash)
+    : null;
+  const shownIR = (isLS && annExcess != null && m.realized_te) ? annExcess / m.realized_te : (m.ir ?? null);
+
+  const annual = buildAnnualTable(monthly, isLS);
   const drawdowns = buildDrawdownTable(monthly, 5);
   const cap = captureRatios(monthly);
-  const astat = activeStats(monthly);
+  const astat = activeStats(active);
   const bins = histogram(active.filter((v): v is number => v != null), 25);
   const rIR = rollingIR(active);
   const rTE = rollingVol(active);
@@ -450,8 +471,8 @@ export function BacktestReport({ label, backHref = '/research/portfolios', backL
 
       {/* KPI strip */}
       <div className="grid grid-cols-2 md:grid-cols-4 xl:grid-cols-8 gap-2.5 mb-4">
-        <Stat label={isLS ? 'Ann Return' : 'Ann Active'} value={pctSign(m.ann_active)} sub={isLS ? 'over cash' : 'vs cap-wtd universe'} color={(m.ann_active ?? 0) >= 0 ? 'var(--pos)' : 'var(--neg)'} />
-        <Stat label="Info Ratio" value={num(m.ir)} sub=" " />
+        <Stat label={isLS ? 'Ann Return' : 'Ann Active'} value={pctSign(isLS ? annTotal : m.ann_active)} sub={isLS ? 'total, incl. cash' : 'vs cap-wtd universe'} color={((isLS ? annTotal : m.ann_active) ?? 0) >= 0 ? 'var(--pos)' : 'var(--neg)'} />
+        <Stat label="Info Ratio" value={num(shownIR)} sub={isLS ? 'excess/cash' : ' '} />
         <Stat label="Sharpe (net)" value={num(m.sharpe_net)} sub=" " />
         <Stat label={isLS ? 'Realized Vol' : 'Realized TE'} value={pct(m.realized_te)} sub={`target ${pct(m.te_target, 0)}`} />
         <Stat label="Max Drawdown" value={pct(m.max_drawdown, 0)} sub={astat ? `hit ${pct(astat.hit, 0)}` : ' '} color="var(--neg)" />
@@ -529,14 +550,14 @@ export function BacktestReport({ label, backHref = '/research/portfolios', backL
 
       {/* annual returns table */}
       <div className="panel p-4 mt-4">
-        <div className="panel-head mb-2">Annual Returns <span className="muted" style={{ fontWeight: 400 }}>· net, % — active shaded by magnitude</span></div>
+        <div className="panel-head mb-2">Annual Returns <span className="muted" style={{ fontWeight: 400 }}>· net, %{isLS ? ' — total return = cash + excess' : ' — active shaded by magnitude'}</span></div>
         <div className="overflow-x-auto">
           <table className="dtable" style={{ fontSize: 11 }}>
             <thead><tr><th style={{ textAlign: 'left' }}>Year</th>{annual.map((a) => <th key={a.year}>{a.year}</th>)}</tr></thead>
             <tbody>
-              <tr><td style={{ textAlign: 'left' }} className="muted">Portfolio</td>{annual.map((a) => <td key={a.year}>{pctSign(a.portfolio, 1)}</td>)}</tr>
+              <tr><td style={{ textAlign: 'left' }} className="muted">{isLS ? 'Total return' : 'Portfolio'}</td>{annual.map((a) => <td key={a.year}>{pctSign(a.portfolio, 1)}</td>)}</tr>
               <tr><td style={{ textAlign: 'left' }} className="muted">{isLS ? 'Cash' : 'Benchmark'}</td>{annual.map((a) => <td key={a.year} className="dim">{pctSign(a.benchmark, 1)}</td>)}</tr>
-              <tr><td style={{ textAlign: 'left' }} className="muted">Active</td>{annual.map((a) => (
+              <tr><td style={{ textAlign: 'left' }} className="muted">{isLS ? 'Excess over cash' : 'Active'}</td>{annual.map((a) => (
                 <td key={a.year} style={{
                   color: a.active >= 0 ? 'var(--pos)' : 'var(--neg)', fontWeight: 500,
                   background: `${a.active >= 0 ? 'rgba(21,128,61,' : 'rgba(185,28,28,'}${Math.min(0.28, Math.abs(a.active) / maxAnnual * 0.28).toFixed(3)})`,
@@ -564,7 +585,7 @@ export function BacktestReport({ label, backHref = '/research/portfolios', backL
       {/* distribution + drawdown table */}
       <div className="grid grid-cols-1 xl:grid-cols-2 gap-4 mt-4">
         <div className="panel p-4">
-          <div className="panel-head">Monthly Active Return Distribution</div>
+          <div className="panel-head">Monthly {isLS ? 'Excess-over-Cash' : 'Active Return'} Distribution</div>
           <div className="panel-sub mb-1">{astat ? `${astat.n} months · hit rate ${pct(astat.hit, 0)} · best ${pctSign(astat.best, 1)} · worst ${pctSign(astat.worst, 1)}` : ' '}</div>
           <Histogram bins={bins} xFmt={(v) => pct(v, 1)} height={160} />
         </div>
