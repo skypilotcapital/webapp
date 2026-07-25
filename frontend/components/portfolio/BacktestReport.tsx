@@ -97,9 +97,16 @@ function CostBridgeSection({ label, isLS }: { label: string; isLS: boolean }) {
   if (error) return null;                                   // not computed for this label → hide
   if (!data) return <div className="panel p-6 muted text-sm mt-5">Loading net-of-cost bridge…</div>;
   const s = data.summary;
-  const gross = s.ann_gross_active ?? 0;
-  const net = s.ann_net_active ?? 0;
-  const scale = Math.max(gross, s.ann_total_cost ?? 0, Math.abs(net), 1e-4);
+  const rf = s.avg_rf_ann ?? 0;
+  const CRED_HAIRCUT = 0.005;                                                    // matches the API credited convention
+  // L/S: the stored gross/net are net-of-the-cash-hurdle (port−rf / port−cost−rf). Add RF back to
+  // show the raw book spread (port) and the book net of cost (port−cost = excess over cash), then a
+  // collateral income step (RF − haircut) reaches the investor's total return. Long-only is unchanged.
+  const gross = (s.ann_gross_active ?? 0) + (isLS ? rf : 0);                     // gross book spread (L/S) / gross active (LO)
+  const net = (s.ann_net_active ?? 0) + (isLS ? rf : 0);                         // excess over cash (L/S) / net active (LO)
+  const collateral = isLS ? rf - CRED_HAIRCUT : 0;                              // collateral RF less haircut (income)
+  const total = net + collateral;                                               // total return (L/S); == net (LO)
+  const scale = Math.max(gross, s.ann_total_cost ?? 0, Math.abs(total), 1e-4);
   const barW = (v: number) => `${Math.min(100, (Math.abs(v) / scale) * 100)}%`;
 
   // waterfall rows: gross (teal) → each cost (red) → net (teal/red)
@@ -120,21 +127,22 @@ function CostBridgeSection({ label, isLS }: { label: string; isLS: boolean }) {
         <span className="text-[11px] muted">how realistic trading costs turn gross {isLS ? 'book P&L' : 'active return'} into net — spread + market impact + commission{isLS ? ' + borrow' : ''}</span>
       </div>
       <div className="takeaway mb-3 text-[12px]">
-        <b>At ${AUM_MUSD}M, costs take gross {pctSign(gross)}/yr down to net {pctSign(net)}/yr</b>
-        {gross > 0 && s.pct_gross_kept != null && <> — you keep {pct(s.pct_gross_kept, 0)} of the gross edge</>}
-        {' '}(<b>{num(s.avg_eff_bps, 1)} bps</b> per traded dollar over {pct(s.avg_turnover, 0)}/mo turnover; net IR {num(s.ir_net)} vs gross {num(s.ir_gross)}).
+        <b>At ${AUM_MUSD}M, costs take gross {pctSign(gross)}/yr down to {isLS ? 'excess-over-cash' : 'net'} {pctSign(net)}/yr</b>
+        {isLS && <> — then cash earned on collateral (+{pct(collateral)}/yr) lifts it to <b>total return {pctSign(total)}/yr</b></>}
+        {!isLS && gross > 0 && s.pct_gross_kept != null && <> — you keep {pct(s.pct_gross_kept, 0)} of the gross edge</>}
+        {' '}(<b>{num(s.avg_eff_bps, 1)} bps</b> per traded dollar over {pct(s.avg_turnover, 0)}/mo turnover).
         {' '}Impact + commission scale with fund size; the spread piece does not.
       </div>
 
       <div className="grid grid-cols-1 xl:grid-cols-3 gap-4">
         {/* waterfall */}
         <div className="panel p-4 xl:col-span-2">
-          <div className="panel-head">Gross → Net Waterfall <span className="muted" style={{ fontWeight: 400 }}>· annualized</span></div>
+          <div className="panel-head">Gross → {isLS ? 'Total' : 'Net'} Waterfall <span className="muted" style={{ fontWeight: 400 }}>· annualized</span></div>
           <div className="panel-sub mb-3">each cost is charged per name on every traded dollar (‖Δw‖₁), priced at ${AUM_MUSD}M</div>
           <div className="space-y-2">
             {/* gross */}
             <div className="flex items-center gap-2 text-[12px]">
-              <span className="w-40 text-right muted" style={{ fontWeight: 600 }}>Gross {isLS ? 'P&L' : 'active'}</span>
+              <span className="w-40 text-right muted" style={{ fontWeight: 600 }}>Gross {isLS ? 'book' : 'active'}</span>
               <div className="flex-1 relative h-4" style={{ background: 'var(--panel2)', borderRadius: 3 }}>
                 <div style={{ position: 'absolute', top: 0, bottom: 0, left: 0, borderRadius: 3, background: 'var(--teal)', opacity: 0.9, width: barW(gross) }} />
               </div>
@@ -152,15 +160,35 @@ function CostBridgeSection({ label, isLS }: { label: string; isLS: boolean }) {
                 <span className="mono w-14 text-right dim">{c.bps == null ? '—' : `${num(c.bps, 1)}`}</span>
               </div>
             ))}
-            {/* net */}
+            {/* net book — excess over cash (L/S) / net active (LO). Subtotal for L/S. */}
             <div className="flex items-center gap-2 text-[12px]" style={{ borderTop: '2px solid var(--border)', paddingTop: 8 }}>
-              <span className="w-40 text-right" style={{ fontWeight: 700, color: 'var(--tx)' }}>Net {isLS ? 'P&L' : 'active'}</span>
+              <span className="w-40 text-right" style={{ fontWeight: 700, color: 'var(--tx)' }}>{isLS ? 'Excess over cash' : 'Net active'}</span>
               <div className="flex-1 relative h-4" style={{ background: 'var(--panel2)', borderRadius: 3 }}>
                 <div style={{ position: 'absolute', top: 0, bottom: 0, left: 0, borderRadius: 3, background: net >= 0 ? 'var(--teal)' : 'var(--neg)', opacity: 0.95, width: barW(net) }} />
               </div>
               <span className="mono w-16 text-right" style={{ color: net >= 0 ? 'var(--pos)' : 'var(--neg)', fontWeight: 700 }}>{pctSign(net)}</span>
-              <span className="mono w-14 text-right dim">{num(s.avg_eff_bps, 1)}</span>
+              <span className="mono w-14 text-right dim">{isLS ? '' : num(s.avg_eff_bps, 1)}</span>
             </div>
+            {isLS && <>
+              {/* + cash earned on collateral (income, not a cost) */}
+              <div className="flex items-center gap-2 text-[12px]">
+                <span className="w-40 text-right muted">+ Cash on collateral</span>
+                <div className="flex-1 relative h-4" style={{ background: 'var(--panel2)', borderRadius: 3 }}>
+                  <div style={{ position: 'absolute', top: 0, bottom: 0, left: 0, borderRadius: 3, background: 'var(--cyan)', opacity: 0.7, width: barW(collateral) }} />
+                </div>
+                <span className="mono w-16 text-right" style={{ color: 'var(--cyan)' }}>+{pct(collateral)}</span>
+                <span className="mono w-14 text-right dim">RF−hc</span>
+              </div>
+              {/* = total return (what the investor's capital earns) */}
+              <div className="flex items-center gap-2 text-[12px]" style={{ borderTop: '2px solid var(--border)', paddingTop: 8 }}>
+                <span className="w-40 text-right" style={{ fontWeight: 700, color: 'var(--tx)' }}>Total return</span>
+                <div className="flex-1 relative h-4" style={{ background: 'var(--panel2)', borderRadius: 3 }}>
+                  <div style={{ position: 'absolute', top: 0, bottom: 0, left: 0, borderRadius: 3, background: total >= 0 ? 'var(--teal)' : 'var(--neg)', opacity: 0.95, width: barW(total) }} />
+                </div>
+                <span className="mono w-16 text-right" style={{ color: total >= 0 ? 'var(--pos)' : 'var(--neg)', fontWeight: 700 }}>{pctSign(total)}</span>
+                <span className="mono w-14 text-right dim">incl. cash</span>
+              </div>
+            </>}
           </div>
         </div>
 
@@ -427,20 +455,10 @@ export function BacktestReport({ label, backHref = '/research/portfolios', backL
   const cons = [m.te_target != null ? `${isLS ? 'vol' : 'TE'} ${pct(m.te_target, 0)}` : null,
     `sector ${fmtSector(m.sector_tol)}`, `turnover ${fmtTurn(m.turnover_cap)}`, `λ${m.lambda_risk}`].filter(Boolean).join(' · ');
 
-  // L/S report-page headline in the collateral-credited convention (coherent with the annual table
-  // + distribution). NOTE: the browse-grid summary (m.ann_active / m.ir) still serves the old
-  // net-vs-cash convention until the backend summary is updated to store credited fields — that
-  // backend change (so grid and report agree) is the tracked follow-up.
-  const _annualize = (arr: (number | null)[]) => {
-    const a = arr.filter((v): v is number => v != null);
-    return a.length ? Math.pow(a.reduce((p, v) => p * (1 + v), 1), 12 / a.length) - 1 : null;
-  };
-  const annExcess = isLS ? _annualize(active) : (m.ann_active ?? null);               // credited excess over cash
-  const annTotal = isLS
-    ? _annualize(monthly.map((p) => (p.portfolio_net == null || p.benchmark == null)
-        ? null : p.portfolio_net + p.benchmark - COLLATERAL_HAIRCUT_ANN / 12))         // credited total (incl. cash)
-    : null;
-  const shownIR = (isLS && annExcess != null && m.realized_te) ? annExcess / m.realized_te : (m.ir ?? null);
+  // L/S headline in the collateral-credited convention. Computed once in the API (_add_credited) and
+  // served on the meta, so the browse grid and this report show the SAME numbers (single source).
+  const annTotal = isLS ? m.ann_total_credited : null;         // total return incl. cash on collateral
+  const shownIR = isLS ? m.ir_credited : (m.ir ?? null);       // IR on the credited excess over cash
 
   const annual = buildAnnualTable(monthly, isLS);
   const drawdowns = buildDrawdownTable(monthly, 5);

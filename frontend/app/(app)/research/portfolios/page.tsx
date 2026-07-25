@@ -22,10 +22,16 @@ type Tab = (typeof TABS)[number]['key'];
 // per-model colours for the compare overlay
 const CMP_COLORS = ['#0e7c6f', '#1d4ed8', '#c2410c', '#7c3aed', '#be185d', '#0e7490', '#4d7c0f'];
 
+// L/S rows are shown in the collateral-credited convention (matches the per-backtest report):
+// IR on the credited excess over cash, and the credited excess as the "active return". Long-only
+// keeps the stored net-vs-index numbers. The API serves the credited fields (single source).
+const dispIR = (r: PortfolioBacktest) => r.strategy === 'long_short' ? (r.ir_credited ?? r.ir) : r.ir;
+const dispAnn = (r: PortfolioBacktest) => r.strategy === 'long_short' ? (r.ann_credited ?? r.ann_active) : r.ann_active;
+
 // selectable scatter axes (model metrics at the standard config)
 const SCATTER_AXES = {
-  ann_active:   { label: 'Active return (ann.)', get: (r: PortfolioBacktest) => r.ann_active,   fmt: (v: number) => pctSign(v, 1) },
-  ir:           { label: 'Information ratio',    get: (r: PortfolioBacktest) => r.ir,            fmt: (v: number) => num(v) },
+  ann_active:   { label: 'Active return (ann.)', get: (r: PortfolioBacktest) => dispAnn(r),      fmt: (v: number) => pctSign(v, 1) },
+  ir:           { label: 'Information ratio',    get: (r: PortfolioBacktest) => dispIR(r),       fmt: (v: number) => num(v) },
   sharpe_net:   { label: 'Sharpe (net)',         get: (r: PortfolioBacktest) => r.sharpe_net,    fmt: (v: number) => num(v) },
   realized_te:  { label: 'Tracking error',       get: (r: PortfolioBacktest) => r.realized_te,   fmt: (v: number) => pct(v, 1) },
   max_drawdown: { label: 'Max drawdown',         get: (r: PortfolioBacktest) => r.max_drawdown,  fmt: (v: number) => pct(v, 0) },
@@ -122,7 +128,7 @@ function SweepExplorer({ rows, universe }: { rows: PortfolioBacktest[]; universe
             <div className="text-[10px] font-bold uppercase tracking-wider dim">Production pick</div>
             <div className="text-[15px] font-bold" style={{ color: 'var(--tx)' }}>{prod.signal_model_id} · {shortDesc(prod)}</div>
           </div>
-          {[['IR', num(prod.ir)], ['Realized TE', pct(prod.realized_te)], ['vs target', pct(prod.te_target)],
+          {[['IR', num(dispIR(prod))], ['Realized TE', pct(prod.realized_te)], ['vs target', pct(prod.te_target)],
             ['Sharpe', num(prod.sharpe_net)], ['Max DD', pct(prod.max_drawdown)], ['Optimal', pct(prod.opt_pct, 0)]].map(([l, v]) => (
             <div key={l}><div className="text-[9.5px] uppercase tracking-wider dim font-bold">{l}</div><div className="mono text-[15px]" style={{ color: 'var(--tx)' }}>{v}</div></div>
           ))}
@@ -162,7 +168,7 @@ function SweepExplorer({ rows, universe }: { rows: PortfolioBacktest[]; universe
             <div className="panel-head">Long-only vs Long-short</div>
             <div className="panel-sub mb-2">market-neutral alternative (R2500)</div>
             <div className="grid grid-cols-2 gap-3 mt-2">
-              {[['L/S Sharpe', num(ls.sharpe_net)], ['L/S IR', num(ls.ir)], ['L/S vol', pct(ls.realized_te)], ['L/S maxDD', pct(ls.max_drawdown)]].map(([l, v]) => (
+              {[['L/S Sharpe', num(ls.sharpe_net)], ['L/S IR', num(dispIR(ls))], ['L/S vol', pct(ls.realized_te)], ['L/S maxDD', pct(ls.max_drawdown)]].map(([l, v]) => (
                 <div key={l}><div className="text-[9.5px] uppercase tracking-wider dim font-bold">{l}</div><div className="mono text-[14px]" style={{ color: 'var(--tx)' }}>{v}</div></div>
               ))}
             </div>
@@ -193,7 +199,7 @@ const BROWSE_COLS: BrowseCol[] = [
   { key: 'sector_tol', label: 'Sec', kind: 'num', get: (r) => r.sector_tol ?? Infinity, cell: (r) => fmtSector(r.sector_tol) },
   { key: 'turnover_cap', label: 'TO', kind: 'num', get: (r) => r.turnover_cap ?? Infinity, cell: (r) => fmtTurn(r.turnover_cap) },
   { key: 'lambda_risk', label: 'λ', kind: 'num', get: (r) => r.lambda_risk ?? -Infinity, cell: (r) => <span className="dim">{r.lambda_risk ?? '—'}</span> },
-  { key: 'ir', label: 'IR', kind: 'num', get: (r) => r.ir ?? -Infinity, cell: (r) => <span style={{ color: (r.ir ?? 0) >= 0.5 ? 'var(--pos)' : 'var(--tx)' }}>{num(r.ir)}</span> },
+  { key: 'ir', label: 'IR', kind: 'num', get: (r) => dispIR(r) ?? -Infinity, cell: (r) => <span style={{ color: (dispIR(r) ?? 0) >= 0.5 ? 'var(--pos)' : 'var(--tx)' }}>{num(dispIR(r))}</span> },
   { key: 'sharpe_net', label: 'Sharpe', kind: 'num', get: (r) => r.sharpe_net ?? -Infinity, cell: (r) => num(r.sharpe_net) },
   { key: 'realized_te', label: 'real TE', kind: 'num', get: (r) => r.realized_te ?? Infinity, cell: (r) => pct(r.realized_te) },
   { key: 'max_drawdown', label: 'Max DD', kind: 'num', get: (r) => r.max_drawdown ?? -Infinity, cell: (r) => <span className="neg">{pct(r.max_drawdown, 0)}</span> },
@@ -303,9 +309,9 @@ function Compare({ rows, universe }: { rows: PortfolioBacktest[]; universe: stri
     return <div className="panel p-10 text-center muted text-sm">No shared configs available to compare models on this universe.</div>;
   }
 
-  const bestIR = Math.max(...modelRows.map((r) => r.ir ?? -9));
+  const bestIR = Math.max(...modelRows.map((r) => dispIR(r) ?? -9));
   const bestSharpe = Math.max(...modelRows.map((r) => r.sharpe_net ?? -9));
-  const bestAnn = Math.max(...modelRows.map((r) => r.ann_active ?? -9));
+  const bestAnn = Math.max(...modelRows.map((r) => dispAnn(r) ?? -9));
 
   const dates = series?.[0]?.monthly.map((p) => p.date) ?? [];
   const visSeries = (series ?? []).filter((s) => isVis(s.label));
@@ -377,9 +383,9 @@ function Compare({ rows, universe }: { rows: PortfolioBacktest[]; universe: stri
                       {r.is_production && <span className="pill pill-ok" style={{ fontSize: 8 }}>★</span>}
                     </span>
                   </td>
-                  <td style={{ color: (r.ir ?? -9) === bestIR ? 'var(--pos)' : 'var(--tx)', fontWeight: (r.ir ?? -9) === bestIR ? 700 : 400 }}>{num(r.ir)}</td>
+                  <td style={{ color: (dispIR(r) ?? -9) === bestIR ? 'var(--pos)' : 'var(--tx)', fontWeight: (dispIR(r) ?? -9) === bestIR ? 700 : 400 }}>{num(dispIR(r))}</td>
                   <td style={{ fontWeight: (r.sharpe_net ?? -9) === bestSharpe ? 700 : 400 }}>{num(r.sharpe_net)}</td>
-                  <td style={{ color: (r.ann_active ?? -9) === bestAnn ? 'var(--pos)' : 'var(--tx)' }}>{pctSign(r.ann_active)}</td>
+                  <td style={{ color: (dispAnn(r) ?? -9) === bestAnn ? 'var(--pos)' : 'var(--tx)' }}>{pctSign(dispAnn(r))}</td>
                   <td>{pct(r.realized_te)}</td>
                   <td className="neg">{pct(r.max_drawdown, 0)}</td>
                   <td className="dim">{pct(r.avg_turnover, 0)}</td>

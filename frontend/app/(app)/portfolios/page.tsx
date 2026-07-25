@@ -63,8 +63,8 @@ function ProductCard({ row }: { row: PortfolioBacktest }) {
       {/* in-sample headline */}
       <div className="text-[10px] font-bold tracking-wider mb-1" style={{ color: 'var(--tx-dim)' }}>IN-SAMPLE 2005–2023 (validated)</div>
       <div className="grid grid-cols-3 gap-2 mb-3">
-        <MiniStat label={isLS ? 'Ann Return' : 'Ann Active'} value={pctSign(row.ann_active)} color={(row.ann_active ?? 0) >= 0 ? 'var(--pos)' : 'var(--neg)'} />
-        <MiniStat label="Info Ratio" value={num(row.ir)} />
+        <MiniStat label={isLS ? 'Ann Return' : 'Ann Active'} value={pctSign(isLS ? row.ann_total_credited : row.ann_active)} color={((isLS ? row.ann_total_credited : row.ann_active) ?? 0) >= 0 ? 'var(--pos)' : 'var(--neg)'} />
+        <MiniStat label="Info Ratio" value={num(isLS ? row.ir_credited : row.ir)} />
         <MiniStat label="Max DD" value={pct(row.max_drawdown, 0)} color="var(--neg)" />
       </div>
 

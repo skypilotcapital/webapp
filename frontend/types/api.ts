@@ -373,6 +373,11 @@ export interface PortfolioBacktest {
   inacc_pct: number | null;
   held_pct: number | null;
   hit_rate: number | null;
+  // collateral-credited convention (L/S only; null for long-only) — single source for grid + report
+  avg_rf_ann: number | null;
+  ann_credited: number | null;          // excess over cash, credited (the alpha)
+  ann_total_credited: number | null;    // total return incl. cash on collateral
+  ir_credited: number | null;
 }
 
 export interface PortfolioMonthlyPoint {
@@ -465,6 +470,7 @@ export interface CostBridgeSummary {
   avg_eff_bps: number | null;
   avg_turnover: number | null;
   pct_gross_kept: number | null;
+  avg_rf_ann: number | null;     // avg RF on collateral, annualized (L/S waterfall → total return)
 }
 export interface CostBridgePoint {
   date: string;
