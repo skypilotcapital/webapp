@@ -38,9 +38,13 @@ export const slugForRow = (r: Pick<PortfolioBacktest, 'universe' | 'strategy'>) 
 
 export const productForSlug = (slug: string) => PRODUCTS.find((p) => p.slug === slug);
 
-// The modeled-paper "full" label = the _LOCKED_v2 finalist continued out-of-sample to
-// latest available (currently 2026-03), i.e. the same label with a `_full` segment.
-export const fullLabelOf = (prodLabel: string) => prodLabel.replace('_LOCKED_v2_', '_LOCKED_v2_full_');
+// The modeled-paper "full" label = the production finalist continued out-of-sample to
+// latest available, i.e. the same label with a `_full` segment. SP500 = the relative-cap
+// re-lock (LOCKED_relcap, 2026-07-26); R2500 L/S = LOCKED_v2.
+export const fullLabelOf = (prodLabel: string) =>
+  prodLabel.includes('_LOCKED_relcap_')
+    ? prodLabel.replace('_LOCKED_relcap_', '_LOCKED_relcap_full_')
+    : prodLabel.replace('_LOCKED_v2_', '_LOCKED_v2_full_');
 
 // In-sample / out-of-sample boundary for the modeled-paper track.
 export const INSAMPLE_END = '2023-12-31';
