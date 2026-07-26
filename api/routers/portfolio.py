@@ -304,7 +304,7 @@ def list_backtests(
         # re-lock (LOCKED_relcap + its _relcap grid, 2026-07-26). The spent-holdout `_full` books are
         # excluded here — they belong to the Portfolios tracking pages (fetched by label), not the
         # in-sample research browse. include_v1=true additionally shows the retired v1 twins.
-        conds.append(r"(m.model_label LIKE '%\_v2\_%' OR m.model_label LIKE '%\_relcap\_%') ESCAPE '\'")
+        conds.append(r"(m.model_label LIKE '%\_v2\_%' ESCAPE '\' OR m.model_label LIKE '%\_relcap\_%' ESCAPE '\')")
         conds.append(r"m.model_label NOT LIKE '%\_full%' ESCAPE '\'")
     if production:
         conds.append("m.is_production")
