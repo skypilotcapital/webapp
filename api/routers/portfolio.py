@@ -300,11 +300,11 @@ def list_backtests(
     if not include_legacy:
         conds.append("NOT m.is_legacy")
     if not include_v1:
-        # Default research surface = the v2 risk model (risk_model_v2, 2026-07) + the SP500 relative-cap
-        # re-lock (LOCKED_relcap + its _relcap grid, 2026-07-26). The spent-holdout `_full` books are
-        # excluded here — they belong to the Portfolios tracking pages (fetched by label), not the
-        # in-sample research browse. include_v1=true additionally shows the retired v1 twins.
-        conds.append(r"(m.model_label LIKE '%\_v2\_%' ESCAPE '\' OR m.model_label LIKE '%\_relcap\_%' ESCAPE '\')")
+        # Default research surface: SP500 = the relative-cap re-lock grid (_relcap, 2026-07-26); R2500 =
+        # the v2 risk-model grid (_v2). The old SP500 5%-cap grid (_v2_) is superseded — browsable via
+        # include_v1=true alongside the retired v1 twins. Spent-holdout `_full` books are excluded here
+        # (they belong to the Portfolios tracking pages, fetched by label).
+        conds.append(r"(m.model_label LIKE '%\_relcap\_%' ESCAPE '\' OR (m.model_label LIKE '%\_v2\_%' ESCAPE '\' AND m.universe <> 'sp500'))")
         conds.append(r"m.model_label NOT LIKE '%\_full%' ESCAPE '\'")
     if production:
         conds.append("m.is_production")
