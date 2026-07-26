@@ -483,6 +483,28 @@ export interface CostAttribution {
   monthly: CostBridgePoint[];
 }
 
+// L/S contribution-by-source: raw legs (long/short/collateral) + beta-adjusted selection. `cost` is a
+// positive drag (subtract it). Both the raw legs and the selection split reconcile to credited_tot.
+export interface SourceAttrPoint {
+  date: string;
+  long_leg: number | null; short_leg: number | null;
+  long_sel: number | null; short_sel: number | null; market: number | null;
+  collateral: number | null; cost: number | null;
+  gross_long: number | null; gross_short: number | null;
+  credited_tot: number | null;
+}
+export interface SourceAttrSummary {
+  n_months: number;
+  long_leg: number | null; short_leg: number | null;
+  long_sel: number | null; short_sel: number | null; market: number | null;
+  collateral: number | null; cost: number | null; credited_tot: number | null;
+  gross_long_avg: number | null; gross_short_avg: number | null;
+}
+export interface SourceAttribution {
+  summary: SourceAttrSummary;
+  monthly: SourceAttrPoint[];
+}
+
 // F2 — long-short neutrality (net dollar & net beta over time).
 export interface NeutralityPoint { date: string; net_dollar: number | null; net_beta: number | null; }
 export interface NeutralitySummary {

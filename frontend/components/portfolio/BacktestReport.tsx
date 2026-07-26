@@ -6,7 +6,7 @@ import useSWR from 'swr';
 import {
   fetchPortfolioDetail, fetchPortfolioHoldings, fetchPortfolioSectorAllocation,
   fetchPortfolioAttribution, fetchPortfolioAttributionTimeseries, fetchPortfolioCostAttribution,
-  fetchPortfolioNeutrality, fetchPortfolioCreditedReturn,
+  fetchPortfolioNeutrality, fetchPortfolioCreditedReturn, fetchPortfolioSourceAttribution,
 } from '@/lib/api';
 import {
   pct, pctSign, num, fmtSector, fmtTurn,
@@ -14,7 +14,7 @@ import {
   COLLATERAL_HAIRCUT_ANN,
 } from '@/lib/portfolio';
 import { CumulativeChart, DrawdownChart, MultiLineChart, Histogram, HBarChart } from '@/components/portfolio/charts';
-import type { PortfolioHolding } from '@/types/api';
+import type { PortfolioHolding, SourceAttrPoint } from '@/types/api';
 
 const STYLE_ORDER = ['beta', 'size', 'resid_vol', 'momentum', 'value', 'earnings_yield', 'growth',
   'profitability', 'earnings_qual', 'leverage', 'liquidity', 'dividend_yield'];
@@ -429,6 +429,97 @@ function NeutralitySection({ label }: { label: string }) {
   );
 }
 
+// ------------------------------------------------------------ contribution by SOURCE (L/S: long / short / collateral)
+function SourceAttributionSection({ label }: { label: string }) {
+  const { data, error } = useSWR(['pf-src', label], () => fetchPortfolioSourceAttribution(label), { revalidateOnFocus: false });
+  if (error) return null;                                   // long-only / not computed → hide the section
+  if (!data) return <div className="panel p-6 muted text-sm mt-5">Loading source attribution…</div>;
+  const s = data.summary, mo = data.monthly;
+  const dates = mo.map((p) => p.date);
+  const cum = (f: (p: SourceAttrPoint) => number | null) => {
+    let c = 0; return mo.map((p) => (c += (f(p) ?? 0)));
+  };
+  const rawBars = [
+    { label: 'Long book', value: s.long_leg ?? 0 },
+    { label: 'Short book', value: s.short_leg ?? 0 },
+    { label: 'Collateral', value: s.collateral ?? 0 },
+    { label: '− Costs', value: -(s.cost ?? 0) },
+  ];
+  const selBars = [
+    { label: 'Long selection', value: s.long_sel ?? 0 },
+    { label: 'Short selection', value: s.short_sel ?? 0 },
+    { label: 'Market / beta', value: s.market ?? 0 },
+    { label: 'Collateral', value: s.collateral ?? 0 },
+    { label: '− Costs', value: -(s.cost ?? 0) },
+  ];
+  const rawCum = [
+    { label: 'Long', color: 'var(--pos)', values: cum((p) => p.long_leg) },
+    { label: 'Short', color: 'var(--neg)', values: cum((p) => p.short_leg) },
+    { label: 'Collateral', color: 'var(--cyan)', values: cum((p) => p.collateral) },
+    { label: '− Cost', color: 'var(--amber)', values: cum((p) => -(p.cost ?? 0)) },
+    { label: 'Total', color: 'var(--tx)', values: cum((p) => p.credited_tot) },
+  ];
+  const selCum = [
+    { label: 'Long sel', color: 'var(--pos)', values: cum((p) => p.long_sel) },
+    { label: 'Short sel', color: 'var(--teal)', values: cum((p) => p.short_sel) },
+    { label: 'Market', color: 'var(--bench)', values: cum((p) => p.market) },
+    { label: 'Collateral', color: 'var(--cyan)', values: cum((p) => p.collateral) },
+    { label: '− Cost', color: 'var(--amber)', values: cum((p) => -(p.cost ?? 0)) },
+    { label: 'Total', color: 'var(--tx)', values: cum((p) => p.credited_tot) },
+  ];
+  const wSeries = [
+    { label: 'Long gross', color: 'var(--pos)', values: mo.map((p) => p.gross_long) },
+    { label: 'Short gross', color: 'var(--neg)', values: mo.map((p) => p.gross_short) },
+  ];
+  const legend = (series: { label: string; color: string }[]) => (
+    <div className="flex gap-3 text-[10px] muted mb-1 flex-wrap">
+      {series.map((x) => <span key={x.label}><span style={{ color: x.color }}>■</span> {x.label}</span>)}
+    </div>
+  );
+  return (
+    <div className="mt-5">
+      <div className="flex items-center gap-3 flex-wrap mb-2">
+        <h2 className="text-base font-bold tracking-tight" style={{ color: 'var(--tx)' }}>Return by Source</h2>
+        <span className="text-[11px] muted">where the total return comes from — the long book, the short book, and cash collateral</span>
+      </div>
+      <div className="takeaway mb-3 text-[12px]">
+        Total <b>{pctSign(s.credited_tot)}/yr</b> = long {pctSign(s.long_leg)} + short {pctSign(s.short_leg)} + collateral {pctSign(s.collateral)} − costs {pct(s.cost, 2)}.
+        {' '}The raw short leg looks like a drag, but that is <b>market beta</b>: beta-adjusted, the short book&rsquo;s <b>selection is {pctSign(s.short_sel)}/yr</b> vs the long&rsquo;s {pctSign(s.long_sel)} — the short book is the stronger stock-picker.
+      </div>
+      <div className="grid grid-cols-1 xl:grid-cols-2 gap-4">
+        <div className="panel p-4">
+          <div className="panel-head">Contribution by Source <span className="muted" style={{ fontWeight: 400 }}>· raw legs, annualized</span></div>
+          <div className="panel-sub mb-2">long / short leg P&amp;L + collateral − costs = total · long &amp; short reflect market beta, not just selection</div>
+          <HBarChart bars={rawBars} valFmt={(v) => pctSign(v, 2)} />
+        </div>
+        <div className="panel p-4">
+          <div className="panel-head">Beta-adjusted <span className="muted" style={{ fontWeight: 400 }}>· stock selection, annualized</span></div>
+          <div className="panel-sub mb-2">each leg vs the equal-weight R2500 universe · the true alpha sources (market ≈ 0, dollar-neutral)</div>
+          <HBarChart bars={selBars} valFmt={(v) => pctSign(v, 2)} />
+        </div>
+      </div>
+      <div className="grid grid-cols-1 xl:grid-cols-2 gap-4 mt-4">
+        <div className="panel p-4">
+          <div className="panel-head">Cumulative by Source <span className="muted" style={{ fontWeight: 400 }}>· raw legs</span></div>
+          {legend(rawCum)}
+          <MultiLineChart dates={dates} series={rawCum} refY={0} refLabel="0" yFmt={(v) => pct(v, 0)} height={210} />
+        </div>
+        <div className="panel p-4">
+          <div className="panel-head">Cumulative by Source <span className="muted" style={{ fontWeight: 400 }}>· beta-adjusted</span></div>
+          {legend(selCum)}
+          <MultiLineChart dates={dates} series={selCum} refY={0} refLabel="0" yFmt={(v) => pct(v, 0)} height={210} />
+        </div>
+      </div>
+      <div className="panel p-4 mt-4">
+        <div className="panel-head">Gross Exposure per Side <span className="muted" style={{ fontWeight: 400 }}>· long vs short weight, monthly</span></div>
+        <div className="panel-sub mb-1">dollar-neutral (long ≈ −short); the level is vol-targeted — note the de-grossing as book vol rose</div>
+        {legend(wSeries)}
+        <MultiLineChart dates={dates} series={wSeries} refY={0} refLabel="0" yFmt={(v) => pct(v, 0)} height={190} />
+      </div>
+    </div>
+  );
+}
+
 export function BacktestReport({ label, backHref = '/research/portfolios', backLabel = '← Back to Portfolios',
   periodLabel = 'Out-of-sample 2005–2023', boundaryDate, topSlot }:
   { label: string; backHref?: string; backLabel?: string; periodLabel?: string; boundaryDate?: string; topSlot?: React.ReactNode }) {
@@ -565,6 +656,7 @@ export function BacktestReport({ label, backHref = '/research/portfolios', backL
       {/* L/S only: collateral-credited investor return (T9) + market-neutrality (F2) */}
       {isLS && <CreditedSection label={label} />}
       {isLS && <NeutralitySection label={label} />}
+      {isLS && <SourceAttributionSection label={label} />}
 
       {/* annual returns table */}
       <div className="panel p-4 mt-4">

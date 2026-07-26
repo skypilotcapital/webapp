@@ -30,6 +30,7 @@ import type {
   PortfolioAttribution,
   AttrCumPoint,
   CostAttribution,
+  SourceAttribution,
   PortfolioNeutrality,
   PortfolioCreditedReturn,
 } from '@/types/api';
@@ -146,6 +147,9 @@ export const fetchPortfolioAttributionTimeseries = (label: string) =>
 export const fetchPortfolioCostAttribution = (label: string, aum = 5) =>
   apiFetch<CostAttribution>(
     `/api/v1/portfolio/backtests/${encodeURIComponent(label)}/cost-attribution?aum=${aum}`);
+export const fetchPortfolioSourceAttribution = (label: string) =>
+  apiFetch<SourceAttribution>(
+    `/api/v1/portfolio/backtests/${encodeURIComponent(label)}/source-attribution`);
 export const fetchPortfolioNeutrality = (label: string) =>
   apiFetch<PortfolioNeutrality>(
     `/api/v1/portfolio/backtests/${encodeURIComponent(label)}/neutrality`);
