@@ -224,6 +224,30 @@ class CostAttributionResponse(BaseModel):
     monthly: List[CostBridgePoint]
 
 
+# --- L/S contribution-by-source (long/short/collateral, raw + beta-adjusted selection) ------
+class SourceAttrPoint(BaseModel):
+    date: str
+    long_leg: Optional[float]; short_leg: Optional[float]        # RAW legs (beta-dominated)
+    long_sel: Optional[float]; short_sel: Optional[float]; market: Optional[float]  # SELECTION view
+    collateral: Optional[float]; cost: Optional[float]           # shared
+    gross_long: Optional[float]; gross_short: Optional[float]    # exposure per side
+    credited_tot: Optional[float]
+
+
+class SourceAttrSummary(BaseModel):
+    n_months: int
+    # full-period annualized %/yr contributions; raw legs + selection both reconcile to credited_tot
+    long_leg: Optional[float]; short_leg: Optional[float]
+    long_sel: Optional[float]; short_sel: Optional[float]; market: Optional[float]
+    collateral: Optional[float]; cost: Optional[float]; credited_tot: Optional[float]
+    gross_long_avg: Optional[float]; gross_short_avg: Optional[float]
+
+
+class SourceAttributionResponse(BaseModel):
+    summary: SourceAttrSummary
+    monthly: List[SourceAttrPoint]
+
+
 # --- F2: long-short neutrality (dollar & beta over time) ---------------------
 class NeutralityPoint(BaseModel):
     date: str
@@ -588,6 +612,36 @@ def get_cost_attribution(label: str, aum: float = Query(5.0, description="fund s
             date=d["date"].isoformat() if hasattr(d["date"], "isoformat") else str(d["date"]),
             cum_gross=round(cum_g, 5), cum_net=round(cum_n, 5), cum_cost=round(cum_c, 5)))
     return CostAttributionResponse(summary=CostBridgeSummary(**_clean(s)), monthly=monthly)
+
+
+@router.get("/backtests/{label}/source-attribution", response_model=SourceAttributionResponse)
+def get_source_attribution(label: str):
+    """L/S contribution-by-source: RAW legs (long / short / collateral / −cost) AND beta-adjusted
+    SELECTION (long-sel / short-sel / market / collateral / −cost), monthly + full-period annualized —
+    both views reconcile to the credited total return. `cost` is a positive drag (subtract it).
+    Reads portfolio.source_attribution; 404 for labels without it (long-only books)."""
+    keys = ("long_leg", "short_leg", "long_sel", "short_sel", "market", "collateral", "cost",
+            "gross_long", "gross_short", "credited_tot")
+    with get_db() as conn:
+        rows = conn.execute(text(f"""
+            SELECT date, {', '.join(keys)} FROM portfolio.source_attribution
+            WHERE model_label = :l ORDER BY date
+        """), {"l": label}).fetchall()  # noqa: S608 — keys are a fixed literal tuple
+    if not rows:
+        raise HTTPException(status_code=404, detail=f"No source attribution for '{label}'.")
+    dicts = [dict(r._mapping) for r in rows]
+    monthly = [SourceAttrPoint(
+        date=(d["date"].isoformat() if hasattr(d["date"], "isoformat") else str(d["date"])),
+        **{k: _v(d[k]) for k in keys}) for d in dicts]
+    n = len(dicts)
+    def ann(k): return round(sum((_v(d[k]) or 0.0) for d in dicts) / n * 12, 5)
+    def avg(k): return round(sum((_v(d[k]) or 0.0) for d in dicts) / n, 5)
+    summary = SourceAttrSummary(
+        n_months=n, long_leg=ann("long_leg"), short_leg=ann("short_leg"),
+        long_sel=ann("long_sel"), short_sel=ann("short_sel"), market=ann("market"),
+        collateral=ann("collateral"), cost=ann("cost"), credited_tot=ann("credited_tot"),
+        gross_long_avg=avg("gross_long"), gross_short_avg=avg("gross_short"))
+    return SourceAttributionResponse(summary=summary, monthly=monthly)
 
 
 @router.get("/backtests/{label}/attribution/timeseries", response_model=List[AttrCumPoint])
