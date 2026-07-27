@@ -152,6 +152,60 @@ export function MultiLineChart({ dates, series, height = 190, refY = 0, refLabel
   );
 }
 
+/** Stacked area with ALGEBRAIC cumulative stacking (handles mixed signs — a band can dip below 0).
+ *  The bold top line = the running total (the sum of all series). Series values may contain nulls
+ *  only via `?? 0`; pass a already-trimmed (leading-null-free) window for a clean start. */
+export function StackedAreaChart({ dates, series, height = 220, refY = 0, refLabel, yFmt }: {
+  dates: string[]; series: LineSeries[]; height?: number; refY?: number; refLabel?: string; yFmt: (v: number) => string;
+}) {
+  const W = 900, PL = 48, PR = 16, PT = 12, PB = 24;
+  const cw = W - PL - PR, ch = height - PT - PB;
+  const n = dates.length;
+  if (n < 2 || !series.length) return <div className="text-[11px] dim py-8 text-center">not enough data yet</div>;
+  const bands: { color: string; lower: number[]; upper: number[] }[] = [];
+  let prev = new Array(n).fill(0) as number[];
+  series.forEach((s) => {
+    const upper = prev.map((b, i) => b + (s.values[i] ?? 0));
+    bands.push({ color: s.color, lower: prev, upper });
+    prev = upper;
+  });
+  const total = prev;
+  const edges = [...bands.flatMap((b) => [...b.lower, ...b.upper]), refY];
+  let mn = Math.min(...edges), mx = Math.max(...edges);
+  if (mn === mx) { mn -= 1; mx += 1; }
+  const pad = (mx - mn) * 0.08; mn -= pad; mx += pad;
+  const xAt = (i: number) => PL + (i / (n - 1)) * cw;
+  const yAt = (v: number) => PT + ch - ((v - mn) / (mx - mn)) * ch;
+  const areaOf = (lo: number[], up: number[]) => {
+    let d = '';
+    up.forEach((v, i) => { d += `${i ? 'L' : 'M'}${xAt(i).toFixed(1)} ${yAt(v).toFixed(1)} `; });
+    for (let i = n - 1; i >= 0; i--) d += `L${xAt(i).toFixed(1)} ${yAt(lo[i]).toFixed(1)} `;
+    return d + 'Z';
+  };
+  const lineOf = (vals: number[]) => vals.map((v, i) => `${i ? 'L' : 'M'}${xAt(i).toFixed(1)} ${yAt(v).toFixed(1)}`).join(' ');
+  const ticks = Array.from({ length: 5 }, (_, i) => mn + (i / 4) * (mx - mn));
+  const years: { i: number; y: string }[] = []; let last = '';
+  dates.forEach((d, i) => { const y = d.slice(0, 4); if (y !== last && +y % 3 === 0) { years.push({ i, y }); last = y; } });
+  const refPix = yAt(refY);
+  return (
+    <svg viewBox={`0 0 ${W} ${height}`} className="w-full h-auto">
+      {ticks.map((v, i) => (
+        <g key={i}>
+          <line x1={PL} y1={yAt(v)} x2={W - PR} y2={yAt(v)} stroke="var(--border-soft)" strokeWidth="1" />
+          <text x={PL - 6} y={yAt(v) + 3} textAnchor="end" fontSize="9" fill="var(--tx-dim)">{yFmt(v)}</text>
+        </g>
+      ))}
+      {bands.map((b, i) => <path key={i} d={areaOf(b.lower, b.upper)} fill={b.color} fillOpacity="0.5" stroke="none" />)}
+      {refY >= mn && refY <= mx && (
+        <line x1={PL} y1={refPix} x2={W - PR} y2={refPix} stroke="var(--tx-mut)" strokeWidth="1.1" strokeDasharray="4 3" />
+      )}
+      <path d={lineOf(total)} fill="none" stroke="var(--tx)" strokeWidth="1.6" strokeLinejoin="round" />
+      {refLabel && refY >= mn && refY <= mx && <text x={W - PR - 2} y={refPix - 3} textAnchor="end" fontSize="8.5" fill="var(--tx-mut)">{refLabel}</text>}
+      {years.map(({ i, y }) => <text key={y} x={xAt(i)} y={height - 6} textAnchor="middle" fontSize="9" fill="var(--tx-dim)">{y}</text>)}
+    </svg>
+  );
+}
+
 interface ScatterPoint { label: string; color: string; x: number; y: number; highlight?: boolean; }
 
 /** Metric-vs-metric scatter: one labelled dot per model. */

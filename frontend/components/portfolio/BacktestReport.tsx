@@ -13,7 +13,7 @@ import {
   buildAnnualTable, buildDrawdownTable, captureRatios, activeStats, histogram, rollingIR, rollingVol,
   COLLATERAL_HAIRCUT_ANN,
 } from '@/lib/portfolio';
-import { CumulativeChart, DrawdownChart, MultiLineChart, Histogram, HBarChart } from '@/components/portfolio/charts';
+import { CumulativeChart, DrawdownChart, MultiLineChart, Histogram, HBarChart, StackedAreaChart } from '@/components/portfolio/charts';
 import type { PortfolioHolding, SourceAttrPoint } from '@/types/api';
 
 const STYLE_ORDER = ['beta', 'size', 'resid_vol', 'momentum', 'value', 'earnings_yield', 'growth',
@@ -468,6 +468,13 @@ function SourceAttributionSection({ label }: { label: string }) {
     { label: '− Cost', color: 'var(--amber)', values: roll12((p) => -(p.cost ?? 0)) },
     { label: 'Total', color: 'var(--tx)', values: roll12((p) => p.credited_tot) },
   ];
+  // stacked beta-adjusted alpha sources (collateral base → long-sel → short-sel); top of the stack ≈ gross return.
+  // slice(11) drops the leading incomplete 12m windows so the stack starts clean (roll12 is null there).
+  const stackSel = [
+    { label: 'Collateral', color: 'var(--cyan)', values: roll12((p) => p.collateral).slice(11) },
+    { label: 'Long selection', color: 'var(--pos)', values: roll12((p) => p.long_sel).slice(11) },
+    { label: 'Short selection', color: 'var(--teal)', values: roll12((p) => p.short_sel).slice(11) },
+  ];
   const wSeries = [
     { label: 'Long gross', color: 'var(--pos)', values: mo.map((p) => p.gross_long) },
     { label: 'Short gross', color: 'var(--neg)', values: mo.map((p) => p.gross_short) },
@@ -512,6 +519,17 @@ function SourceAttributionSection({ label }: { label: string }) {
           {legend(selRoll)}
           <MultiLineChart dates={dates} series={selRoll} refY={0} refLabel="0" yFmt={(v) => pct(v, 0)} height={210} />
         </div>
+      </div>
+      <div className="panel p-4 mt-4">
+        <div className="panel-head">Gross Return Composition <span className="muted" style={{ fontWeight: 400 }}>· beta-adjusted, stacked · rolling 12-month</span></div>
+        <div className="panel-sub mb-1">the three alpha sources stacked — collateral + long-selection + short-selection ≈ gross return (market ≈ 0 omitted); the top line is their sum · short-selection dips below zero in the 2025 junk rally</div>
+        <div className="flex gap-3 text-[10px] muted mb-1 flex-wrap">
+          <span><span style={{ color: 'var(--cyan)' }}>■</span> Collateral</span>
+          <span><span style={{ color: 'var(--pos)' }}>■</span> Long selection</span>
+          <span><span style={{ color: 'var(--teal)' }}>■</span> Short selection</span>
+          <span><span style={{ color: 'var(--tx)' }}>▬</span> ≈ Gross return (sum)</span>
+        </div>
+        <StackedAreaChart dates={dates.slice(11)} series={stackSel} refY={0} refLabel="0" yFmt={(v) => pct(v, 0)} height={240} />
       </div>
       <div className="panel p-4 mt-4">
         <div className="panel-head">Gross Exposure per Side <span className="muted" style={{ fontWeight: 400 }}>· long vs short weight, monthly</span></div>
