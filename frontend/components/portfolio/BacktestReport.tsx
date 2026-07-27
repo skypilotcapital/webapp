@@ -436,8 +436,9 @@ function SourceAttributionSection({ label }: { label: string }) {
   if (!data) return <div className="panel p-6 muted text-sm mt-5">Loading source attribution…</div>;
   const s = data.summary, mo = data.monthly;
   const dates = mo.map((p) => p.date);
-  const cum = (f: (p: SourceAttrPoint) => number | null) => {
-    let c = 0; return mo.map((p) => (c += (f(p) ?? 0)));
+  const roll12 = (f: (p: SourceAttrPoint) => number | null) => {   // trailing-12-month sum (null until month 12)
+    const v = mo.map((p) => f(p) ?? 0);
+    return v.map((_, i) => (i < 11 ? null : v.slice(i - 11, i + 1).reduce((a, b) => a + b, 0)));
   };
   const rawBars = [
     { label: 'Long book', value: s.long_leg ?? 0 },
@@ -452,20 +453,20 @@ function SourceAttributionSection({ label }: { label: string }) {
     { label: 'Collateral', value: s.collateral ?? 0 },
     { label: '− Costs', value: -(s.cost ?? 0) },
   ];
-  const rawCum = [
-    { label: 'Long', color: 'var(--pos)', values: cum((p) => p.long_leg) },
-    { label: 'Short', color: 'var(--neg)', values: cum((p) => p.short_leg) },
-    { label: 'Collateral', color: 'var(--cyan)', values: cum((p) => p.collateral) },
-    { label: '− Cost', color: 'var(--amber)', values: cum((p) => -(p.cost ?? 0)) },
-    { label: 'Total', color: 'var(--tx)', values: cum((p) => p.credited_tot) },
+  const rawRoll = [
+    { label: 'Long', color: 'var(--pos)', values: roll12((p) => p.long_leg) },
+    { label: 'Short', color: 'var(--neg)', values: roll12((p) => p.short_leg) },
+    { label: 'Collateral', color: 'var(--cyan)', values: roll12((p) => p.collateral) },
+    { label: '− Cost', color: 'var(--amber)', values: roll12((p) => -(p.cost ?? 0)) },
+    { label: 'Total', color: 'var(--tx)', values: roll12((p) => p.credited_tot) },
   ];
-  const selCum = [
-    { label: 'Long sel', color: 'var(--pos)', values: cum((p) => p.long_sel) },
-    { label: 'Short sel', color: 'var(--teal)', values: cum((p) => p.short_sel) },
-    { label: 'Market', color: 'var(--bench)', values: cum((p) => p.market) },
-    { label: 'Collateral', color: 'var(--cyan)', values: cum((p) => p.collateral) },
-    { label: '− Cost', color: 'var(--amber)', values: cum((p) => -(p.cost ?? 0)) },
-    { label: 'Total', color: 'var(--tx)', values: cum((p) => p.credited_tot) },
+  const selRoll = [
+    { label: 'Long sel', color: 'var(--pos)', values: roll12((p) => p.long_sel) },
+    { label: 'Short sel', color: 'var(--teal)', values: roll12((p) => p.short_sel) },
+    { label: 'Market', color: 'var(--bench)', values: roll12((p) => p.market) },
+    { label: 'Collateral', color: 'var(--cyan)', values: roll12((p) => p.collateral) },
+    { label: '− Cost', color: 'var(--amber)', values: roll12((p) => -(p.cost ?? 0)) },
+    { label: 'Total', color: 'var(--tx)', values: roll12((p) => p.credited_tot) },
   ];
   const wSeries = [
     { label: 'Long gross', color: 'var(--pos)', values: mo.map((p) => p.gross_long) },
@@ -500,14 +501,16 @@ function SourceAttributionSection({ label }: { label: string }) {
       </div>
       <div className="grid grid-cols-1 xl:grid-cols-2 gap-4 mt-4">
         <div className="panel p-4">
-          <div className="panel-head">Cumulative by Source <span className="muted" style={{ fontWeight: 400 }}>· raw legs</span></div>
-          {legend(rawCum)}
-          <MultiLineChart dates={dates} series={rawCum} refY={0} refLabel="0" yFmt={(v) => pct(v, 0)} height={210} />
+          <div className="panel-head">Rolling 12-Month Contribution <span className="muted" style={{ fontWeight: 400 }}>· raw legs</span></div>
+          <div className="panel-sub mb-1">trailing-12-month sum of each source · how the mix shifts through time</div>
+          {legend(rawRoll)}
+          <MultiLineChart dates={dates} series={rawRoll} refY={0} refLabel="0" yFmt={(v) => pct(v, 0)} height={210} />
         </div>
         <div className="panel p-4">
-          <div className="panel-head">Cumulative by Source <span className="muted" style={{ fontWeight: 400 }}>· beta-adjusted</span></div>
-          {legend(selCum)}
-          <MultiLineChart dates={dates} series={selCum} refY={0} refLabel="0" yFmt={(v) => pct(v, 0)} height={210} />
+          <div className="panel-head">Rolling 12-Month Contribution <span className="muted" style={{ fontWeight: 400 }}>· beta-adjusted</span></div>
+          <div className="panel-sub mb-1">trailing-12-month sum · long-selection vs short-selection over time</div>
+          {legend(selRoll)}
+          <MultiLineChart dates={dates} series={selRoll} refY={0} refLabel="0" yFmt={(v) => pct(v, 0)} height={210} />
         </div>
       </div>
       <div className="panel p-4 mt-4">
