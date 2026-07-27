@@ -473,7 +473,7 @@ function SourceAttributionSection({ label }: { label: string }) {
   const stackSel = [
     { label: 'Collateral', color: 'var(--cyan)', values: roll12((p) => p.collateral).slice(11) },
     { label: 'Long selection', color: 'var(--pos)', values: roll12((p) => p.long_sel).slice(11) },
-    { label: 'Short selection', color: 'var(--teal)', values: roll12((p) => p.short_sel).slice(11) },
+    { label: 'Short selection', color: 'var(--amber)', values: roll12((p) => p.short_sel).slice(11) },
   ];
   const wSeries = [
     { label: 'Long gross', color: 'var(--pos)', values: mo.map((p) => p.gross_long) },
@@ -526,7 +526,7 @@ function SourceAttributionSection({ label }: { label: string }) {
         <div className="flex gap-3 text-[10px] muted mb-1 flex-wrap">
           <span><span style={{ color: 'var(--cyan)' }}>■</span> Collateral</span>
           <span><span style={{ color: 'var(--pos)' }}>■</span> Long selection</span>
-          <span><span style={{ color: 'var(--teal)' }}>■</span> Short selection</span>
+          <span><span style={{ color: 'var(--amber)' }}>■</span> Short selection</span>
           <span><span style={{ color: 'var(--tx)' }}>▬</span> ≈ Gross return (sum)</span>
         </div>
         <StackedAreaChart dates={dates.slice(11)} series={stackSel} refY={0} refLabel="0" yFmt={(v) => pct(v, 0)} height={240} />
