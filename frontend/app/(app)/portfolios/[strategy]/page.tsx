@@ -26,7 +26,7 @@ export default function StrategyPage() {
       label={fullLabel}
       backHref="/portfolios"
       backLabel="← All portfolios"
-      periodLabel="In-sample 2005–2023 · live to 2026-03"
+      periodLabel="In-sample 2005–2023"
       boundaryDate={INSAMPLE_END}
       topSlot={<TrackSelector product={product} />}
     />

@@ -38,21 +38,28 @@ export function FrontierChart({ points, height = 96 }: { points: FrontierPoint[]
 interface Series { label: string; color: string; values: (number | null)[]; dash?: boolean; }
 
 /** Cumulative (base 100) multi-line chart with year ticks + legend. Optional in-sample/OOS boundary marker. */
-export function CumulativeChart({ dates, series, height = 240, boundaryDate }: { dates: string[]; series: Series[]; height?: number; boundaryDate?: string }) {
+export function CumulativeChart({ dates, series, height = 240, boundaryDate, log = false }: { dates: string[]; series: Series[]; height?: number; boundaryDate?: string; log?: boolean }) {
   const W = 900, PL = 46, PR = 14, PT = 10, PB = 26;
   const cw = W - PL - PR, ch = height - PT - PB;
   const all = series.flatMap((s) => s.values).filter((v): v is number => v != null);
   if (!all.length || dates.length < 2) return <div className="text-[11px] dim py-8 text-center">no series</div>;
-  const mn = Math.min(...all) * 0.97, mx = Math.max(...all) * 1.03;
+  // log scale (values are always > 0 — growth of 100): scale + ticks live in log10 space, labels stay in level units
+  const useLog = log && all.every((v) => v > 0);
+  const T = useLog ? Math.log10 : (x: number) => x;
+  const rawMn = Math.min(...all), rawMx = Math.max(...all);
+  const tSpan = (T(rawMx) - T(rawMn)) || 1;
+  const mn = useLog ? T(rawMn) - tSpan * 0.03 : rawMn * 0.97;
+  const mx = useLog ? T(rawMx) + tSpan * 0.03 : rawMx * 1.03;
   const xAt = (i: number) => PL + (i / (dates.length - 1)) * cw;
-  const yAt = (v: number) => PT + ch - ((v - mn) / (mx - mn || 1)) * ch;
+  const yAt = (v: number) => PT + ch - ((T(v) - mn) / (mx - mn || 1)) * ch;
   const bIdx = boundaryDate ? dates.findIndex((d) => d >= boundaryDate) : -1;
   const pathOf = (vals: (number | null)[]) => {
     let d = '', pen = true;
     vals.forEach((v, i) => { if (v == null) { pen = true; return; } d += `${pen ? 'M' : 'L'}${xAt(i).toFixed(1)} ${yAt(v).toFixed(1)} `; pen = false; });
     return d;
   };
-  const ticks = Array.from({ length: 6 }, (_, i) => mn + (i / 5) * (mx - mn));
+  // tick VALUES in level units (so labels read "100, 150, …"); positioned via yAt through the log transform
+  const ticks = Array.from({ length: 6 }, (_, i) => { const t = mn + (i / 5) * (mx - mn); return useLog ? Math.pow(10, t) : t; });
   const years: { i: number; y: string }[] = [];
   let last = '';
   dates.forEach((d, i) => { const y = d.slice(0, 4); if (y !== last && +y % 3 === 0) { years.push({ i, y }); last = y; } });

@@ -363,18 +363,27 @@ def get_backtest(label: str):
         if meta is None:
             raise HTTPException(status_code=404, detail=f"Backtest '{label}' not found in registry.")
         rows = conn.execute(text("""
-            SELECT date, portfolio_net, benchmark, turnover, tc_cost, n_stocks, optimizer_status
+            SELECT date, portfolio_net, portfolio_net_rc, benchmark, turnover, tc_cost, n_stocks, optimizer_status
             FROM portfolio.returns
             WHERE model_label = :label AND portfolio_net IS NOT NULL AND benchmark IS NOT NULL
             ORDER BY date
         """), {"label": label}).fetchall()
 
+    # Growth-of-100 basis. Long-only: net-active vs the (equity) benchmark. Long-short: the collateral-
+    # credited TOTAL return (realistic-cost net spread + RF earned on collateral − haircut), so the curve,
+    # its drawdown, and the +7.2% headline all share ONE basis; the benchmark line is the cash (RF) growth.
+    is_ls = dict(meta._mapping).get("strategy") == "long_short"
+    hc_m = CREDIT_HAIRCUT_ANN / 12.0
     monthly, cum_p, cum_b, peak = [], 100.0, 100.0, 100.0
     for r in rows:
         d = dict(r._mapping)
         pn, bm = _v(d["portfolio_net"]), _v(d["benchmark"])
-        if pn is not None:
-            cum_p *= (1 + pn)
+        rc = _v(d.get("portfolio_net_rc"))
+        if rc is None:
+            rc = pn
+        port_ret = (rc + bm - hc_m) if (is_ls and rc is not None and bm is not None) else pn
+        if port_ret is not None:
+            cum_p *= (1 + port_ret)
         if bm is not None:
             cum_b *= (1 + bm)
         peak = max(peak, cum_p)

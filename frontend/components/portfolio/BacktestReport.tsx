@@ -574,6 +574,9 @@ export function BacktestReport({ label, backHref = '/research/portfolios', backL
 
   const annual = buildAnnualTable(monthly, isLS);
   const drawdowns = buildDrawdownTable(monthly, 5);
+  // Max-DD KPI reads the SAME (credited-total for L/S) monthly drawdown the chart plots, so card = chart.
+  const chartMaxDD = monthly.length ? Math.min(0, ...monthly.map((p) => p.drawdown ?? 0)) : (m.max_drawdown ?? null);
+  const liveTo = boundaryDate && dates.length ? dates[dates.length - 1].slice(0, 7) : null;
   const cap = captureRatios(monthly);
   const astat = activeStats(active);
   const bins = histogram(active.filter((v): v is number => v != null), 25);
@@ -593,7 +596,7 @@ export function BacktestReport({ label, backHref = '/research/portfolios', backL
         <span className="pill pill-cyan">{uni === 'sp500' ? 'S&P 500' : 'Russell 2500'}</span>
         <span className="pill pill-cyan">{isLS ? 'Long-short' : 'Long-only'}</span>
         <span className="pill pill-ok">{pct(m.opt_pct, 0)} optimal</span>
-        <span className="pill pill-warn">{periodLabel}</span>
+        <span className="pill pill-warn">{periodLabel}{liveTo ? ` · live to ${liveTo}` : ''}</span>
         <span className="pill pill-cyan">Net of realistic cost · $5M</span>
         <span className="mono text-[11px] muted">{cons}</span>
         <span className="ml-auto text-[11px] muted">Drill ▸ <Link href={modelsHref} className="teal font-semibold">{m.signal_model_id} (P02)</Link> ▸ <Link href={factorsHref} className="teal font-semibold">Factors (P01)</Link></span>
@@ -605,7 +608,7 @@ export function BacktestReport({ label, backHref = '/research/portfolios', backL
         <Stat label="Info Ratio" value={num(shownIR)} sub={isLS ? 'excess/cash' : ' '} />
         <Stat label="Sharpe (net)" value={num(m.sharpe_net)} sub=" " />
         <Stat label={isLS ? 'Realized Vol' : 'Realized TE'} value={pct(m.realized_te)} sub={`target ${pct(m.te_target, 0)}`} />
-        <Stat label="Max Drawdown" value={pct(m.max_drawdown, 0)} sub={astat ? `hit ${pct(astat.hit, 0)}` : ' '} color="var(--neg)" />
+        <Stat label="Max Drawdown" value={pct(isLS ? chartMaxDD : m.max_drawdown, 0)} sub={astat ? `hit ${pct(astat.hit, 0)}` : ' '} color="var(--neg)" />
         <Stat label="Up capture" value={cap.up != null ? num(cap.up) : '—'} sub={cap.down != null ? `down ${num(cap.down)}` : 'vs benchmark'} />
         <Stat label="Turnover/mo" value={pct(m.avg_turnover, 0)} sub={`TC ${num(m.tc_drag_bps, 1)}bps`} />
         <Stat label="Optimal" value={pct(m.opt_pct, 0)} sub={`${pct(m.inacc_pct, 0)} inacc`} />
@@ -615,12 +618,12 @@ export function BacktestReport({ label, backHref = '/research/portfolios', backL
       <div className="grid grid-cols-1 xl:grid-cols-3 gap-4">
         <div className="panel p-4 xl:col-span-2">
           <div className="panel-head">Cumulative Net Return</div>
-          <div className="panel-sub mb-1">Growth of 100 · net of cost · vs {isLS ? 'cash (market-neutral)' : 'cap-weighted universe'}</div>
+          <div className="panel-sub mb-1">Growth of 100 · {isLS ? 'total return incl. collateral cash, ' : ''}net of cost · log scale · vs {isLS ? 'cash (market-neutral)' : 'cap-weighted universe'}</div>
           <div className="flex gap-4 text-[10px] muted mb-1">
             <span><span style={{ color: 'var(--teal)' }}>■</span> Portfolio</span>
             <span><span style={{ color: 'var(--bench)' }}>■</span> {isLS ? 'Cash' : 'Benchmark'}</span>
           </div>
-          <CumulativeChart dates={dates} boundaryDate={boundaryDate} series={[
+          <CumulativeChart dates={dates} boundaryDate={boundaryDate} log series={[
             { label: 'Portfolio', color: 'var(--teal)', values: monthly.map((p) => p.cum_portfolio) },
             { label: 'Benchmark', color: 'var(--bench)', values: monthly.map((p) => p.cum_benchmark), dash: true },
           ]} />
@@ -629,11 +632,11 @@ export function BacktestReport({ label, backHref = '/research/portfolios', backL
         </div>
 
         {/* sector exposure */}
-        <div className="panel p-4">
+        <div className="panel p-4 flex flex-col">
           <div className="panel-head">Sector {isLS ? 'Net Exposure' : 'Allocation'} <span className="muted" style={{ fontWeight: 400 }}>· latest</span></div>
           <div className="panel-sub mb-2">{isLS ? 'net long − short weight by sector'
             : <><span style={{ color: 'var(--teal)' }}>■</span> portfolio vs <span style={{ color: 'var(--bench)' }}>■</span> cap-wtd benchmark · Active = over/underweight</>}</div>
-          <div className="space-y-2.5">
+          <div className="flex-1 flex flex-col justify-between min-h-0">
             {(sectors ?? []).map((s) => {
               const w = s.weight ?? 0, frac = Math.abs(w) / maxSec;
               if (isLS) return (
