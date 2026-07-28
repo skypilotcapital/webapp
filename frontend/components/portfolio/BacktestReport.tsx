@@ -6,7 +6,7 @@ import useSWR from 'swr';
 import {
   fetchPortfolioDetail, fetchPortfolioHoldings, fetchPortfolioSectorAllocation,
   fetchPortfolioAttribution, fetchPortfolioAttributionTimeseries, fetchPortfolioCostAttribution,
-  fetchPortfolioNeutrality, fetchPortfolioCreditedReturn, fetchPortfolioSourceAttribution,
+  fetchPortfolioNeutrality, fetchPortfolioSourceAttribution,
 } from '@/lib/api';
 import {
   pct, pctSign, num, fmtSector, fmtTurn,
@@ -336,63 +336,6 @@ function AttributionSection({ label, isLS }: { label: string; isLS: boolean }) {
   );
 }
 
-// ------------------------------------------------------------ T9: collateral-credited investor return (L/S)
-function CreditedSection({ label }: { label: string }) {
-  const { data, error } = useSWR(['pf-credited', label], () => fetchPortfolioCreditedReturn(label, 50), { revalidateOnFocus: false });
-  if (error) return null;                                   // not applicable (not L/S) → hide
-  if (!data) return <div className="panel p-6 muted text-sm mt-5">Loading credited return…</div>;
-  const s = data.summary;
-  const dates = data.monthly.map((p) => p.date);
-  return (
-    <div className="mt-5">
-      <div className="flex items-center gap-3 flex-wrap mb-2">
-        <h2 className="text-base font-bold tracking-tight" style={{ color: 'var(--tx)' }}>Collateral-Credited Return</h2>
-        <span className="pill pill-cyan">investor experience</span>
-        <span className="text-[11px] muted">net-vs-cash charges the full risk-free hurdle, but a real market-neutral book earns ~RF − haircut on its collateral, so the hurdle largely cancels</span>
-      </div>
-      <div className="takeaway mb-3 text-[12px]">
-        <b>Crediting collateral RF ({pct(s.avg_rf_ann, 1)}/yr avg, less a {num(s.haircut_bps, 0)} bps haircut) lifts the honest investor excess to {pctSign(s.ann_credited)}/yr (IR {num(s.ir_credited)})</b>
-        {' '}— vs {pctSign(s.ann_net_active)}/yr net-vs-cash (IR {num(s.ir_net_active)}). Market-neutral economics are ~rate-insensitive; the RF hurdle is largely an accounting artifact.
-      </div>
-      <div className="grid grid-cols-1 xl:grid-cols-3 gap-4">
-        <div className="panel p-4 xl:col-span-2">
-          <div className="panel-head">Cumulative Excess · two conventions</div>
-          <div className="panel-sub mb-1">growth of 100 · <span style={{ color: 'var(--teal)' }}>■</span> collateral-credited (investor) vs <span style={{ color: 'var(--cyan)' }}>■</span> net vs cash</div>
-          <MultiLineChart dates={dates} series={[
-            { label: 'Credited', color: 'var(--teal)', values: data.monthly.map((p) => p.cum_credited) },
-            { label: 'Net vs cash', color: 'var(--cyan)', values: data.monthly.map((p) => p.cum_net_active) },
-          ]} refY={100} refLabel="100" yFmt={(v) => v.toFixed(0)} height={220} />
-        </div>
-        <div className="panel p-4">
-          <div className="panel-head">Two Conventions <span className="muted" style={{ fontWeight: 400 }}>· annualized</span></div>
-          <div className="panel-sub mb-3">excess over cash + information ratio</div>
-          <ConvRow name="Collateral-credited" sub="what the investor earns" ann={s.ann_credited} ir={s.ir_credited} hi />
-          <ConvRow name="Net active vs cash" sub="our reported convention" ann={s.ann_net_active} ir={s.ir_net_active} />
-          <div className="text-[10px] dim pt-2 mt-1" style={{ borderTop: '1px solid var(--border-soft)' }}>
-            Haircut assumption: {num(s.haircut_bps, 0)} bps/yr on collateral (surfaced parameter · haircut_bps).
-          </div>
-        </div>
-      </div>
-    </div>
-  );
-}
-
-function ConvRow({ name, sub, ann, ir, hi }: { name: string; sub: string; ann: number | null; ir: number | null; hi?: boolean }) {
-  return (
-    <div className="flex items-center justify-between"
-      style={hi ? { background: 'rgba(14,124,111,0.07)', borderRadius: 6, padding: '8px 10px', margin: '0 -4px 6px' } : { borderBottom: '1px solid var(--border-soft)', padding: '8px 6px' }}>
-      <div>
-        <div className="text-[12px] font-semibold" style={{ color: 'var(--tx)' }}>{name}</div>
-        <div className="text-[10px] dim">{sub}</div>
-      </div>
-      <div className="text-right">
-        <div className="text-[15px] font-bold mono" style={{ color: (ann ?? 0) >= 0 ? 'var(--pos)' : 'var(--neg)' }}>{pctSign(ann)}</div>
-        <div className="text-[10px] dim">IR {num(ir)}</div>
-      </div>
-    </div>
-  );
-}
-
 // ------------------------------------------------------------ F2: market-neutrality (net dollar & net beta)
 function NeutralitySection({ label }: { label: string }) {
   const { data, error } = useSWR(['pf-neutral', label], () => fetchPortfolioNeutrality(label), { revalidateOnFocus: false });
@@ -678,7 +621,6 @@ export function BacktestReport({ label, backHref = '/research/portfolios', backL
       <CostBridgeSection label={label} isLS={isLS} />
 
       {/* L/S only: collateral-credited investor return (T9) + market-neutrality (F2) */}
-      {isLS && <CreditedSection label={label} />}
       {isLS && <NeutralitySection label={label} />}
       {isLS && <SourceAttributionSection label={label} />}
 
