@@ -3,7 +3,7 @@
 import Link from 'next/link';
 import useSWR from 'swr';
 import { fetchPortfolioBacktests, fetchPortfolioDetail } from '@/lib/api';
-import { productForSlug, slugForRow, fullLabelOf, INSAMPLE_END } from '@/lib/products';
+import { PRODUCTS, productForSlug, slugForRow, fullLabelOf, INSAMPLE_END, type ProductDef } from '@/lib/products';
 import { pct, pctSign, num } from '@/lib/portfolio';
 import { CumulativeChart } from '@/components/portfolio/charts';
 import type { PortfolioBacktest } from '@/types/api';
@@ -22,7 +22,8 @@ export default function PortfoliosLanding() {
       <p className="text-[13px] mb-5 max-w-3xl" style={{ color: 'var(--tx-mut)' }}>
         The two production finalists, tracked forward as <b>modeled paper portfolios</b> — our optimizer and $5M
         cost model continued past the in-sample window to latest available data. IBKR paper and live tracks
-        follow on the same pages. The research hub remains the in-sample decision surface.
+        follow on the same pages, plus an exploratory <b>R2500 long-only research track</b> (paper only —
+        thin net, not a launch product). The research hub remains the in-sample decision surface.
       </p>
 
       {error && <div className="panel p-8 text-sm" style={{ color: 'var(--neg)' }}>Failed to load production portfolios.</div>}
@@ -30,6 +31,7 @@ export default function PortfoliosLanding() {
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-5">
         {(prod ?? []).map((r) => <ProductCard key={r.model_label} row={r} />)}
+        {PRODUCTS.filter((p) => p.track === 'research').map((p) => <ResearchCard key={p.slug} product={p} />)}
       </div>
     </div>
   );
@@ -83,6 +85,63 @@ function ProductCard({ row }: { row: PortfolioBacktest }) {
         </div>
         <div className="text-[12px] font-bold mono" style={{ color: (oosActive ?? 0) >= 0 ? 'var(--pos)' : 'var(--neg)' }}>
           {oosActive == null ? '…' : `${pctSign(oosActive, 1)} ${activeLabel}`}
+        </div>
+      </div>
+
+      {/* full-track spark with in-sample/OOS boundary */}
+      {monthly.length > 2 ? (
+        <CumulativeChart dates={monthly.map((m) => m.date)} boundaryDate={INSAMPLE_END} height={130} series={[
+          { label: 'Portfolio', color: 'var(--teal)', values: monthly.map((m) => m.cum_portfolio) },
+          { label: 'Benchmark', color: 'var(--bench)', values: monthly.map((m) => m.cum_benchmark), dash: true },
+        ]} />
+      ) : <div className="h-[130px] flex items-center justify-center dim text-[11px]">Loading track…</div>}
+
+      <div className="mt-2 flex items-center gap-1.5 text-[11px] font-bold" style={{ color: 'var(--teal)' }}>
+        <span>Open report</span><span className="transition-transform group-hover:translate-x-1">→</span>
+      </div>
+    </Link>
+  );
+}
+
+// RESEARCH/paper track: no is_production row exists, so we fetch the `_full` detail directly.
+// `meta` = full-period (2005→latest, incl. OOS) summary — the honest all-in headline for a research
+// track (vs the production cards' in-sample headline). Distinct amber "Research · Paper" badge.
+function ResearchCard({ product }: { product: ProductDef }) {
+  const label = product.fullLabel!;
+  const { data: full } = useSWR(['pf-research', label], () => fetchPortfolioDetail(label), { revalidateOnFocus: false });
+  const meta = full?.meta;
+  const monthly = full?.monthly ?? [];
+  const oos = monthly.filter((m) => m.date > INSAMPLE_END);
+  const oosActive = oos.length ? oos.reduce((a, m) => a * (1 + (m.active_return ?? 0)), 1) - 1 : null;
+  const lastDate = monthly.length ? monthly[monthly.length - 1].date : null;
+
+  return (
+    <Link href={`/portfolios/${product.slug}`} className="panel group block p-5 transition-all duration-300 hover:shadow-md">
+      <div className="flex items-center gap-2 flex-wrap mb-2">
+        <span className="pill" style={{ background: 'rgba(180,83,9,0.13)', color: 'var(--amber)' }}>🔬 Research · Paper</span>
+        <span className="pill pill-cyan">Russell 2500</span>
+        <span className="pill pill-cyan">Long-only</span>
+      </div>
+
+      <h2 className="text-lg font-bold tracking-tight mb-0.5" style={{ color: 'var(--tx)' }}>{product.name}</h2>
+      <p className="text-[11.5px] mb-3" style={{ color: 'var(--tx-mut)' }}>{product.blurb}</p>
+
+      {/* full-period headline (incl. OOS) — the honest all-in number for a research track */}
+      <div className="text-[10px] font-bold tracking-wider mb-1" style={{ color: 'var(--tx-dim)' }}>FULL TRACK 2005–2026 (incl. live)</div>
+      <div className="grid grid-cols-4 gap-2 mb-3">
+        <MiniStat label="Ann Active" value={pctSign(meta?.ann_active ?? null)} color={(meta?.ann_active ?? 0) >= 0 ? 'var(--pos)' : 'var(--neg)'} />
+        <MiniStat label="Info Ratio" value={num(meta?.ir ?? null)} />
+        <MiniStat label="Realized TE" value={pct(meta?.realized_te ?? null, 1)} sub={meta?.te_target != null ? `${pct(meta.te_target, 0)} tgt` : undefined} />
+        <MiniStat label="Max DD" value={pct(meta?.max_drawdown ?? null, 0)} color="var(--neg)" />
+      </div>
+
+      {/* live-to-date secondary */}
+      <div className="flex items-center justify-between mb-1">
+        <div className="text-[10px] font-bold tracking-wider" style={{ color: 'var(--tx-dim)' }}>
+          LIVE · 2024 → {lastDate ? lastDate.slice(0, 7) : '…'} <span style={{ color: 'var(--amber)' }}>(out-of-sample)</span>
+        </div>
+        <div className="text-[12px] font-bold mono" style={{ color: (oosActive ?? 0) >= 0 ? 'var(--pos)' : 'var(--neg)' }}>
+          {oosActive == null ? '…' : `${pctSign(oosActive, 1)} net active`}
         </div>
       </div>
 

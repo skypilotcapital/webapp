@@ -14,6 +14,19 @@ export default function StrategyPage() {
     { revalidateOnFocus: false });
 
   if (!product) return <Shell><NotFound slug={slug} /></Shell>;
+  // RESEARCH track: no is_production row exists — render straight from the explicit full label.
+  if (product.track === 'research' && product.fullLabel) {
+    return (
+      <BacktestReport
+        label={product.fullLabel}
+        backHref="/portfolios"
+        backLabel="← All portfolios"
+        periodLabel="Full track 2005–2026 · research (OOS descriptive)"
+        boundaryDate={INSAMPLE_END}
+        topSlot={<TrackSelector product={product} />}
+      />
+    );
+  }
   if (error) return <Shell><div className="panel p-8 text-sm" style={{ color: 'var(--neg)' }}>Failed to load {product.name}.</div></Shell>;
   if (!prod) return <Shell><div className="panel p-16 text-center muted text-sm">Loading {product.name}…</div></Shell>;
 

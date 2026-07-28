@@ -13,18 +13,28 @@ export interface ProductDef {
   universe: string;   // 'sp500' | 'r2500'
   strategy: string;   // 'long_only' | 'long_short'
   blurb: string;
+  track?: 'production' | 'research';  // 'research' = paper/exploratory, NOT a launch product (distinct card)
+  fullLabel?: string;                 // explicit modeled-paper _full label (research tracks: fullLabelOf can't derive it)
 }
 
 export const PRODUCTS: ProductDef[] = [
   {
     slug: 'sp500', name: 'S&P 500 · Long-Only', short: 'S&P 500 LO',
-    universe: 'sp500', strategy: 'long_only',
+    universe: 'sp500', strategy: 'long_only', track: 'production',
     blurb: 'Cost-aware N014 (70/30 1M/3M blend) · TE 3% · sector ±3% · net of realistic cost @ $5M.',
   },
   {
     slug: 'r2500-ls', name: 'Russell 2500 · Long-Short', short: 'R2500 L/S',
-    universe: 'r2500', strategy: 'long_short',
+    universe: 'r2500', strategy: 'long_short', track: 'production',
     blurb: 'Market-neutral NR012 (50/50 blend) · 6% vol target · dollar- & sector-neutral.',
+  },
+  {
+    // RESEARCH/PAPER track (not a launch product): promoted 2026-07-28. R2500 long-only.
+    // See Main/Planning/research/r2500_long_only_paper_track_2026-07.md
+    slug: 'r2500-lo', name: 'Russell 2500 · Long-Only', short: 'R2500 LO',
+    universe: 'r2500', strategy: 'long_only', track: 'research',
+    fullLabel: 'nr014_r2500_lo_LOCKED_full_rc5_lam0.5_te3_secoff_tonone',
+    blurb: 'Research track · NR014 (70/30 blend) · TE 3% · ~150 names · net of realistic cost @ $5M. Thin net; long-only small-cap, not a launch product.',
   },
 ];
 
