@@ -394,7 +394,7 @@ function DecompositionSection({ label, benchName }: { label: string; benchName: 
     <div className="mt-5">
       <div className="flex items-center gap-3 flex-wrap mb-2">
         <h2 className="text-base font-bold tracking-tight" style={{ color: 'var(--tx)' }}>Two-Engine Decomposition</h2>
-        <span className="pill pill-cyan">130/30 extension</span>
+        <span className="pill pill-cyan">150/50 extension</span>
         <span className="text-[11px] muted">how the total splits into index beta + the equity core’s selection + the L/S sleeve overlay</span>
       </div>
       <div className="takeaway mb-3 text-[12px]">
