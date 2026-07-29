@@ -394,10 +394,13 @@ function DecompositionSection({ label, benchName }: { label: string; benchName: 
     cum.map((v, i) => (i < 12 || v == null || cum[i - 12] == null) ? null : (v as number) - (cum[i - 12] as number));
   const r12Core = roll12(cumCore);
   const r12Sleeve = roll12(cumSleeve);
-  const rollSeries = [
-    { label: 'Core selection', color: 'var(--teal)', values: r12Core },
-    { label: 'Sleeve overlay', color: 'var(--amber)', values: r12Sleeve },
-    { label: 'Total alpha', color: 'var(--tx)', values: r12Core.map((c, i) => (c == null || r12Sleeve[i] == null) ? null : c + (r12Sleeve[i] as number)) },
+  // Rolling view as a cumulative stack (core base + sleeve overlay), matching the Cumulative-Alpha
+  // chart: StackedAreaChart draws the top-of-stack (= core + sleeve = total alpha) as the total line.
+  // Drop the leading 12 null months so the stack starts clean (roll12 is null there) — same as the
+  // Gross-Return-Composition panel. When the sleeve turns negative (2025) its band pulls the total down.
+  const rollStack = [
+    { label: 'Core selection', color: 'var(--teal)', values: r12Core.slice(12) },
+    { label: 'Sleeve overlay', color: 'var(--amber)', values: r12Sleeve.slice(12) },
   ];
   const sources = [
     { label: `${benchName} beta`, value: s.ann_index ?? 0, color: 'var(--bench)' },
@@ -438,13 +441,13 @@ function DecompositionSection({ label, benchName }: { label: string; benchName: 
         </div>
         <div className="panel p-4">
           <div className="panel-head">Rolling 12-Month Alpha <span className="muted" style={{ fontWeight: 400 }}>· by engine</span></div>
-          <div className="panel-sub mb-1">trailing-year contribution of each engine · shows when the sleeve alpha turns (the 2025 junk rally is visible)</div>
+          <div className="panel-sub mb-1">core + sleeve stacked · top line = total · shows when the sleeve turns (the 2025 junk rally is visible)</div>
           <div className="flex gap-3 text-[10px] muted mb-1 flex-wrap">
             <span><span style={{ color: 'var(--teal)' }}>■</span> Core</span>
             <span><span style={{ color: 'var(--amber)' }}>■</span> Sleeve</span>
             <span><span style={{ color: 'var(--tx)' }}>▬</span> Total</span>
           </div>
-          <MultiLineChart dates={dates} series={rollSeries} refY={0} refLabel="0" yFmt={(v) => pct(v, 0)} height={230} />
+          <StackedAreaChart dates={dates.slice(12)} series={rollStack} refY={0} refLabel="0" yFmt={(v) => pct(v, 0)} height={230} />
         </div>
       </div>
     </div>
