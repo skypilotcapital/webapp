@@ -7,7 +7,7 @@ import { fetchPortfolioBacktests, fetchPortfolioDetail, fetchModelScorecard } fr
 import {
   buildSweeps, buildABPairs, buildCompareConfigs, defaultCompareConfig,
   rollingIR, rollingBatting, rollingExcess,
-  pct, pctSign, num, fmtSector, fmtTurn,
+  pct, pctSign, num, fmtSector, fmtTurn, realizedMonth,
 } from '@/lib/portfolio';
 import { FrontierChart, CumulativeChart, MultiLineChart, ScatterChart } from '@/components/portfolio/charts';
 import type { PortfolioBacktest } from '@/types/api';
@@ -313,7 +313,7 @@ function Compare({ rows, universe }: { rows: PortfolioBacktest[]; universe: stri
   const bestSharpe = Math.max(...modelRows.map((r) => r.sharpe_net ?? -9));
   const bestAnn = Math.max(...modelRows.map((r) => dispAnn(r) ?? -9));
 
-  const dates = series?.[0]?.monthly.map((p) => p.date) ?? [];
+  const dates = series?.[0]?.monthly.map((p) => realizedMonth(p.date)) ?? [];
   const visSeries = (series ?? []).filter((s) => isVis(s.label));
   const cumSeries = [
     ...visSeries.map((s) => ({ label: s.model, color: colorOf(s.label), values: s.monthly.map((p) => p.cum_portfolio) })),

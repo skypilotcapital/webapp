@@ -242,6 +242,24 @@ export interface AnnualRow { year: number; active: number; portfolio: number; be
 // posted collateral. Keep in sync with fetchPortfolioCreditedReturn's haircut_bps.
 export const COLLATERAL_HAIRCUT_ANN = 0.005;
 
+// FORMATION vs REALIZATION dating. The optimizer books in portfolio.returns are FORMATION-DATED:
+// the row dated month-end M holds the return REALIZED over M -> M+1 (weights are formed at M and
+// earn the NEXT month's return; the stored `benchmark` column is the matching M -> M+1 return).
+// That is internally consistent, so book-to-book blends and the server-computed cumulative/drawdown
+// are all correct. But anything that faces a CALENDAR — a year bucket, an x-axis tick, the "live to"
+// pill — must read the REALIZATION month (M+1), else the label sits one month early (e.g. the COVID
+// crash would show under Feb-2020 instead of March). realizedMonth() shifts a formation month-end to
+// its realization month-end. The in-sample/OOS split stays on the raw formation `date` (a walk-forward
+// boundary is a formation concept). Stored DB data is untouched — this is a display-only shift.
+export function realizedMonth(iso: string): string {
+  const y = +iso.slice(0, 4), mo = +iso.slice(5, 7);          // mo = 1..12 (formation month)
+  const ry = mo === 12 ? y + 1 : y;
+  const rm = mo === 12 ? 1 : mo + 1;                          // realization month (1..12)
+  const lastDay = new Date(Date.UTC(ry, rm, 0)).getUTCDate(); // day 0 of next month = month-end
+  return `${ry}-${String(rm).padStart(2, '0')}-${String(lastDay).padStart(2, '0')}`;
+}
+export const realizedYear = (iso: string): number => +realizedMonth(iso).slice(0, 4);
+
 // For L/S the three annual rows use the collateral-credited convention (see BacktestReport
 // annual table + the CreditedReturnSection):
 //   portfolio = TOTAL return  = book(net) + collateral RF − haircut   ← what the account earns
@@ -254,7 +272,7 @@ export function buildAnnualTable(monthly: PortfolioMonthlyPoint[], isLS = false)
   const hcM = isLS ? COLLATERAL_HAIRCUT_ANN / 12 : 0;
   const byYear = new Map<number, { p: number; b: number }>();
   for (const m of monthly) {
-    const y = +m.date.slice(0, 4);
+    const y = realizedYear(m.date);      // bucket by the REALIZATION year (M+1), so calendar-year rows are true
     const cur = byYear.get(y) ?? { p: 1, b: 1 };
     const rf = m.benchmark ?? 0;
     const net = m.portfolio_net ?? 0;
@@ -275,14 +293,14 @@ export function buildDrawdownTable(monthly: PortfolioMonthlyPoint[], topN = 5): 
   for (const m of pts) {
     cum *= 1 + (m.portfolio_net ?? 0);
     if (cum >= peak) {
-      if (inDD) { dds.push({ depth: troughVal / peak - 1, peak: peakDate, trough: troughDate, recovery: m.date }); inDD = false; }
+      if (inDD) { dds.push({ depth: troughVal / peak - 1, peak: realizedMonth(peakDate), trough: realizedMonth(troughDate), recovery: realizedMonth(m.date) }); inDD = false; }
       peak = cum; peakDate = m.date;
     } else {
       if (!inDD) { inDD = true; troughVal = cum; troughDate = m.date; }
       if (cum < troughVal) { troughVal = cum; troughDate = m.date; }
     }
   }
-  if (inDD) dds.push({ depth: troughVal / peak - 1, peak: peakDate, trough: troughDate, recovery: null });
+  if (inDD) dds.push({ depth: troughVal / peak - 1, peak: realizedMonth(peakDate), trough: realizedMonth(troughDate), recovery: null });
   return dds.sort((a, b) => a.depth - b.depth).slice(0, topN);
 }
 

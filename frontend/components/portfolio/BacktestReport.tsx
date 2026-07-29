@@ -12,7 +12,7 @@ import {
 import {
   pct, pctSign, num, fmtSector, fmtTurn,
   buildAnnualTable, buildDrawdownTable, captureRatios, activeStats, histogram, rollingIR, rollingVol,
-  COLLATERAL_HAIRCUT_ANN,
+  COLLATERAL_HAIRCUT_ANN, realizedMonth,
 } from '@/lib/portfolio';
 import { CumulativeChart, DrawdownChart, MultiLineChart, Histogram, HBarChart, StackedAreaChart } from '@/components/portfolio/charts';
 import type { PortfolioHolding, SourceAttrPoint } from '@/types/api';
@@ -118,7 +118,7 @@ function CostBridgeSection({ label, isLS }: { label: string; isLS: boolean }) {
     ...(isLS || (s.ann_borrow_drag ?? 0) > 1e-6
       ? [{ name: 'Borrow (shorts)', drag: s.ann_borrow_drag ?? 0, bps: null as number | null }] : []),
   ];
-  const dates = data.monthly.map((p) => p.date);
+  const dates = data.monthly.map((p) => realizedMonth(p.date));
 
   return (
     <div className="mt-5">
@@ -248,7 +248,7 @@ function AttributionSection({ label, isLS }: { label: string; isLS: boolean }) {
     ...STYLE_ORDER.map((f) => ({ label: prettyFactor(f), value: g(f)?.pct_active_variance ?? 0 })),
   ].filter((b) => b.value > 0.003).sort((a, b) => b.value - a.value).slice(0, 9);
 
-  const dates = (ts ?? []).map((p) => p.date);
+  const dates = (ts ?? []).map((p) => realizedMonth(p.date));
   const cumSeries = [
     { label: 'Specific', color: 'var(--teal)', values: (ts ?? []).map((p) => p.specific) },
     { label: 'Style', color: 'var(--cyan)', values: (ts ?? []).map((p) => p.style) },
@@ -343,7 +343,7 @@ function NeutralitySection({ label }: { label: string }) {
   if (error) return null;                                   // no weights → hide
   if (!data) return <div className="panel p-6 muted text-sm mt-5">Loading neutrality…</div>;
   const s = data.summary;
-  const dates = data.monthly.map((p) => p.date);
+  const dates = data.monthly.map((p) => realizedMonth(p.date));
   const beta = s.avg_net_beta;
   const tight = beta != null && Math.abs(beta) < 0.15;
   return (
@@ -380,7 +380,7 @@ function DecompositionSection({ label, benchName }: { label: string; benchName: 
   if (!data) return <div className="panel p-6 muted text-sm mt-5">Loading decomposition…</div>;
   const s = data.summary;
   const kPct = s.k != null ? Math.round(s.k * 100) : 50;
-  const dates = data.monthly.map((p) => p.date);
+  const dates = data.monthly.map((p) => realizedMonth(p.date));
   const cumCore = data.monthly.map((p) => p.cum_core_alpha);
   const cumSleeve = data.monthly.map((p) => p.cum_sleeve_alpha);
   // stacked cumulative = total outperformance over the index, split by engine
@@ -460,7 +460,7 @@ function SourceAttributionSection({ label }: { label: string }) {
   if (error) return null;                                   // long-only / not computed → hide the section
   if (!data) return <div className="panel p-6 muted text-sm mt-5">Loading source attribution…</div>;
   const s = data.summary, mo = data.monthly;
-  const dates = mo.map((p) => p.date);
+  const dates = mo.map((p) => realizedMonth(p.date));
   const roll12 = (f: (p: SourceAttrPoint) => number | null) => {   // trailing-12-month sum (null until month 12)
     const v = mo.map((p) => f(p) ?? 0);
     return v.map((_, i) => (i < 11 ? null : v.slice(i - 11, i + 1).reduce((a, b) => a + b, 0)));
@@ -656,7 +656,7 @@ function HoldingsPanel({ label, isLS, longTitle }: { label: string; isLS: boolea
 function ExtBetaDeployment({ label, benchName }: { label: string; benchName: string }) {
   const { data: neu } = useSWR(['pf-neutral', label], () => fetchPortfolioNeutrality(label), { revalidateOnFocus: false });
   const { data: dep } = useSWR(['pf-deploy', label], () => fetchPortfolioDeployment(label), { revalidateOnFocus: false });
-  const ndates = neu?.monthly.map((p) => p.date) ?? [];
+  const ndates = neu?.monthly.map((p) => realizedMonth(p.date)) ?? [];
   const s = dep?.summary;
   const depBars = s ? [
     { label: 'Core long', value: s.core_long ?? 0 },
@@ -692,7 +692,7 @@ function ExtBetaDeployment({ label, benchName }: { label: string; benchName: str
         <div className="panel p-4">
           <div className="panel-head">Gross Exposure <span className="muted" style={{ fontWeight: 400 }}>· over time</span></div>
           <div className="panel-sub mb-1">total book leverage · rises/falls as the sleeve is vol-targeted</div>
-          <MultiLineChart dates={dep?.monthly.map((p) => p.date) ?? []} series={[
+          <MultiLineChart dates={dep?.monthly.map((p) => realizedMonth(p.date)) ?? []} series={[
             { label: 'Gross', color: 'var(--teal)', values: dep?.monthly.map((p) => p.gross) ?? [] },
             { label: 'Net', color: 'var(--bench)', values: dep?.monthly.map((p) => p.net) ?? [] },
           ]} refY={1} refLabel="1.0" yFmt={(v) => pct(v, 0)} height={185} />
@@ -749,7 +749,11 @@ export function BacktestReport({ label, backHref = '/research/portfolios', backL
   const modelsHref = uni === 'r2500' ? '/research/r2500-models' : '/research/models';
   const factorsHref = uni === 'r2500' ? '/research/r2500-factors' : '/research/factors';
   const monthly = data.monthly;
-  const dates = monthly.map((p) => p.date);
+  // Chart x-axis on REALIZATION months (M+1) so the curve sits on the calendar month each return was
+  // earned (portfolio.returns is formation-dated; see realizedMonth). Purely a display shift — the raw
+  // formation `date` still drives the OOS split on the landing/strategy pages.
+  const dates = monthly.map((p) => realizedMonth(p.date));
+  const bDate = boundaryDate ? realizedMonth(boundaryDate) : undefined;   // boundary in realization space
   // Active/excess series. Long-only: net return vs the equity index (as stored). L/S: the
   // collateral-CREDITED excess over cash (book net − haircut), so the distribution, rolling IR,
   // best/worst and hit-rate all match the annual table's "Excess over cash" convention rather
@@ -816,12 +820,12 @@ export function BacktestReport({ label, backHref = '/research/portfolios', backL
             <span><span style={{ color: 'var(--teal)' }}>■</span> Portfolio</span>
             <span><span style={{ color: 'var(--bench)' }}>■</span> {isLS ? 'Cash' : 'Benchmark'}</span>
           </div>
-          <CumulativeChart dates={dates} boundaryDate={boundaryDate} log series={[
+          <CumulativeChart dates={dates} boundaryDate={bDate} log series={[
             { label: 'Portfolio', color: 'var(--teal)', values: monthly.map((p) => p.cum_portfolio) },
             { label: 'Benchmark', color: 'var(--bench)', values: monthly.map((p) => p.cum_benchmark), dash: true },
           ]} />
           <div className="panel-head mt-3">Drawdown</div>
-          <DrawdownChart dates={dates} dd={monthly.map((p) => p.drawdown)} boundaryDate={boundaryDate} />
+          <DrawdownChart dates={dates} dd={monthly.map((p) => p.drawdown)} boundaryDate={bDate} />
         </div>
 
         {/* sector allocation + style-tilt rollup (right column) — ext blends show these per-component below */}

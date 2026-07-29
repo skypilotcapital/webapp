@@ -4,7 +4,7 @@ import Link from 'next/link';
 import useSWR from 'swr';
 import { fetchPortfolioBacktests, fetchPortfolioDetail } from '@/lib/api';
 import { PRODUCTS, productForSlug, slugForRow, fullLabelOf, INSAMPLE_END, type ProductDef } from '@/lib/products';
-import { pct, pctSign, num } from '@/lib/portfolio';
+import { pct, pctSign, num, realizedMonth } from '@/lib/portfolio';
 import { CumulativeChart } from '@/components/portfolio/charts';
 import type { PortfolioBacktest } from '@/types/api';
 
@@ -83,7 +83,7 @@ function ProductCard({ row }: { row: PortfolioBacktest }) {
       {/* live-to-date secondary */}
       <div className="flex items-center justify-between mb-1">
         <div className="text-[10px] font-bold tracking-wider" style={{ color: 'var(--tx-dim)' }}>
-          LIVE · 2024 → {lastDate ? lastDate.slice(0, 7) : '…'} <span style={{ color: 'var(--amber)' }}>(out-of-sample)</span>
+          LIVE · 2024 → {lastDate ? realizedMonth(lastDate).slice(0, 7) : '…'} <span style={{ color: 'var(--amber)' }}>(out-of-sample)</span>
         </div>
         <div className="text-[12px] font-bold mono" style={{ color: (oosActive ?? 0) >= 0 ? 'var(--pos)' : 'var(--neg)' }}>
           {oosActive == null ? '…' : `${pctSign(oosActive, 1)} ${activeLabel}`}
@@ -92,7 +92,7 @@ function ProductCard({ row }: { row: PortfolioBacktest }) {
 
       {/* full-track spark with in-sample/OOS boundary */}
       {monthly.length > 2 ? (
-        <CumulativeChart dates={monthly.map((m) => m.date)} boundaryDate={INSAMPLE_END} height={130} series={[
+        <CumulativeChart dates={monthly.map((m) => realizedMonth(m.date))} boundaryDate={realizedMonth(INSAMPLE_END)} height={130} series={[
           { label: 'Portfolio', color: 'var(--teal)', values: monthly.map((m) => m.cum_portfolio) },
           { label: 'Benchmark', color: 'var(--bench)', values: monthly.map((m) => m.cum_benchmark), dash: true },
         ]} />
@@ -142,7 +142,7 @@ function ResearchCard({ product }: { product: ProductDef }) {
       {/* live-to-date secondary */}
       <div className="flex items-center justify-between mb-1">
         <div className="text-[10px] font-bold tracking-wider" style={{ color: 'var(--tx-dim)' }}>
-          LIVE · 2024 → {lastDate ? lastDate.slice(0, 7) : '…'} <span style={{ color: 'var(--amber)' }}>(out-of-sample)</span>
+          LIVE · 2024 → {lastDate ? realizedMonth(lastDate).slice(0, 7) : '…'} <span style={{ color: 'var(--amber)' }}>(out-of-sample)</span>
         </div>
         <div className="text-[12px] font-bold mono" style={{ color: (oosActive ?? 0) >= 0 ? 'var(--pos)' : 'var(--neg)' }}>
           {oosActive == null ? '…' : `${pctSign(oosActive, 1)} net active`}
@@ -151,7 +151,7 @@ function ResearchCard({ product }: { product: ProductDef }) {
 
       {/* full-track spark with in-sample/OOS boundary */}
       {monthly.length > 2 ? (
-        <CumulativeChart dates={monthly.map((m) => m.date)} boundaryDate={INSAMPLE_END} height={130} series={[
+        <CumulativeChart dates={monthly.map((m) => realizedMonth(m.date))} boundaryDate={realizedMonth(INSAMPLE_END)} height={130} series={[
           { label: 'Portfolio', color: 'var(--teal)', values: monthly.map((m) => m.cum_portfolio) },
           { label: 'Benchmark', color: 'var(--bench)', values: monthly.map((m) => m.cum_benchmark), dash: true },
         ]} />
