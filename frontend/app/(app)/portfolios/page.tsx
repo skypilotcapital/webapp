@@ -119,8 +119,8 @@ function ResearchCard({ product }: { product: ProductDef }) {
     <Link href={`/portfolios/${product.slug}`} className="panel group block p-5 transition-all duration-300 hover:shadow-md">
       <div className="flex items-center gap-2 flex-wrap mb-2">
         <span className="pill" style={{ background: 'rgba(180,83,9,0.13)', color: 'var(--amber)' }}>🔬 Research · Paper</span>
-        <span className="pill pill-cyan">Russell 2500</span>
-        <span className="pill pill-cyan">Long-only</span>
+        <span className="pill pill-cyan">{product.universe === 'sp500' ? 'S&P 500' : 'Russell 2500'}</span>
+        <span className="pill pill-cyan">{product.strategy === 'ext' ? '130/30 Extension' : product.strategy === 'long_short' ? 'Long-short' : 'Long-only'}</span>
       </div>
 
       <h2 className="text-lg font-bold tracking-tight mb-0.5" style={{ color: 'var(--tx)' }}>{product.name}</h2>

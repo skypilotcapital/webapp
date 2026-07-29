@@ -782,3 +782,65 @@ def get_credited_return(label: str, haircut_bps: float = Query(50.0, description
         avg_rf_ann=(sum(rf_stream) / n * 12.0) if n else None,
     )
     return CreditedResponse(summary=summary, monthly=monthly)
+
+
+# ---------------------------------------------------------------------------
+# Extension (130/30) blend — the two-engine decomposition (strategy='ext')
+# ---------------------------------------------------------------------------
+
+class DecompositionSummary(BaseModel):
+    n_months: int
+    core_label: Optional[str]
+    sleeve_label: Optional[str]
+    k: Optional[float]
+    ann_index: Optional[float]           # index (benchmark) return, annualized
+    ann_core_alpha: Optional[float]      # core book net active vs the index
+    ann_sleeve_alpha: Optional[float]    # k × L/S sleeve net active over cash (the overlay)
+    ann_total: Optional[float]           # = index + core_alpha + sleeve_alpha (the blend total)
+
+
+class DecompositionPoint(BaseModel):
+    date: str
+    cum_index: Optional[float]           # cumulative (arithmetic) contributions
+    cum_core_alpha: Optional[float]
+    cum_sleeve_alpha: Optional[float]
+    cum_total: Optional[float]
+
+
+class DecompositionResponse(BaseModel):
+    summary: DecompositionSummary
+    monthly: List[DecompositionPoint]
+
+
+@router.get("/backtests/{label}/decomposition", response_model=DecompositionResponse)
+def get_decomposition(label: str):
+    """The two-engine decomposition for a 130/30 EXTENSION product (strategy='ext'): how the total return
+    splits into index BETA + the equity core's SELECTION alpha + the L/S SLEEVE's alpha overlay, per month
+    (cumulative arithmetic) + full-period annualized. Reads portfolio.blend_decomposition; 404 for any
+    label that isn't an extension blend."""
+    with get_db() as conn:
+        rows = conn.execute(text("""
+            SELECT date, index_ret, core_alpha, sleeve_alpha, core_label, sleeve_label, k
+            FROM portfolio.blend_decomposition WHERE model_label = :l ORDER BY date
+        """), {"l": label}).fetchall()
+    if not rows:
+        raise HTTPException(status_code=404, detail=f"No blend decomposition for '{label}' (not an extension).")
+    d0 = dict(rows[0]._mapping)
+    idx = [(_v(r._mapping["index_ret"]) or 0.0) for r in rows]
+    ca = [(_v(r._mapping["core_alpha"]) or 0.0) for r in rows]
+    sa = [(_v(r._mapping["sleeve_alpha"]) or 0.0) for r in rows]
+    n = len(rows)
+    cum_i = cum_c = cum_s = 0.0
+    monthly = []
+    for r, i_, c_, s_ in zip(rows, idx, ca, sa):
+        cum_i += i_; cum_c += c_; cum_s += s_
+        monthly.append(DecompositionPoint(
+            date=_iso(r._mapping["date"]),
+            cum_index=round(cum_i, 5), cum_core_alpha=round(cum_c, 5),
+            cum_sleeve_alpha=round(cum_s, 5), cum_total=round(cum_i + cum_c + cum_s, 5)))
+    summary = DecompositionSummary(
+        n_months=n, core_label=d0["core_label"], sleeve_label=d0["sleeve_label"], k=_v(d0["k"]),
+        ann_index=(sum(idx) / n * 12), ann_core_alpha=(sum(ca) / n * 12),
+        ann_sleeve_alpha=(sum(sa) / n * 12),
+        ann_total=((sum(idx) + sum(ca) + sum(sa)) / n * 12))
+    return DecompositionResponse(summary=summary, monthly=monthly)

@@ -33,6 +33,7 @@ import type {
   SourceAttribution,
   PortfolioNeutrality,
   PortfolioCreditedReturn,
+  PortfolioDecomposition,
 } from '@/types/api';
 import type {
   LatestState,
@@ -156,3 +157,6 @@ export const fetchPortfolioNeutrality = (label: string) =>
 export const fetchPortfolioCreditedReturn = (label: string, haircutBps = 50) =>
   apiFetch<PortfolioCreditedReturn>(
     `/api/v1/portfolio/backtests/${encodeURIComponent(label)}/credited-return?haircut_bps=${haircutBps}`);
+export const fetchPortfolioDecomposition = (label: string) =>
+  apiFetch<PortfolioDecomposition>(
+    `/api/v1/portfolio/backtests/${encodeURIComponent(label)}/decomposition`);

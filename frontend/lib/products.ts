@@ -36,6 +36,22 @@ export const PRODUCTS: ProductDef[] = [
     fullLabel: 'nr014_r2500_lo_LOCKED_full_rc5_lam0.5_te3_secoff_tonone',
     blurb: 'Research track · NR014 (70/30 blend) · TE 3% · ~150 names · net of realistic cost @ $5M. Thin net; long-only small-cap, not a launch product.',
   },
+  {
+    // RESEARCH/PAPER — 130/30 extension: S&P 500 long-only core + a 50% R2500 L/S overlay (portable
+    // alpha). Benchmarked to the S&P 500 TR. See r2500_ls_extension_analysis_2026-07.md.
+    slug: 'sp500-ext', name: 'S&P 500 · Extension 150/50', short: 'S&P 500 Ext',
+    universe: 'sp500', strategy: 'ext', track: 'research',
+    fullLabel: 'ext_sp500_n014_te8_150_50_full_rc5',
+    blurb: 'Research track · 130/30 extension: S&P 500 core (N014) + 50% R2500 L/S sleeve (te8) as a portable-alpha overlay · benchmarked to S&P 500 TR · net of realistic cost @ $5M. Enhanced-equity, full equity drawdowns.',
+  },
+  {
+    // RESEARCH/PAPER — same-universe 130/30 extension: R2500 long-only core + a 50% R2500 L/S overlay.
+    // Benchmarked to Russell 2000 TR. See r2500_ls_extension_analysis_2026-07.md.
+    slug: 'r2500-ext', name: 'Russell 2500 · Extension 150/50', short: 'R2500 Ext',
+    universe: 'r2500', strategy: 'ext', track: 'research',
+    fullLabel: 'ext_r2500_nr014_te8_150_50_full_rc5',
+    blurb: 'Research track · 130/30 extension: R2500 core (NR014) + 50% R2500 L/S sleeve (te8) · same universe · benchmarked to Russell 2000 TR · net of realistic cost @ $5M. Enhanced-equity, full equity drawdowns.',
+  },
 ];
 
 const slugFor = (universe: string | null, strategy: string | null) =>

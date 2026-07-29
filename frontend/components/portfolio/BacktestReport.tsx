@@ -6,7 +6,7 @@ import useSWR from 'swr';
 import {
   fetchPortfolioDetail, fetchPortfolioHoldings, fetchPortfolioSectorAllocation,
   fetchPortfolioAttribution, fetchPortfolioAttributionTimeseries, fetchPortfolioCostAttribution,
-  fetchPortfolioNeutrality, fetchPortfolioSourceAttribution,
+  fetchPortfolioNeutrality, fetchPortfolioSourceAttribution, fetchPortfolioDecomposition,
 } from '@/lib/api';
 import {
   pct, pctSign, num, fmtSector, fmtTurn,
@@ -372,6 +372,56 @@ function NeutralitySection({ label }: { label: string }) {
   );
 }
 
+// ------------------------------------------------------------ two-engine decomposition (130/30 extension)
+function DecompositionSection({ label, benchName }: { label: string; benchName: string }) {
+  const { data, error } = useSWR(['pf-decomp', label], () => fetchPortfolioDecomposition(label), { revalidateOnFocus: false });
+  if (error) return null;                                    // not an extension blend → hide the section
+  if (!data) return <div className="panel p-6 muted text-sm mt-5">Loading decomposition…</div>;
+  const s = data.summary;
+  const kPct = s.k != null ? Math.round(s.k * 100) : 50;
+  const dates = data.monthly.map((p) => p.date);
+  // the two ALPHA engines stacked = cumulative outperformance over the index, by source
+  const stack = [
+    { label: 'Core selection', color: 'var(--teal)', values: data.monthly.map((p) => p.cum_core_alpha) },
+    { label: 'Sleeve overlay', color: 'var(--amber)', values: data.monthly.map((p) => p.cum_sleeve_alpha) },
+  ];
+  const bars = [
+    { label: `${benchName} beta`, value: s.ann_index ?? 0 },
+    { label: 'Core selection', value: s.ann_core_alpha ?? 0 },
+    { label: `Sleeve overlay (${kPct}%)`, value: s.ann_sleeve_alpha ?? 0 },
+  ];
+  return (
+    <div className="mt-5">
+      <div className="flex items-center gap-3 flex-wrap mb-2">
+        <h2 className="text-base font-bold tracking-tight" style={{ color: 'var(--tx)' }}>Two-Engine Decomposition</h2>
+        <span className="pill pill-cyan">130/30 extension</span>
+        <span className="text-[11px] muted">how the total splits into index beta + the equity core’s selection + the L/S sleeve overlay</span>
+      </div>
+      <div className="takeaway mb-3 text-[12px]">
+        <b>Total {pctSign(s.ann_total)}/yr = {benchName} beta {pctSign(s.ann_index)} + core selection {pctSign(s.ann_core_alpha)} + a {kPct}% L/S sleeve {pctSign(s.ann_sleeve_alpha)}.</b>{' '}
+        The sleeve is near-uncorrelated to the index, so it adds alpha <i>without</i> adding beta — that’s the portable-alpha lift over just owning {benchName}. The book carries full equity beta, so its drawdowns are equity-crash-shaped.
+      </div>
+      <div className="grid grid-cols-1 xl:grid-cols-3 gap-4">
+        <div className="panel p-4 xl:col-span-2">
+          <div className="panel-head">Cumulative Alpha Over {benchName} <span className="muted" style={{ fontWeight: 400 }}>· by engine, stacked</span></div>
+          <div className="panel-sub mb-1">the two alpha engines above the index return · top of the stack = total outperformance vs {benchName}</div>
+          <div className="flex gap-3 text-[10px] muted mb-1 flex-wrap">
+            <span><span style={{ color: 'var(--teal)' }}>■</span> Core selection</span>
+            <span><span style={{ color: 'var(--amber)' }}>■</span> Sleeve overlay</span>
+            <span className="dim">top of stack = total alpha vs {benchName}</span>
+          </div>
+          <StackedAreaChart dates={dates} series={stack} refY={0} refLabel="0" yFmt={(v) => pct(v, 0)} height={240} />
+        </div>
+        <div className="panel p-4">
+          <div className="panel-head">Return Sources <span className="muted" style={{ fontWeight: 400 }}>· annualized</span></div>
+          <div className="panel-sub mb-2">index beta vs the two alpha engines · most of the return is beta, with a thin alpha premium on top</div>
+          <HBarChart bars={bars} valFmt={(v) => pctSign(v, 1)} />
+        </div>
+      </div>
+    </div>
+  );
+}
+
 // ------------------------------------------------------------ contribution by SOURCE (L/S: long / short / collateral)
 function SourceAttributionSection({ label }: { label: string }) {
   const { data, error } = useSWR(['pf-src', label], () => fetchPortfolioSourceAttribution(label), { revalidateOnFocus: false });
@@ -616,6 +666,9 @@ export function BacktestReport({ label, backHref = '/research/portfolios', backL
           </div>
         </div>
       </div>
+
+      {/* 130/30 extension: the two-engine (beta + core alpha + sleeve alpha) decomposition */}
+      {m.strategy === 'ext' && <DecompositionSection label={label} benchName={m.benchmark_report === 'sp500tr' ? 'S&P 500' : 'Russell 2000'} />}
 
       {/* net-of-cost bridge */}
       <CostBridgeSection label={label} isLS={isLS} />

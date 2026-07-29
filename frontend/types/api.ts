@@ -527,3 +527,15 @@ export interface CreditedSummary {
 }
 export interface CreditedPoint { date: string; cum_net_active: number | null; cum_credited: number | null; }
 export interface PortfolioCreditedReturn { summary: CreditedSummary; monthly: CreditedPoint[]; }
+
+// Extension (130/30) two-engine decomposition — index beta + equity-core selection + L/S sleeve overlay.
+export interface DecompositionSummary {
+  n_months: number;
+  core_label: string | null; sleeve_label: string | null; k: number | null;
+  ann_index: number | null; ann_core_alpha: number | null; ann_sleeve_alpha: number | null; ann_total: number | null;
+}
+export interface DecompositionPoint {
+  date: string;
+  cum_index: number | null; cum_core_alpha: number | null; cum_sleeve_alpha: number | null; cum_total: number | null;
+}
+export interface PortfolioDecomposition { summary: DecompositionSummary; monthly: DecompositionPoint[]; }
