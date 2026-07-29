@@ -115,15 +115,15 @@ interface LineSeries { label: string; color: string; values: (number | null)[]; 
 
 /** Generic multi-line time series with a horizontal reference line (rolling IR, batting avg, etc.). */
 export function MultiLineChart({ dates, series, height = 190, refY = 0, refLabel, yFmt, yDomain }: {
-  dates: string[]; series: LineSeries[]; height?: number; refY?: number; refLabel?: string;
+  dates: string[]; series: LineSeries[]; height?: number; refY?: number | null; refLabel?: string;
   yFmt: (v: number) => string; yDomain?: [number, number];
 }) {
   const W = 900, PL = 48, PR = 16, PT = 12, PB = 24;
   const cw = W - PL - PR, ch = height - PT - PB;
   const all = series.flatMap((s) => s.values).filter((v): v is number => v != null);
   if (!all.length || dates.length < 2) return <div className="text-[11px] dim py-8 text-center">not enough data yet</div>;
-  let mn = yDomain ? yDomain[0] : Math.min(...all, refY);
-  let mx = yDomain ? yDomain[1] : Math.max(...all, refY);
+  let mn = yDomain ? yDomain[0] : Math.min(...all, ...(refY != null ? [refY] : []));
+  let mx = yDomain ? yDomain[1] : Math.max(...all, ...(refY != null ? [refY] : []));
   if (mn === mx) { mn -= 1; mx += 1; }
   if (!yDomain) { const p = (mx - mn) * 0.08; mn -= p; mx += p; }
   const xAt = (i: number) => PL + (i / (dates.length - 1)) * cw;
@@ -136,7 +136,7 @@ export function MultiLineChart({ dates, series, height = 190, refY = 0, refLabel
   const ticks = Array.from({ length: 5 }, (_, i) => mn + (i / 4) * (mx - mn));
   const years: { i: number; y: string }[] = []; let last = '';
   dates.forEach((d, i) => { const y = d.slice(0, 4); if (y !== last && +y % 3 === 0) { years.push({ i, y }); last = y; } });
-  const refPix = yAt(refY);
+  const refPix = refY != null ? yAt(refY) : 0;
   return (
     <svg viewBox={`0 0 ${W} ${height}`} className="w-full h-auto">
       {ticks.map((v, i) => (
@@ -145,7 +145,7 @@ export function MultiLineChart({ dates, series, height = 190, refY = 0, refLabel
           <text x={PL - 6} y={yAt(v) + 3} textAnchor="end" fontSize="9" fill="var(--tx-dim)">{yFmt(v)}</text>
         </g>
       ))}
-      {refY >= mn && refY <= mx && (
+      {refY != null && refY >= mn && refY <= mx && (
         <>
           <line x1={PL} y1={refPix} x2={W - PR} y2={refPix} stroke="var(--tx-mut)" strokeWidth="1.2" strokeDasharray="4 3" />
           {refLabel && <text x={W - PR - 2} y={refPix - 3} textAnchor="end" fontSize="8.5" fill="var(--tx-mut)">{refLabel}</text>}
@@ -193,7 +193,7 @@ export function StackedAreaChart({ dates, series, height = 220, refY = 0, refLab
   const ticks = Array.from({ length: 5 }, (_, i) => mn + (i / 4) * (mx - mn));
   const years: { i: number; y: string }[] = []; let last = '';
   dates.forEach((d, i) => { const y = d.slice(0, 4); if (y !== last && +y % 3 === 0) { years.push({ i, y }); last = y; } });
-  const refPix = yAt(refY);
+  const refPix = refY != null ? yAt(refY) : 0;
   return (
     <svg viewBox={`0 0 ${W} ${height}`} className="w-full h-auto">
       {ticks.map((v, i) => (

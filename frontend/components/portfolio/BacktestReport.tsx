@@ -796,14 +796,15 @@ export function BacktestReport({ label, backHref = '/research/portfolios', backL
 
       {/* KPI strip */}
       <div className="grid grid-cols-2 md:grid-cols-4 xl:grid-cols-8 gap-2.5 mb-4">
-        <Stat label={isLS ? 'Ann Return' : 'Ann Active'} value={pctSign(isLS ? annTotal : m.ann_active)} sub={isLS ? 'total, incl. cash' : 'vs cap-wtd universe'} color={((isLS ? annTotal : m.ann_active) ?? 0) >= 0 ? 'var(--pos)' : 'var(--neg)'} />
+        {isExt && <Stat label="Total Return" value={pctSign(decomp?.summary.ann_total)} sub="incl. equity beta" color={(decomp?.summary.ann_total ?? 0) >= 0 ? 'var(--pos)' : 'var(--neg)'} />}
+        <Stat label={isLS ? 'Ann Return' : 'Ann Active'} value={pctSign(isLS ? annTotal : m.ann_active)} sub={isLS ? 'total, incl. cash' : (isExt ? 'alpha vs benchmark' : 'vs cap-wtd universe')} color={((isLS ? annTotal : m.ann_active) ?? 0) >= 0 ? 'var(--pos)' : 'var(--neg)'} />
         <Stat label="Info Ratio" value={num(shownIR)} sub={isLS ? 'excess/cash' : ' '} />
         <Stat label="Sharpe (net)" value={num(m.sharpe_net)} sub=" " />
-        <Stat label={isLS ? 'Realized Vol' : 'Realized TE'} value={pct(m.realized_te)} sub={`target ${pct(m.te_target, 0)}`} />
+        <Stat label={isLS ? 'Realized Vol' : 'Realized TE'} value={pct(m.realized_te)} sub={m.te_target != null ? `target ${pct(m.te_target, 0)}` : ' '} />
         <Stat label="Max Drawdown" value={pct(isLS ? chartMaxDD : m.max_drawdown, 0)} sub={astat ? `hit ${pct(astat.hit, 0)}` : ' '} color="var(--neg)" />
         <Stat label="Up capture" value={cap.up != null ? num(cap.up) : '—'} sub={cap.down != null ? `down ${num(cap.down)}` : 'vs benchmark'} />
         <Stat label="Turnover/mo" value={pct(m.avg_turnover, 0)} sub={`TC ${num(m.tc_drag_bps, 1)}bps`} />
-        <Stat label="Optimal" value={pct(m.opt_pct, 0)} sub={`${pct(m.inacc_pct, 0)} inacc`} />
+        {!isExt && <Stat label="Optimal" value={pct(m.opt_pct, 0)} sub={`${pct(m.inacc_pct, 0)} inacc`} />}
       </div>
 
       {/* performance + positioning */}
@@ -911,8 +912,8 @@ export function BacktestReport({ label, backHref = '/research/portfolios', backL
         </div>
         <div className="panel p-4">
           <div className="panel-head">Rolling 12-month {isLS ? 'Volatility' : 'Tracking Error'}</div>
-          <div className="panel-sub mb-1">annualized · dashed line = {pct(m.te_target, 0)} target</div>
-          <MultiLineChart dates={dates} series={[{ label: 'TE', color: 'var(--cyan)', values: rTE }]} refY={m.te_target ?? 0} refLabel={pct(m.te_target, 0)} yFmt={(v) => pct(v, 0)} height={190} />
+          <div className="panel-sub mb-1">annualized{m.te_target != null ? ` · dashed line = ${pct(m.te_target, 0)} target` : ''}</div>
+          <MultiLineChart dates={dates} series={[{ label: 'TE', color: 'var(--cyan)', values: rTE }]} refY={m.te_target ?? null} refLabel={m.te_target != null ? pct(m.te_target, 0) : undefined} yFmt={(v) => pct(v, 0)} height={190} />
         </div>
       </div>
 
@@ -969,7 +970,7 @@ export function BacktestReport({ label, backHref = '/research/portfolios', backL
       )}
 
       <div className="text-[10px] dim mt-4" style={{ borderTop: '1px solid var(--border-soft)', paddingTop: 10 }}>
-        {periodLabel}. {isLS ? 'Market-neutral: benchmark = cash, so a position’s weight IS its active bet.' : 'Active weight = portfolio − cap-weighted benchmark, per name and per sector.'} Net returns are charged the realistic per-name trading cost model (Corwin–Schultz half-spread + √-law market impact + IBKR Pro Fixed commission{isLS ? ' + flat borrow on shorts' : ''}) at <b>$5M AUM</b> — see the Net-of-Cost Bridge. Factor attribution decomposes the gross {isLS ? 'book P&L' : 'active return'} against the Phase-3 risk model (24 factors + specific); factor + specific reconciles to the realized {isLS ? 'P&L' : 'active return'} to machine precision each month. Config label: <span className="mono">{label}</span>
+        {periodLabel}. {isLS ? 'Market-neutral: benchmark = cash, so a position’s weight IS its active bet.' : 'Active weight = portfolio − cap-weighted benchmark, per name and per sector.'} Net returns are charged the realistic per-name trading cost model (Corwin–Schultz half-spread + √-law market impact + IBKR Pro Fixed commission{isLS ? ' + flat borrow on shorts' : ''}) at <b>$5M AUM</b> — see the Net-of-Cost Bridge. {isExt ? 'Returns split into index beta + core selection + the L/S sleeve overlay (see the Two-Engine Decomposition above); each engine is shown against its own benchmark.' : <>Factor attribution decomposes the gross {isLS ? 'book P&L' : 'active return'} against the Phase-3 risk model (24 factors + specific); factor + specific reconciles to the realized {isLS ? 'P&L' : 'active return'} to machine precision each month.</>} Config label: <span className="mono">{label}</span>
       </div>
     </Back>
   );
