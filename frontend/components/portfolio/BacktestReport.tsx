@@ -7,6 +7,7 @@ import {
   fetchPortfolioDetail, fetchPortfolioHoldings, fetchPortfolioSectorAllocation,
   fetchPortfolioAttribution, fetchPortfolioAttributionTimeseries, fetchPortfolioCostAttribution,
   fetchPortfolioNeutrality, fetchPortfolioSourceAttribution, fetchPortfolioDecomposition,
+  fetchPortfolioDeployment,
 } from '@/lib/api';
 import {
   pct, pctSign, num, fmtSector, fmtTurn,
@@ -562,18 +563,185 @@ function SourceAttributionSection({ label }: { label: string }) {
   );
 }
 
+// ------------------------------------------------------------ style tilts (theme rollup of factor exposures)
+const STYLE_THEMES: { name: string; factors: string[] }[] = [
+  { name: 'Size', factors: ['size'] },
+  { name: 'Value / Yield', factors: ['value', 'earnings_yield', 'dividend_yield'] },
+  { name: 'Momentum', factors: ['momentum'] },
+  { name: 'Quality', factors: ['profitability', 'earnings_qual', 'leverage'] },
+  { name: 'Risk / Vol', factors: ['beta', 'resid_vol', 'liquidity'] },
+  { name: 'Growth', factors: ['growth'] },
+];
+function StyleTilts({ label, title }: { label: string; title: string }) {
+  const { data, error } = useSWR(['pf-style', label], () => fetchPortfolioAttribution(label), { revalidateOnFocus: false });
+  if (error || !data) return null;                            // no attribution for this label → hide
+  const exp = new Map(data.latest_exposures.map((e) => [e.factor, e.active_exposure ?? 0]));
+  const bars = STYLE_THEMES.map((t) => ({ label: t.name, value: t.factors.reduce((s, f) => s + (exp.get(f) ?? 0), 0) }))
+    .filter((b) => Math.abs(b.value) > 0.01).sort((a, b) => Math.abs(b.value) - Math.abs(a.value));
+  if (!bars.length) return <div className="panel p-4"><div className="panel-head">{title} <span className="muted" style={{ fontWeight: 400 }}>· style tilts</span></div><div className="dim text-[11px] py-6 text-center">≈ style-neutral</div></div>;
+  return (
+    <div className="panel p-4">
+      <div className="panel-head">{title} <span className="muted" style={{ fontWeight: 400 }}>· style tilts</span></div>
+      <div className="panel-sub mb-2">active exposure by style theme · σ-units vs benchmark</div>
+      <HBarChart bars={bars} valFmt={(v) => (v >= 0 ? '+' : '') + v.toFixed(2)} />
+    </div>
+  );
+}
+
+// ------------------------------------------------------------ reusable sector-allocation panel (per label)
+function SectorPanel({ label, isLS, title }: { label: string; isLS: boolean; title: string }) {
+  const { data: sectors } = useSWR(['pf-sec', label], () => fetchPortfolioSectorAllocation(label), { revalidateOnFocus: false });
+  const maxSec = Math.max(0.01, ...(sectors ?? []).flatMap((s) => [Math.abs(s.weight ?? 0), Math.abs(s.benchmark_weight ?? 0)]));
+  return (
+    <div className="panel p-4 flex flex-col">
+      <div className="panel-head">{title} <span className="muted" style={{ fontWeight: 400 }}>· latest</span></div>
+      <div className="panel-sub mb-2">{isLS ? 'net long − short weight by sector'
+        : <><span style={{ color: 'var(--teal)' }}>■</span> portfolio vs <span style={{ color: 'var(--bench)' }}>■</span> cap-wtd benchmark · Active = over/underweight</>}</div>
+      <div className="flex-1 flex flex-col justify-between min-h-0 gap-0.5">
+        {(sectors ?? []).map((s) => {
+          const w = s.weight ?? 0, frac = Math.abs(w) / maxSec;
+          if (isLS) return (
+            <div key={s.sector ?? 'na'} className="flex items-center gap-2 text-[11px]">
+              <span className="w-28 truncate muted text-right">{s.sector ?? '—'}</span>
+              <div className="flex-1 relative h-3.5" style={{ background: 'var(--panel2)', borderRadius: 3 }}>
+                <div style={{ position: 'absolute', left: '50%', top: 0, bottom: 0, width: 1, background: 'var(--border)' }} />
+                <div style={{ position: 'absolute', top: 0, bottom: 0, borderRadius: 2, opacity: 0.85,
+                  background: w >= 0 ? 'var(--teal)' : 'var(--neg)', left: w >= 0 ? '50%' : `${50 - frac * 50}%`, width: `${frac * 50}%` }} />
+              </div>
+              <span className="mono w-12 text-right" style={{ color: w < 0 ? 'var(--neg)' : 'var(--tx)' }}>{pctSign(w)}</span>
+            </div>
+          );
+          const bw = s.benchmark_weight ?? 0, aw = s.active_weight ?? (w - bw);
+          return (
+            <div key={s.sector ?? 'na'} className="flex items-center gap-2 text-[11px]">
+              <span className="w-28 truncate muted text-right">{s.sector ?? '—'}</span>
+              <div className="flex-1 space-y-1">
+                <div className="relative h-2.5" style={{ background: 'var(--panel2)', borderRadius: 2 }}>
+                  <div style={{ position: 'absolute', top: 0, bottom: 0, left: 0, borderRadius: 2, background: 'var(--teal)', opacity: 0.9, width: `${(Math.abs(w) / maxSec) * 100}%` }} />
+                </div>
+                <div className="relative h-2.5" style={{ background: 'var(--panel2)', borderRadius: 2 }}>
+                  <div style={{ position: 'absolute', top: 0, bottom: 0, left: 0, borderRadius: 2, background: 'var(--bench)', opacity: 0.7, width: `${(Math.abs(bw) / maxSec) * 100}%` }} />
+                </div>
+              </div>
+              <span className="mono w-9 text-right" style={{ color: 'var(--tx)' }}>{pct(w)}</span>
+              <span className="mono w-11 text-right" style={{ color: aw >= 0 ? 'var(--pos)' : 'var(--neg)' }}>{pctSign(aw)}</span>
+            </div>
+          );
+        })}
+        {(!sectors || sectors.length === 0) && <div className="dim text-[11px] py-4 text-center">Loading…</div>}
+      </div>
+    </div>
+  );
+}
+
+// ------------------------------------------------------------ reusable holdings panel (per label)
+function HoldingsPanel({ label, isLS, longTitle }: { label: string; isLS: boolean; longTitle: string }) {
+  const { data: holdings } = useSWR(['pf-hold', label], () => fetchPortfolioHoldings(label, undefined), { revalidateOnFocus: false });
+  const longs = (holdings ?? []).filter((h) => (h.weight ?? 0) > 0);
+  const shorts = (holdings ?? []).filter((h) => (h.weight ?? 0) < 0);
+  return (
+    <div className={`grid grid-cols-1 gap-4 ${isLS ? 'xl:grid-cols-2' : ''}`}>
+      <HoldingsTable rows={longs} title={isLS ? 'Top Longs' : longTitle} showBench={!isLS}
+        note={isLS ? 'latest rebalance · Δ mo = weight change vs prior · click a header to sort'
+          : 'latest rebalance · Active = weight − benchmark · Δ mo = change vs prior · click a header to sort'} />
+      {isLS && <HoldingsTable rows={shorts} title="Top Shorts" note="latest rebalance · Δ mo = weight change vs prior · click a header to sort" />}
+    </div>
+  );
+}
+
+// ------------------------------------------------------------ 130/30 ext: beta profile + capital deployment
+function ExtBetaDeployment({ label, benchName }: { label: string; benchName: string }) {
+  const { data: neu } = useSWR(['pf-neutral', label], () => fetchPortfolioNeutrality(label), { revalidateOnFocus: false });
+  const { data: dep } = useSWR(['pf-deploy', label], () => fetchPortfolioDeployment(label), { revalidateOnFocus: false });
+  const ndates = neu?.monthly.map((p) => p.date) ?? [];
+  const s = dep?.summary;
+  const depBars = s ? [
+    { label: 'Core long', value: s.core_long ?? 0 },
+    { label: `Sleeve long (${Math.round((s.k ?? 0.5) * 100)}%)`, value: s.sleeve_long ?? 0 },
+    { label: 'Sleeve short', value: s.sleeve_short ?? 0 },
+    { label: 'Cash', value: s.cash ?? 0 },
+  ] : [];
+  return (
+    <div className="mt-5">
+      <div className="flex items-center gap-3 flex-wrap mb-2">
+        <h2 className="text-base font-bold tracking-tight" style={{ color: 'var(--tx)' }}>Beta & Capital Deployment</h2>
+        <span className="text-[11px] muted">the whole book: full-equity beta (the sleeve adds none) + where the $ and leverage go</span>
+      </div>
+      {s && (
+        <div className="takeaway mb-3 text-[12px]">
+          <b>Net {pct(s.net, 0)} long, gross {pct(s.gross, 0)} ({num((s.gross ?? 2) / Math.max(0.01, s.net ?? 1), 1)}× on capital)</b> — core long {pct(s.core_long, 0)}, a {Math.round((s.k ?? 0.5) * 100)}% L/S sleeve (+{pct(s.sleeve_long, 0)} / {pct(s.sleeve_short, 0)}), cash {pct(s.cash, 0)}. Fully invested & self-funded (short proceeds fund the sleeve longs), so net β ≈ 1.0 — full {benchName} exposure, no cash drag.
+        </div>
+      )}
+      <div className="grid grid-cols-1 xl:grid-cols-3 gap-4">
+        <div className="panel p-4">
+          <div className="panel-head">Capital Deployment <span className="muted" style={{ fontWeight: 400 }}>· % of capital</span></div>
+          <div className="panel-sub mb-2">core + the k× L/S sleeve · gross = Σ|exposure|, net ≈ 100%</div>
+          <HBarChart bars={depBars} valFmt={(v) => pctSign(v, 0)} />
+          {s && <div className="mt-2 pt-2 text-[11px] flex justify-between" style={{ borderTop: '1px solid var(--border)' }}>
+            <span className="muted">Net <b style={{ color: 'var(--tx)' }}>{pct(s.net, 0)}</b></span>
+            <span className="muted">Gross <b style={{ color: 'var(--tx)' }}>{pct(s.gross, 0)}</b></span></div>}
+        </div>
+        <div className="panel p-4">
+          <div className="panel-head">Net Market Beta <span className="muted" style={{ fontWeight: 400 }}>· Σ wᵢ·βᵢ</span></div>
+          <div className="panel-sub mb-1">raw 60-month betas · ≈ 1.0 = full equity (the dollar-neutral sleeve adds ~0)</div>
+          <MultiLineChart dates={ndates} series={[{ label: 'Net β', color: 'var(--cyan)', values: neu?.monthly.map((p) => p.net_beta) ?? [] }]} refY={1} refLabel="1.0" yFmt={(v) => v.toFixed(2)} height={185} />
+        </div>
+        <div className="panel p-4">
+          <div className="panel-head">Gross Exposure <span className="muted" style={{ fontWeight: 400 }}>· over time</span></div>
+          <div className="panel-sub mb-1">total book leverage · rises/falls as the sleeve is vol-targeted</div>
+          <MultiLineChart dates={dep?.monthly.map((p) => p.date) ?? []} series={[
+            { label: 'Gross', color: 'var(--teal)', values: dep?.monthly.map((p) => p.gross) ?? [] },
+            { label: 'Net', color: 'var(--bench)', values: dep?.monthly.map((p) => p.net) ?? [] },
+          ]} refY={1} refLabel="1.0" yFmt={(v) => pct(v, 0)} height={185} />
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ------------------------------------------------------------ 130/30 ext: per-component positioning (core vs sleeve)
+function ExtComponentPositioning({ coreLabel, sleeveLabel, coreName, sleeveName }:
+  { coreLabel: string; sleeveLabel: string; coreName: string; sleeveName: string }) {
+  return (
+    <div className="mt-5">
+      <div className="flex items-center gap-3 flex-wrap mb-2">
+        <h2 className="text-base font-bold tracking-tight" style={{ color: 'var(--tx)' }}>Positioning by Engine</h2>
+        <span className="text-[11px] muted">sector, style &amp; holdings for each sleeve, vs its OWN benchmark — a combined view would misread the cross-universe sleeve as a size bet</span>
+      </div>
+      {/* CORE (long-only equity) */}
+      <div className="text-[11px] font-bold tracking-wider mb-2" style={{ color: 'var(--teal)' }}>◆ CORE · {coreName} <span className="muted" style={{ fontWeight: 400 }}>(the 100% net-long equity book)</span></div>
+      <div className="grid grid-cols-1 xl:grid-cols-2 gap-4 mb-3">
+        <SectorPanel label={coreLabel} isLS={false} title="Core Sector Allocation" />
+        <StyleTilts label={coreLabel} title="Core" />
+      </div>
+      <HoldingsPanel label={coreLabel} isLS={false} longTitle="Core Top Holdings" />
+      {/* SLEEVE (dollar-neutral L/S overlay) */}
+      <div className="text-[11px] font-bold tracking-wider mb-2 mt-5" style={{ color: 'var(--amber)' }}>◆ SLEEVE · {sleeveName} <span className="muted" style={{ fontWeight: 400 }}>(the dollar-neutral L/S overlay, shown at full weight; enters the blend at 50%)</span></div>
+      <div className="grid grid-cols-1 xl:grid-cols-2 gap-4 mb-3">
+        <SectorPanel label={sleeveLabel} isLS={true} title="Sleeve Net Sector Exposure" />
+        <StyleTilts label={sleeveLabel} title="Sleeve" />
+      </div>
+      <HoldingsPanel label={sleeveLabel} isLS={true} longTitle="Sleeve Holdings" />
+    </div>
+  );
+}
+
 export function BacktestReport({ label, backHref = '/research/portfolios', backLabel = '← Back to Portfolios',
   periodLabel = 'Out-of-sample 2005–2023', boundaryDate, topSlot }:
   { label: string; backHref?: string; backLabel?: string; periodLabel?: string; boundaryDate?: string; topSlot?: React.ReactNode }) {
   const { data, error } = useSWR(['pf-detail', label], () => fetchPortfolioDetail(label), { revalidateOnFocus: false });
   const { data: holdings } = useSWR(['pf-hold', label], () => fetchPortfolioHoldings(label, undefined), { revalidateOnFocus: false });
   const { data: sectors } = useSWR(['pf-sec', label], () => fetchPortfolioSectorAllocation(label), { revalidateOnFocus: false });
+  // ext blends: the component labels (for per-component positioning) come from the decomposition row
+  const { data: decomp } = useSWR(['pf-decomp', label], () => fetchPortfolioDecomposition(label), { revalidateOnFocus: false });
 
   if (error) return <Back backHref={backHref} backLabel={backLabel}><div className="panel p-8 text-sm" style={{ color: 'var(--neg)' }}>Failed to load {label}.</div></Back>;
   if (!data) return <Back backHref={backHref} backLabel={backLabel}><div className="panel p-16 text-center muted text-sm">Loading report…</div></Back>;
 
   const m = data.meta;
   const isLS = m.strategy === 'long_short';
+  const isExt = m.strategy === 'ext';                        // 130/30 extension blend → per-component views
+  const benchName = m.benchmark_report === 'sp500tr' ? 'S&P 500' : 'Russell 2000';
   const uni = m.universe === 'r2500' ? 'r2500' : 'sp500';
   const modelsHref = uni === 'r2500' ? '/research/r2500-models' : '/research/models';
   const factorsHref = uni === 'r2500' ? '/research/r2500-factors' : '/research/factors';
@@ -637,7 +805,7 @@ export function BacktestReport({ label, backHref = '/research/portfolios', backL
 
       {/* performance + positioning */}
       <div className="grid grid-cols-1 xl:grid-cols-3 gap-4">
-        <div className="panel p-4 xl:col-span-2">
+        <div className={`panel p-4 ${isExt ? 'xl:col-span-3' : 'xl:col-span-2'}`}>
           <div className="panel-head">Cumulative Net Return</div>
           <div className="panel-sub mb-1">Growth of 100 · {isLS ? 'total return incl. collateral cash, ' : ''}net of cost · log scale · vs {isLS ? 'cash (market-neutral)' : 'cap-weighted universe'}</div>
           <div className="flex gap-4 text-[10px] muted mb-1">
@@ -652,7 +820,8 @@ export function BacktestReport({ label, backHref = '/research/portfolios', backL
           <DrawdownChart dates={dates} dd={monthly.map((p) => p.drawdown)} boundaryDate={boundaryDate} />
         </div>
 
-        {/* sector exposure */}
+        {/* sector exposure — combined view (hidden for ext blends: shown per-component below instead) */}
+        {!isExt && (
         <div className="panel p-4 flex flex-col">
           <div className="panel-head">Sector {isLS ? 'Net Exposure' : 'Allocation'} <span className="muted" style={{ fontWeight: 400 }}>· latest</span></div>
           <div className="panel-sub mb-2">{isLS ? 'net long − short weight by sector'
@@ -693,10 +862,12 @@ export function BacktestReport({ label, backHref = '/research/portfolios', backL
             {(!sectors || sectors.length === 0) && <div className="dim text-[11px] py-4 text-center">Loading…</div>}
           </div>
         </div>
+        )}
       </div>
 
-      {/* 130/30 extension: the two-engine (beta + core alpha + sleeve alpha) decomposition */}
-      {m.strategy === 'ext' && <DecompositionSection label={label} benchName={m.benchmark_report === 'sp500tr' ? 'S&P 500' : 'Russell 2000'} />}
+      {/* 130/30 extension: two-engine decomposition + beta/capital-deployment (combined book) */}
+      {isExt && <DecompositionSection label={label} benchName={benchName} />}
+      {isExt && <ExtBetaDeployment label={label} benchName={benchName} />}
 
       {/* net-of-cost bridge */}
       <CostBridgeSection label={label} isLS={isLS} />
@@ -765,18 +936,31 @@ export function BacktestReport({ label, backHref = '/research/portfolios', backL
         </div>
       </div>
 
-      {/* factor attribution */}
-      <AttributionSection label={label} isLS={isLS} />
+      {/* ext blends: per-component positioning (core + sleeve, each vs its OWN benchmark) replaces the
+          combined attribution + holdings — a combined view misreads the cross-universe sleeve as a size bet */}
+      {isExt ? (
+        (decomp?.summary.core_label && decomp?.summary.sleeve_label) ? (
+          <ExtComponentPositioning
+            coreLabel={decomp.summary.core_label} sleeveLabel={decomp.summary.sleeve_label}
+            coreName={uni === 'sp500' ? 'S&P 500 Long-Only' : 'Russell 2500 Long-Only'}
+            sleeveName="Russell 2500 Long-Short (te8)" />
+        ) : null
+      ) : (
+        <>
+          {/* factor attribution */}
+          <AttributionSection label={label} isLS={isLS} />
 
-      {/* holdings */}
-      <div className={`grid grid-cols-1 gap-4 mt-4 ${isLS ? 'xl:grid-cols-2' : ''}`}>
-        <HoldingsTable rows={longs} title={isLS ? 'Top Longs' : 'Top Holdings'} showBench={!isLS}
-          note={isLS ? 'latest rebalance · Δ mo = weight change vs prior rebalance · click a header to sort'
-            : 'latest rebalance · Active = weight − benchmark · Δ mo = change vs prior rebalance · click a header to sort'} />
-        {isLS && (shorts.length > 0
-          ? <HoldingsTable rows={shorts} title="Top Shorts" note="latest rebalance · Δ mo = weight change vs prior rebalance · click a header to sort" />
-          : <div className="panel p-4"><div className="panel-head">Top Shorts</div><div className="dim text-[11px] py-8 text-center">Short book re-persisting — refresh shortly.</div></div>)}
-      </div>
+          {/* holdings */}
+          <div className={`grid grid-cols-1 gap-4 mt-4 ${isLS ? 'xl:grid-cols-2' : ''}`}>
+            <HoldingsTable rows={longs} title={isLS ? 'Top Longs' : 'Top Holdings'} showBench={!isLS}
+              note={isLS ? 'latest rebalance · Δ mo = weight change vs prior rebalance · click a header to sort'
+                : 'latest rebalance · Active = weight − benchmark · Δ mo = change vs prior rebalance · click a header to sort'} />
+            {isLS && (shorts.length > 0
+              ? <HoldingsTable rows={shorts} title="Top Shorts" note="latest rebalance · Δ mo = weight change vs prior rebalance · click a header to sort" />
+              : <div className="panel p-4"><div className="panel-head">Top Shorts</div><div className="dim text-[11px] py-8 text-center">Short book re-persisting — refresh shortly.</div></div>)}
+          </div>
+        </>
+      )}
 
       <div className="text-[10px] dim mt-4" style={{ borderTop: '1px solid var(--border-soft)', paddingTop: 10 }}>
         {periodLabel}. {isLS ? 'Market-neutral: benchmark = cash, so a position’s weight IS its active bet.' : 'Active weight = portfolio − cap-weighted benchmark, per name and per sector.'} Net returns are charged the realistic per-name trading cost model (Corwin–Schultz half-spread + √-law market impact + IBKR Pro Fixed commission{isLS ? ' + flat borrow on shorts' : ''}) at <b>$5M AUM</b> — see the Net-of-Cost Bridge. Factor attribution decomposes the gross {isLS ? 'book P&L' : 'active return'} against the Phase-3 risk model (24 factors + specific); factor + specific reconciles to the realized {isLS ? 'P&L' : 'active return'} to machine precision each month. Config label: <span className="mono">{label}</span>

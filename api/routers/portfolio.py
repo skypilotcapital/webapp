@@ -844,3 +844,71 @@ def get_decomposition(label: str):
         ann_sleeve_alpha=(sum(sa) / n * 12),
         ann_total=((sum(idx) + sum(ca) + sum(sa)) / n * 12))
     return DecompositionResponse(summary=summary, monthly=monthly)
+
+
+# --- Capital deployment (130/30 extension): where the dollars + leverage go, by sleeve --------
+class DeploymentPoint(BaseModel):
+    date: str
+    core_long: Optional[float]      # core book long exposure (≈ 100% of capital)
+    sleeve_long: Optional[float]    # + k · sleeve long
+    sleeve_short: Optional[float]   # − k · sleeve short (negative)
+    net: Optional[float]            # ≈ 100% net long
+    gross: Optional[float]          # ≈ 100% + 2·k·sleeve_gross
+
+
+class DeploymentSummary(BaseModel):
+    k: Optional[float]
+    core_long: Optional[float]
+    sleeve_long: Optional[float]
+    sleeve_short: Optional[float]
+    net: Optional[float]
+    gross: Optional[float]
+    cash: Optional[float]           # uninvested capital (≈ 0 — the book is fully deployed & self-funded)
+
+
+class DeploymentResponse(BaseModel):
+    summary: DeploymentSummary
+    monthly: List[DeploymentPoint]
+
+
+@router.get("/backtests/{label}/deployment", response_model=DeploymentResponse)
+def get_deployment(label: str):
+    """Capital deployment for a 130/30 EXTENSION product — how $1 of capital + short-proceeds fund the
+    two sleeves: Core long (≈100% of capital) + Sleeve long (k·) − Sleeve short (k·) = Net (≈100%),
+    Gross (≈100%+2·k·sleeve). Cash ≈ 0 (fully invested, the sleeve self-funds via short proceeds).
+    Aggregates the two COMPONENT books' weights (not the netted blend). 404 if not an extension."""
+    with get_db() as conn:
+        d = conn.execute(text(
+            "SELECT core_label, sleeve_label, k FROM portfolio.blend_decomposition "
+            "WHERE model_label = :l LIMIT 1"), {"l": label}).fetchone()
+        if d is None:
+            raise HTTPException(status_code=404, detail=f"No deployment for '{label}' (not an extension).")
+        core_label, sleeve_label, k = d[0], d[1], float(d[2] or 0.5)
+
+        def _agg(lbl):   # {date: (long, short)} from a label's weights
+            rows = conn.execute(text("""
+                SELECT date, sum(weight) FILTER (WHERE weight > 0) AS lng,
+                       sum(weight) FILTER (WHERE weight < 0) AS sht
+                FROM portfolio.weights WHERE model_label = :l GROUP BY date"""), {"l": lbl}).fetchall()
+            return {r[0]: ((_v(r[1]) or 0.0), (_v(r[2]) or 0.0)) for r in rows}
+
+        core, sleeve = _agg(core_label), _agg(sleeve_label)
+
+    monthly = []
+    for dt in sorted(set(core) & set(sleeve)):
+        c_long, c_short = core[dt]
+        s_long, s_short = sleeve[dt]
+        core_long = c_long + c_short                 # core is long-only ⇒ ≈ c_long
+        sl_long, sl_short = k * s_long, k * s_short   # sleeve enters at k
+        net = core_long + sl_long + sl_short
+        gross = abs(c_long) + abs(c_short) + abs(sl_long) + abs(sl_short)
+        monthly.append(DeploymentPoint(
+            date=_iso(dt), core_long=round(core_long, 5), sleeve_long=round(sl_long, 5),
+            sleeve_short=round(sl_short, 5), net=round(net, 5), gross=round(gross, 5)))
+    if not monthly:
+        raise HTTPException(status_code=404, detail=f"No component weights for '{label}'.")
+    last = monthly[-1]
+    summary = DeploymentSummary(
+        k=k, core_long=last.core_long, sleeve_long=last.sleeve_long, sleeve_short=last.sleeve_short,
+        net=last.net, gross=last.gross, cash=round(max(0.0, 1.0 - (last.core_long or 0.0)), 5))
+    return DeploymentResponse(summary=summary, monthly=monthly)

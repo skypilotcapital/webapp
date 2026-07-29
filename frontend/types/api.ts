@@ -539,3 +539,16 @@ export interface DecompositionPoint {
   cum_index: number | null; cum_core_alpha: number | null; cum_sleeve_alpha: number | null; cum_total: number | null;
 }
 export interface PortfolioDecomposition { summary: DecompositionSummary; monthly: DecompositionPoint[]; }
+
+// Extension capital deployment — core/sleeve/net/gross exposure (where the $ + leverage go).
+export interface DeploymentPoint {
+  date: string;
+  core_long: number | null; sleeve_long: number | null; sleeve_short: number | null;
+  net: number | null; gross: number | null;
+}
+export interface DeploymentSummary {
+  k: number | null;
+  core_long: number | null; sleeve_long: number | null; sleeve_short: number | null;
+  net: number | null; gross: number | null; cash: number | null;
+}
+export interface PortfolioDeployment { summary: DeploymentSummary; monthly: DeploymentPoint[]; }
