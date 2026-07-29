@@ -380,15 +380,28 @@ function DecompositionSection({ label, benchName }: { label: string; benchName: 
   const s = data.summary;
   const kPct = s.k != null ? Math.round(s.k * 100) : 50;
   const dates = data.monthly.map((p) => p.date);
-  // the two ALPHA engines stacked = cumulative outperformance over the index, by source
+  const cumCore = data.monthly.map((p) => p.cum_core_alpha);
+  const cumSleeve = data.monthly.map((p) => p.cum_sleeve_alpha);
+  // stacked cumulative = total outperformance over the index, split by engine
   const stack = [
-    { label: 'Core selection', color: 'var(--teal)', values: data.monthly.map((p) => p.cum_core_alpha) },
-    { label: 'Sleeve overlay', color: 'var(--amber)', values: data.monthly.map((p) => p.cum_sleeve_alpha) },
+    { label: 'Core selection', color: 'var(--teal)', values: cumCore },
+    { label: 'Sleeve overlay', color: 'var(--amber)', values: cumSleeve },
   ];
-  const bars = [
-    { label: `${benchName} beta`, value: s.ann_index ?? 0 },
-    { label: 'Core selection', value: s.ann_core_alpha ?? 0 },
-    { label: `Sleeve overlay (${kPct}%)`, value: s.ann_sleeve_alpha ?? 0 },
+  // rolling 12-month alpha = trailing-year sum = cum[i] − cum[i−12]. The cumulative just grows; the
+  // rolling view shows WHEN each engine adds or loses — e.g. the sleeve dipping in the 2025 junk rally.
+  const roll12 = (cum: (number | null)[]) =>
+    cum.map((v, i) => (i < 12 || v == null || cum[i - 12] == null) ? null : (v as number) - (cum[i - 12] as number));
+  const r12Core = roll12(cumCore);
+  const r12Sleeve = roll12(cumSleeve);
+  const rollSeries = [
+    { label: 'Core selection', color: 'var(--teal)', values: r12Core },
+    { label: 'Sleeve overlay', color: 'var(--amber)', values: r12Sleeve },
+    { label: 'Total alpha', color: 'var(--tx)', values: r12Core.map((c, i) => (c == null || r12Sleeve[i] == null) ? null : c + (r12Sleeve[i] as number)) },
+  ];
+  const sources = [
+    { label: `${benchName} beta`, value: s.ann_index ?? 0, color: 'var(--bench)' },
+    { label: 'Core selection', value: s.ann_core_alpha ?? 0, color: 'var(--teal)' },
+    { label: `Sleeve overlay (${kPct}%)`, value: s.ann_sleeve_alpha ?? 0, color: 'var(--amber)' },
   ];
   return (
     <div className="mt-5">
@@ -401,21 +414,36 @@ function DecompositionSection({ label, benchName }: { label: string; benchName: 
         <b>Total {pctSign(s.ann_total)}/yr = {benchName} beta {pctSign(s.ann_index)} + core selection {pctSign(s.ann_core_alpha)} + a {kPct}% L/S sleeve {pctSign(s.ann_sleeve_alpha)}.</b>{' '}
         The sleeve is near-uncorrelated to the index, so it adds alpha <i>without</i> adding beta — that’s the portable-alpha lift over just owning {benchName}. The book carries full equity beta, so its drawdowns are equity-crash-shaped.
       </div>
-      <div className="grid grid-cols-1 xl:grid-cols-3 gap-4">
-        <div className="panel p-4 xl:col-span-2">
+      {/* compact return-sources strip — replaces the sparse 3-bar chart (the numbers are in the takeaway) */}
+      <div className="flex items-center gap-x-5 gap-y-1 flex-wrap mb-3 px-1 text-[12px]">
+        <span className="text-[10px] font-bold tracking-wider muted">SOURCES /yr</span>
+        {sources.map((x) => (
+          <span key={x.label} className="flex items-center gap-1.5">
+            <span style={{ color: x.color }}>■</span>
+            <span className="muted">{x.label}</span>
+            <span className="mono font-bold" style={{ color: (x.value ?? 0) >= 0 ? 'var(--pos)' : 'var(--neg)' }}>{pctSign(x.value, 1)}</span>
+          </span>
+        ))}
+      </div>
+      <div className="grid grid-cols-1 xl:grid-cols-2 gap-4">
+        <div className="panel p-4">
           <div className="panel-head">Cumulative Alpha Over {benchName} <span className="muted" style={{ fontWeight: 400 }}>· by engine, stacked</span></div>
-          <div className="panel-sub mb-1">the two alpha engines above the index return · top of the stack = total outperformance vs {benchName}</div>
+          <div className="panel-sub mb-1">the two alpha engines above the index · top of stack = total outperformance since 2005</div>
           <div className="flex gap-3 text-[10px] muted mb-1 flex-wrap">
             <span><span style={{ color: 'var(--teal)' }}>■</span> Core selection</span>
             <span><span style={{ color: 'var(--amber)' }}>■</span> Sleeve overlay</span>
-            <span className="dim">top of stack = total alpha vs {benchName}</span>
           </div>
-          <StackedAreaChart dates={dates} series={stack} refY={0} refLabel="0" yFmt={(v) => pct(v, 0)} height={240} />
+          <StackedAreaChart dates={dates} series={stack} refY={0} refLabel="0" yFmt={(v) => pct(v, 0)} height={230} />
         </div>
         <div className="panel p-4">
-          <div className="panel-head">Return Sources <span className="muted" style={{ fontWeight: 400 }}>· annualized</span></div>
-          <div className="panel-sub mb-2">index beta vs the two alpha engines · most of the return is beta, with a thin alpha premium on top</div>
-          <HBarChart bars={bars} valFmt={(v) => pctSign(v, 1)} />
+          <div className="panel-head">Rolling 12-Month Alpha <span className="muted" style={{ fontWeight: 400 }}>· by engine</span></div>
+          <div className="panel-sub mb-1">trailing-year contribution of each engine · shows when the sleeve alpha turns (the 2025 junk rally is visible)</div>
+          <div className="flex gap-3 text-[10px] muted mb-1 flex-wrap">
+            <span><span style={{ color: 'var(--teal)' }}>■</span> Core</span>
+            <span><span style={{ color: 'var(--amber)' }}>■</span> Sleeve</span>
+            <span><span style={{ color: 'var(--tx)' }}>▬</span> Total</span>
+          </div>
+          <MultiLineChart dates={dates} series={rollSeries} refY={0} refLabel="0" yFmt={(v) => pct(v, 0)} height={230} />
         </div>
       </div>
     </div>
