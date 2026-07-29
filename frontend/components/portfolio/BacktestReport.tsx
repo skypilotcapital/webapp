@@ -820,9 +820,10 @@ export function BacktestReport({ label, backHref = '/research/portfolios', backL
           <DrawdownChart dates={dates} dd={monthly.map((p) => p.drawdown)} boundaryDate={boundaryDate} />
         </div>
 
-        {/* sector exposure — combined view (hidden for ext blends: shown per-component below instead) */}
+        {/* sector allocation + style-tilt rollup (right column) — ext blends show these per-component below */}
         {!isExt && (
-        <div className="panel p-4 flex flex-col">
+        <div className="flex flex-col gap-4">
+        <div className="panel p-4 flex flex-col flex-1">
           <div className="panel-head">Sector {isLS ? 'Net Exposure' : 'Allocation'} <span className="muted" style={{ fontWeight: 400 }}>· latest</span></div>
           <div className="panel-sub mb-2">{isLS ? 'net long − short weight by sector'
             : <><span style={{ color: 'var(--teal)' }}>■</span> portfolio vs <span style={{ color: 'var(--bench)' }}>■</span> cap-wtd benchmark · Active = over/underweight</>}</div>
@@ -861,6 +862,8 @@ export function BacktestReport({ label, backHref = '/research/portfolios', backL
             })}
             {(!sectors || sectors.length === 0) && <div className="dim text-[11px] py-4 text-center">Loading…</div>}
           </div>
+        </div>
+        <StyleTilts label={label} title="Style" />
         </div>
         )}
       </div>
