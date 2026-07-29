@@ -20,10 +20,11 @@ export default function PortfoliosLanding() {
       </div>
       <h1 className="text-2xl font-bold tracking-tight mb-1" style={{ color: 'var(--tx)' }}>Live / Paper Portfolios</h1>
       <p className="text-[13px] mb-5 max-w-3xl" style={{ color: 'var(--tx-mut)' }}>
-        The two production finalists, tracked forward as <b>modeled paper portfolios</b> — our optimizer and $5M
-        cost model continued past the in-sample window to latest available data. IBKR paper and live tracks
-        follow on the same pages, plus an exploratory <b>R2500 long-only research track</b> (paper only —
-        thin net, not a launch product). The research hub remains the in-sample decision surface.
+        The two <b>production finalists</b> (config-locked, is_production), tracked forward as <b>modeled paper
+        portfolios</b> — our optimizer + $5M cost model continued past the in-sample window to latest data;
+        IBKR paper and live tracks follow on the same pages. Below them, a <b>Production Candidate</b> (the
+        S&amp;P 500 Extension 150/50 — promoted, but not yet config-locked / holdout-disciplined) and
+        exploratory <b>research / paper</b> tracks. The research hub remains the in-sample decision surface.
       </p>
 
       {error && <div className="panel p-8 text-sm" style={{ color: 'var(--neg)' }}>Failed to load production portfolios.</div>}
@@ -31,6 +32,7 @@ export default function PortfoliosLanding() {
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-5">
         {(prod ?? []).map((r) => <ProductCard key={r.model_label} row={r} />)}
+        {PRODUCTS.filter((p) => p.track === 'candidate').map((p) => <ResearchCard key={p.slug} product={p} />)}
         {PRODUCTS.filter((p) => p.track === 'research').map((p) => <ResearchCard key={p.slug} product={p} />)}
       </div>
     </div>
@@ -118,7 +120,9 @@ function ResearchCard({ product }: { product: ProductDef }) {
   return (
     <Link href={`/portfolios/${product.slug}`} className="panel group block p-5 transition-all duration-300 hover:shadow-md">
       <div className="flex items-center gap-2 flex-wrap mb-2">
-        <span className="pill" style={{ background: 'rgba(180,83,9,0.13)', color: 'var(--amber)' }}>🔬 Research · Paper</span>
+        {product.track === 'candidate'
+          ? <span className="pill" style={{ background: 'rgba(30,64,175,0.13)', color: 'var(--cyan)' }}>◆ Production Candidate</span>
+          : <span className="pill" style={{ background: 'rgba(180,83,9,0.13)', color: 'var(--amber)' }}>🔬 Research · Paper</span>}
         <span className="pill pill-cyan">{product.universe === 'sp500' ? 'S&P 500' : 'Russell 2500'}</span>
         <span className="pill pill-cyan">{product.strategy === 'ext' ? '150/50 Extension' : product.strategy === 'long_short' ? 'Long-short' : 'Long-only'}</span>
       </div>

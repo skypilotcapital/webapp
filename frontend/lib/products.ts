@@ -13,7 +13,9 @@ export interface ProductDef {
   universe: string;   // 'sp500' | 'r2500'
   strategy: string;   // 'long_only' | 'long_short'
   blurb: string;
-  track?: 'production' | 'research';  // 'research' = paper/exploratory, NOT a launch product (distinct card)
+  // 'production' = one of the 2 locked is_production finalists · 'candidate' = a Production Candidate
+  // (promoted, but not yet config-locked / holdout-disciplined) · 'research' = paper/exploratory
+  track?: 'production' | 'candidate' | 'research';
   fullLabel?: string;                 // explicit modeled-paper _full label (research tracks: fullLabelOf can't derive it)
 }
 
@@ -37,12 +39,13 @@ export const PRODUCTS: ProductDef[] = [
     blurb: 'Research track · NR014 (70/30 blend) · TE 3% · ~150 names · net of realistic cost @ $5M. Thin net; long-only small-cap, not a launch product.',
   },
   {
-    // RESEARCH/PAPER — 130/30 extension: S&P 500 long-only core + a 50% R2500 L/S overlay (portable
-    // alpha). Benchmarked to the S&P 500 TR. See r2500_ls_extension_analysis_2026-07.md.
+    // PRODUCTION CANDIDATE (promoted 2026-07-29) — 150/50 extension: S&P 500 long-only core + a 50%
+    // R2500 L/S overlay (portable alpha), benchmarked to S&P 500 TR. NOT is_production (not yet
+    // config-locked / holdout-disciplined). See r2500_ls_extension_analysis_2026-07.md.
     slug: 'sp500-ext', name: 'S&P 500 · Extension 150/50', short: 'S&P 500 Ext',
-    universe: 'sp500', strategy: 'ext', track: 'research',
+    universe: 'sp500', strategy: 'ext', track: 'candidate',
     fullLabel: 'ext_sp500_n014_te8_150_50_full_rc5',
-    blurb: 'Research track · 150/50 extension: S&P 500 core (N014) + 50% R2500 L/S sleeve (te8) as a portable-alpha overlay · benchmarked to S&P 500 TR · net of realistic cost @ $5M. Enhanced-equity, full equity drawdowns.',
+    blurb: 'Production candidate · 150/50 extension: S&P 500 core (N014) + 50% R2500 L/S sleeve (te8) as a portable-alpha overlay · benchmarked to S&P 500 TR · net of realistic cost @ $5M. Enhanced-equity, full equity drawdowns.',
   },
   {
     // RESEARCH/PAPER — same-universe 130/30 extension: R2500 long-only core + a 50% R2500 L/S overlay.

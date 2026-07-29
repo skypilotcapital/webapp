@@ -14,14 +14,16 @@ export default function StrategyPage() {
     { revalidateOnFocus: false });
 
   if (!product) return <Shell><NotFound slug={slug} /></Shell>;
-  // RESEARCH track: no is_production row exists — render straight from the explicit full label.
-  if (product.track === 'research' && product.fullLabel) {
+  // RESEARCH / CANDIDATE tracks: no is_production row exists — render straight from the explicit full label.
+  if ((product.track === 'research' || product.track === 'candidate') && product.fullLabel) {
     return (
       <BacktestReport
         label={product.fullLabel}
         backHref="/portfolios"
         backLabel="← All portfolios"
-        periodLabel="Full track 2005–2026 · research (OOS descriptive)"
+        periodLabel={product.track === 'candidate'
+          ? 'Full track 2005–2026 · production candidate (not config-locked)'
+          : 'Full track 2005–2026 · research (OOS descriptive)'}
         boundaryDate={INSAMPLE_END}
         topSlot={<TrackSelector product={product} />}
       />
