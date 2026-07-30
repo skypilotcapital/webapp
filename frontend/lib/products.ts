@@ -13,22 +13,41 @@ export interface ProductDef {
   universe: string;   // 'sp500' | 'r2500'
   strategy: string;   // 'long_only' | 'long_short'
   blurb: string;
-  // 'production' = one of the 2 locked is_production finalists · 'candidate' = a Production Candidate
+  // 'production' = a locked is_production finalist · 'candidate' = a Production Candidate
   // (promoted, but not yet config-locked / holdout-disciplined) · 'research' = paper/exploratory
   track?: 'production' | 'candidate' | 'research';
   fullLabel?: string;                 // explicit modeled-paper _full label (research tracks: fullLabelOf can't derive it)
+  // Explicit is_production label. REQUIRED whenever two products share (universe, strategy) — the
+  // R2500 L/S book now ships at two vol targets (te6 and te8), so the universe+strategy heuristic
+  // below is no longer 1:1 and would send both cards to the same page.
+  prodLabel?: string;
 }
 
 export const PRODUCTS: ProductDef[] = [
   {
     slug: 'sp500', name: 'S&P 500 · Long-Only', short: 'S&P 500 LO',
     universe: 'sp500', strategy: 'long_only', track: 'production',
+    prodLabel: 'n014_sp500_LOCKED_relcap_rc5_lam0.5_te3_sec3_tonone',
     blurb: 'Cost-aware N014 (70/30 1M/3M blend) · TE 3% · sector ±3% · net of realistic cost @ $5M.',
   },
   {
-    slug: 'r2500-ls', name: 'Russell 2500 · Long-Short', short: 'R2500 L/S',
+    // The DRAWDOWN-MANAGED standalone market-neutral product. Same signal and construction as the
+    // te8 book below — the vol target is the difference, and it was deliberately chosen as the
+    // drawdown lever (user, 2026-07-17). Always name the vol target when referring to "the R2500 L/S".
+    slug: 'r2500-ls', name: 'Russell 2500 · Long-Short (6% vol)', short: 'R2500 L/S 6%',
     universe: 'r2500', strategy: 'long_short', track: 'production',
-    blurb: 'Market-neutral NR012 (50/50 blend) · 6% vol target · dollar- & sector-neutral.',
+    prodLabel: 'nr012_r2500_ls_LOCKED_v2_rc5_lam2.0_te6_sec10_to20',
+    blurb: 'Market-neutral NR012 (50/50 blend) · 6% vol target · dollar- & sector-neutral. The drawdown-managed variant: shallower max drawdown than the 8% book, lower return.',
+  },
+  {
+    // PRODUCTION (promoted 2026-07-30). SAME signal + SAME construction as the 6% book above; the
+    // ONLY parameter that differs is the vol target (8% vs 6%). It is also the overlay engine inside
+    // the S&P 500 Extension 150/50 (held there at 0.5×), which is why it had to be config-locked —
+    // the extension cannot regenerate monthly unless this book can. See nr012_r2500_ls_te8_LOCKED.yaml.
+    slug: 'r2500-ls-te8', name: 'Russell 2500 · Long-Short (8% vol)', short: 'R2500 L/S 8%',
+    universe: 'r2500', strategy: 'long_short', track: 'production',
+    prodLabel: 'nr012_r2500_ls_te8_LOCKED_v2_rc5_lam2.0_te8_sec10_to20',
+    blurb: 'Market-neutral NR012 (50/50 blend) · 8% vol target · dollar- & sector-neutral. Same signal and construction as the 6% book, run hotter: higher return and deeper drawdowns. Also the portable-alpha overlay inside the S&P 500 Extension 150/50.',
   },
   {
     // RESEARCH/PAPER track (not a launch product): promoted 2026-07-28. R2500 long-only.
@@ -65,8 +84,12 @@ const slugFor = (universe: string | null, strategy: string | null) =>
     : strategy === 'ext' ? `${universe}-ext`
     : `${universe}-${strategy === 'long_short' ? 'ls' : 'lo'}`;
 
-export const slugForRow = (r: Pick<PortfolioBacktest, 'universe' | 'strategy'>) =>
-  slugFor(r.universe, r.strategy);
+// Match on the explicit production label FIRST. The universe+strategy heuristic below stopped being
+// 1:1 when the R2500 L/S book shipped at two vol targets (te6 + te8) — without this, both production
+// rows would resolve to 'r2500-ls' and render as duplicate cards pointing at the same page.
+export const slugForRow = (r: Pick<PortfolioBacktest, 'universe' | 'strategy'> & { model_label?: string }) =>
+  (r.model_label && PRODUCTS.find((p) => p.prodLabel === r.model_label)?.slug)
+  || slugFor(r.universe, r.strategy);
 
 export const productForSlug = (slug: string) => PRODUCTS.find((p) => p.slug === slug);
 
