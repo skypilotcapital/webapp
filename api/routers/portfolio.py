@@ -354,15 +354,18 @@ def list_backtests(
     conds, params = [], {}
     if not include_legacy:
         conds.append("NOT m.is_legacy")
-    if not include_v1:
+    if production:
+        # is_production is the hand-curated "what's live" flag — authoritative. Skip the browse-grid
+        # scoping filters below: the S&P 500 Extension production label is a `_full` materialized blend
+        # and sits outside the _relcap/_v2 optimizer grid, so those filters would wrongly drop it.
+        conds.append("m.is_production")
+    elif not include_v1:
         # Default research surface: SP500 = the relative-cap re-lock grid (_relcap, 2026-07-26); R2500 =
         # the v2 risk-model grid (_v2). The old SP500 5%-cap grid (_v2_) is superseded — browsable via
         # include_v1=true alongside the retired v1 twins. Spent-holdout `_full` books are excluded here
         # (they belong to the Portfolios tracking pages, fetched by label).
         conds.append(r"(m.model_label LIKE '%\_relcap\_%' ESCAPE '\' OR (m.model_label LIKE '%\_v2\_%' ESCAPE '\' AND m.universe <> 'sp500'))")
         conds.append(r"m.model_label NOT LIKE '%\_full%' ESCAPE '\'")
-    if production:
-        conds.append("m.is_production")
     for col, val in (("universe", universe), ("strategy", strategy), ("variant", variant),
                      ("experiment", experiment), ("signal_model_id", model)):
         if val:
