@@ -76,8 +76,9 @@ function ProductCard({ row }: { row: PortfolioBacktest }) {
 
       {/* in-sample headline */}
       <div className="text-[10px] font-bold tracking-wider mb-1" style={{ color: 'var(--tx-dim)' }}>IN-SAMPLE 2005–2023 (validated)</div>
-      <div className="grid grid-cols-4 gap-2 mb-3">
-        <MiniStat label={isLS ? 'Ann Excess' : 'Ann Active'} value={pctSign(isLS ? row.ann_credited : row.ann_active)} color={((isLS ? row.ann_credited : row.ann_active) ?? 0) >= 0 ? 'var(--pos)' : 'var(--neg)'} />
+      <div className="grid grid-cols-3 sm:grid-cols-5 gap-2 mb-3">
+        <MiniStat label="Ann Return" value={pctSign(isLS ? row.ann_total_credited : row.ann_total_net)} color={((isLS ? row.ann_total_credited : row.ann_total_net) ?? 0) >= 0 ? 'var(--pos)' : 'var(--neg)'} sub={isLS ? 'incl. cash' : 'total'} />
+        <MiniStat label={isLS ? 'Ann Excess' : 'Ann Active'} value={pctSign(isLS ? row.ann_credited : row.ann_active)} color={((isLS ? row.ann_credited : row.ann_active) ?? 0) >= 0 ? 'var(--pos)' : 'var(--neg)'} sub={isLS ? 'vs cash' : 'vs bench'} />
         <MiniStat label="Info Ratio" value={num(isLS ? row.ir_credited : row.ir)} />
         <MiniStat label={isLS ? 'Realized Vol' : 'Realized TE'} value={pct(row.realized_te, 1)} sub={row.te_target != null ? `${pct(row.te_target, 0)} tgt` : undefined} />
         <MiniStat label="Max DD" value={pct(row.max_drawdown, 0)} color="var(--neg)" />
@@ -137,8 +138,9 @@ function ResearchCard({ product }: { product: ProductDef }) {
 
       {/* full-period headline (incl. OOS) — the honest all-in number for a research track */}
       <div className="text-[10px] font-bold tracking-wider mb-1" style={{ color: 'var(--tx-dim)' }}>FULL TRACK 2005–2026 (incl. live)</div>
-      <div className="grid grid-cols-4 gap-2 mb-3">
-        <MiniStat label="Ann Active" value={pctSign(meta?.ann_active ?? null)} color={(meta?.ann_active ?? 0) >= 0 ? 'var(--pos)' : 'var(--neg)'} />
+      <div className="grid grid-cols-3 sm:grid-cols-5 gap-2 mb-3">
+        <MiniStat label="Ann Return" value={pctSign((meta?.strategy === 'long_short' ? meta?.ann_total_credited : meta?.ann_total_net) ?? null)} color={((meta?.strategy === 'long_short' ? meta?.ann_total_credited : meta?.ann_total_net) ?? 0) >= 0 ? 'var(--pos)' : 'var(--neg)'} sub="total" />
+        <MiniStat label="Ann Active" value={pctSign(meta?.ann_active ?? null)} color={(meta?.ann_active ?? 0) >= 0 ? 'var(--pos)' : 'var(--neg)'} sub="vs bench" />
         <MiniStat label="Info Ratio" value={num(meta?.ir ?? null)} />
         <MiniStat label="Realized TE" value={pct(meta?.realized_te ?? null, 1)} sub={meta?.te_target != null ? `${pct(meta.te_target, 0)} tgt` : undefined} />
         <MiniStat label="Max DD" value={pct(meta?.max_drawdown ?? null, 0)} color="var(--neg)" />
