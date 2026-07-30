@@ -14,14 +14,19 @@ export default function StrategyPage() {
     { revalidateOnFocus: false });
 
   if (!product) return <Shell><NotFound slug={slug} /></Shell>;
-  // RESEARCH / CANDIDATE tracks: no is_production row exists — render straight from the explicit full label.
-  if ((product.track === 'research' || product.track === 'candidate') && product.fullLabel) {
+  // Any product with an EXPLICIT fullLabel (the ext production track + research/candidate paper tracks)
+  // is a single materialized-blend label — render it straight, with the honest full-period framing.
+  // The 2 locked optimizer finalists have NO explicit fullLabel (they derive it via fullLabelOf from the
+  // is_production row) and fall through to the in-sample/OOS DB path below.
+  if (product.fullLabel) {
     return (
       <BacktestReport
         label={product.fullLabel}
         backHref="/portfolios"
         backLabel="← All portfolios"
-        periodLabel={product.track === 'candidate'
+        periodLabel={product.track === 'production'
+          ? 'Full track 2005–2026 · production (modeled paper) · first IBKR paper candidate'
+          : product.track === 'candidate'
           ? 'Full track 2005–2026 · production candidate (not config-locked)'
           : 'Full track 2005–2026 · research (OOS descriptive)'}
         boundaryDate={INSAMPLE_END}

@@ -39,13 +39,15 @@ export const PRODUCTS: ProductDef[] = [
     blurb: 'Research track · NR014 (70/30 blend) · TE 3% · ~150 names · net of realistic cost @ $5M. Thin net; long-only small-cap, not a launch product.',
   },
   {
-    // PRODUCTION CANDIDATE (promoted 2026-07-29) — 150/50 extension: S&P 500 long-only core + a 50%
-    // R2500 L/S overlay (portable alpha), benchmarked to S&P 500 TR. NOT is_production (not yet
-    // config-locked / holdout-disciplined). See r2500_ls_extension_analysis_2026-07.md.
+    // PRODUCTION (promoted 2026-07-29) — 150/50 extension: S&P 500 long-only core + a 50% R2500 L/S
+    // overlay (portable alpha), benchmarked to S&P 500 TR. is_production=true (the FIRST IBKR
+    // paper-trading candidate). Has an explicit fullLabel (a single materialized-blend track), so it
+    // renders via the full-track card, NOT the in-sample/OOS ProductCard shape of the 2 locked
+    // optimizer finalists. See r2500_ls_extension_analysis_2026-07.md.
     slug: 'sp500-ext', name: 'S&P 500 · Extension 150/50', short: 'S&P 500 Ext',
-    universe: 'sp500', strategy: 'ext', track: 'candidate',
+    universe: 'sp500', strategy: 'ext', track: 'production',
     fullLabel: 'ext_sp500_n014_te8_150_50_full_rc5',
-    blurb: 'Production candidate · 150/50 extension: S&P 500 core (N014) + 50% R2500 L/S sleeve (te8) as a portable-alpha overlay · benchmarked to S&P 500 TR · net of realistic cost @ $5M. Enhanced-equity, full equity drawdowns.',
+    blurb: 'Production · 150/50 extension: S&P 500 core (N014) + 50% R2500 L/S sleeve (te8) as a portable-alpha overlay · benchmarked to S&P 500 TR · net of realistic cost @ $5M. Enhanced-equity, full equity drawdowns. First IBKR paper-trading candidate.',
   },
   {
     // RESEARCH/PAPER — same-universe 130/30 extension: R2500 long-only core + a 50% R2500 L/S overlay.
@@ -60,6 +62,7 @@ export const PRODUCTS: ProductDef[] = [
 const slugFor = (universe: string | null, strategy: string | null) =>
   universe === 'r2500' && strategy === 'long_short' ? 'r2500-ls'
     : universe === 'sp500' && strategy === 'long_only' ? 'sp500'
+    : strategy === 'ext' ? `${universe}-ext`
     : `${universe}-${strategy === 'long_short' ? 'ls' : 'lo'}`;
 
 export const slugForRow = (r: Pick<PortfolioBacktest, 'universe' | 'strategy'>) =>

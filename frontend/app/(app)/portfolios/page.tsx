@@ -20,10 +20,10 @@ export default function PortfoliosLanding() {
       </div>
       <h1 className="text-2xl font-bold tracking-tight mb-1" style={{ color: 'var(--tx)' }}>Live / Paper Portfolios</h1>
       <p className="text-[13px] mb-5 max-w-3xl" style={{ color: 'var(--tx-mut)' }}>
-        The two <b>production finalists</b> (config-locked, is_production), tracked forward as <b>modeled paper
-        portfolios</b> — our optimizer + $5M cost model continued past the in-sample window to latest data;
-        IBKR paper and live tracks follow on the same pages. Below them, a <b>Production Candidate</b> (the
-        S&amp;P 500 Extension 150/50 — promoted, but not yet config-locked / holdout-disciplined) and
+        <b>Production</b> strategies (is_production), tracked forward as <b>modeled paper portfolios</b> — our
+        optimizer + $5M cost model continued past the in-sample window to latest data; IBKR paper and live
+        tracks follow on the same pages. Two are the config-locked optimizer finalists; the third is the
+        <b> S&amp;P 500 Extension 150/50</b>, our first strategy queued for IBKR paper trading. Below them,
         exploratory <b>research / paper</b> tracks. The research hub remains the in-sample decision surface.
       </p>
 
@@ -31,7 +31,10 @@ export default function PortfoliosLanding() {
       {!prod && !error && <div className="panel p-16 text-center muted text-sm">Loading portfolios…</div>}
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-5">
-        {(prod ?? []).map((r) => <ProductCard key={r.model_label} row={r} />)}
+        {/* the 2 config-locked optimizer finalists (no explicit fullLabel → in-sample/OOS ProductCard) */}
+        {(prod ?? []).filter((r) => r.strategy !== 'ext').map((r) => <ProductCard key={r.model_label} row={r} />)}
+        {/* the S&P 500 Extension 150/50 — is_production, but a single materialized-blend track → full-track card */}
+        {PRODUCTS.filter((p) => p.track === 'production' && p.fullLabel).map((p) => <ResearchCard key={p.slug} product={p} />)}
         {PRODUCTS.filter((p) => p.track === 'candidate').map((p) => <ResearchCard key={p.slug} product={p} />)}
         {PRODUCTS.filter((p) => p.track === 'research').map((p) => <ResearchCard key={p.slug} product={p} />)}
       </div>
@@ -120,7 +123,9 @@ function ResearchCard({ product }: { product: ProductDef }) {
   return (
     <Link href={`/portfolios/${product.slug}`} className="panel group block p-5 transition-all duration-300 hover:shadow-md">
       <div className="flex items-center gap-2 flex-wrap mb-2">
-        {product.track === 'candidate'
+        {product.track === 'production'
+          ? <><span className="pill pill-ok">★ Production</span><span className="pill" style={{ background: 'rgba(14,124,111,0.12)', color: 'var(--teal)' }}>Paper · Modeled</span></>
+          : product.track === 'candidate'
           ? <span className="pill" style={{ background: 'rgba(30,64,175,0.13)', color: 'var(--cyan)' }}>◆ Production Candidate</span>
           : <span className="pill" style={{ background: 'rgba(180,83,9,0.13)', color: 'var(--amber)' }}>🔬 Research · Paper</span>}
         <span className="pill pill-cyan">{product.universe === 'sp500' ? 'S&P 500' : 'Russell 2500'}</span>

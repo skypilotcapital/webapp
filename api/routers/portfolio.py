@@ -159,6 +159,37 @@ class SectorWeight(BaseModel):
     active_weight: Optional[float] = None         # weight - benchmark_weight (over/underweight)
 
 
+class TargetBookRow(BaseModel):
+    isin: str
+    ticker: Optional[str]
+    name: Optional[str]
+    sector: Optional[str]
+    side: str                                     # 'long' | 'short'
+    target_weight: float                          # signed portfolio weight (+ long, - short)
+    target_notional_usd: float                    # signed = target_weight * AUM (dollars)
+    ref_price: Optional[float] = None             # close at the formation date (informational only)
+    ref_shares: Optional[int] = None              # round(|notional| / ref_price) — a formation-price hint;
+                                                  # the executor should size from LIVE quotes, not this
+
+
+class TargetBook(BaseModel):
+    """The latest-rebalance TARGET portfolio for a strategy, scaled to a trade AUM — the hand-off
+    contract the IBKR paper-trading pipeline consumes. Signed weights (net-long extension book), per-name
+    dollar notionals, and reference (formation-date) prices/shares. NOT a trade list: the executor
+    diffs this against live IBKR positions and applies its own min-trade / rounding / borrow logic."""
+    model_label: str
+    universe: Optional[str]
+    strategy: Optional[str]
+    formation_date: str                           # the rebalance the weights were formed at
+    aum_usd: float
+    n_positions: int
+    n_long: int
+    n_short: int
+    gross_weight: float                           # sum |w|  (≈2.0 for a 150/50 extension)
+    net_weight: float                             # sum w    (≈1.0, net-long)
+    rows: List[TargetBookRow]
+
+
 class AttrSummaryRow(BaseModel):
     factor: str
     factor_group: Optional[str]
@@ -497,6 +528,59 @@ def get_holdings(label: str, date: Optional[str] = Query(None, description="reba
             h["active_weight"] = (h["weight"] - bw) if h.get("weight") is not None else None
         out.append(Holding(**h))
     return out
+
+
+@router.get("/backtests/{label}/target-book", response_model=TargetBook)
+def get_target_book(label: str,
+                    aum_usd: float = Query(1_000_000, gt=0, description="trade AUM in dollars (IBKR paper default $1M)"),
+                    date: Optional[str] = Query(None, description="rebalance date; latest if omitted"),
+                    min_notional_usd: float = Query(0.0, ge=0, description="drop target positions below this $ size (0 = keep all)")):
+    """The latest-rebalance TARGET book for a strategy, scaled to `aum_usd` — the clean hand-off the
+    IBKR paper-trading pipeline picks up. Returns signed per-name weights, dollar notionals, side, and
+    a reference (formation-date close) price + share hint. This is a TARGET, not a trade list: the
+    executor reconciles it against live IBKR positions and applies its own min-trade / rounding / locate
+    logic. Reference shares are formation-price only — size real orders from live quotes.
+
+    Note: the book is refreshed only when the modeled-paper track is rebuilt (monthly). Until the Phase-B
+    live-prediction path exists, `formation_date` is the latest available rebalance."""
+    with get_db() as conn:
+        uni, strat = _meta_uni_strat(conn, label)
+        d = date or _latest_weight_date(conn, label)
+        if d is None:
+            raise HTTPException(status_code=404, detail=f"No weights for '{label}'.")
+        rows = conn.execute(text("""
+            SELECT w.isin, s.ticker_current AS ticker, s.name, s.sector,
+                   w.weight, p.close AS ref_price
+            FROM portfolio.weights w
+            LEFT JOIN secmaster.securities s ON s.isin = w.isin
+            LEFT JOIN clean.prices p ON p.isin = w.isin AND p.date = :d
+            WHERE w.model_label = :label AND w.date = :d AND w.weight IS NOT NULL AND w.weight <> 0
+            ORDER BY w.weight DESC
+        """), {"label": label, "d": d}).fetchall()
+
+    out, gross, net, n_long, n_short = [], 0.0, 0.0, 0, 0
+    for r in rows:
+        w = float(r._mapping["weight"])
+        notional = w * aum_usd
+        if abs(notional) < min_notional_usd:
+            continue
+        px = _v(r._mapping["ref_price"])
+        shares = int(round(abs(notional) / px)) if px and px > 0 else None
+        gross += abs(w); net += w
+        if w >= 0:
+            n_long += 1
+        else:
+            n_short += 1
+        out.append(TargetBookRow(
+            isin=r._mapping["isin"], ticker=r._mapping["ticker"], name=r._mapping["name"],
+            sector=r._mapping["sector"], side=("long" if w >= 0 else "short"),
+            target_weight=round(w, 8), target_notional_usd=round(notional, 2),
+            ref_price=px, ref_shares=shares))
+
+    return TargetBook(
+        model_label=label, universe=uni, strategy=strat, formation_date=_iso(d), aum_usd=aum_usd,
+        n_positions=len(out), n_long=n_long, n_short=n_short,
+        gross_weight=round(gross, 6), net_weight=round(net, 6), rows=out)
 
 
 @router.get("/backtests/{label}/sector-allocation", response_model=List[SectorWeight])
