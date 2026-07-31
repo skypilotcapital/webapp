@@ -63,10 +63,19 @@ export const PRODUCTS: ProductDef[] = [
     // paper-trading candidate). Has an explicit fullLabel (a single materialized-blend track), so it
     // renders via the full-track card, NOT the in-sample/OOS ProductCard shape of the 2 locked
     // optimizer finalists. See r2500_ls_extension_analysis_2026-07.md.
-    slug: 'sp500-ext', name: 'S&P 500 · Extension 150/50', short: 'S&P 500 Ext',
+    slug: 'sp500-ext', name: 'S&P 500 · Extension 150/50 (te8 sleeve)', short: 'S&P 500 Ext · te8',
     universe: 'sp500', strategy: 'ext', track: 'production',
     fullLabel: 'ext_sp500_n014_te8_150_50_full_rc5',
-    blurb: 'Production · 150/50 extension: S&P 500 core (N014) + 50% R2500 L/S sleeve (te8) as a portable-alpha overlay · benchmarked to S&P 500 TR · net of realistic cost @ $5M. Enhanced-equity, full equity drawdowns. First IBKR paper-trading candidate.',
+    blurb: 'Production · 150/50 extension: S&P 500 core (N014) + 50% R2500 L/S sleeve at the te8 (8% vol) target as a portable-alpha overlay · benchmarked to S&P 500 TR · net of realistic cost @ $5M. Enhanced-equity, full equity drawdowns. Higher average return than te6 but more exposed to a 2025-style junk rally.',
+  },
+  {
+    // te6-sleeve TWIN of the production S&P 500 Extension — the DRAWDOWN-MANAGED sleeve (6% vol L/S) vs
+    // the production te8 (8% vol). A first-class toggle for the sleeve decision (r2500_ls_extension.md
+    // §5c corrected 2026-07-31). NOT is_production; leaning te6 for the first IBKR-paper book.
+    slug: 'sp500-ext-te6', name: 'S&P 500 · Extension 150/50 (te6 sleeve)', short: 'S&P 500 Ext · te6',
+    universe: 'sp500', strategy: 'ext', track: 'candidate',
+    fullLabel: 'ext_sp500_n014_te6_150_50_full_rc5',
+    blurb: 'Production candidate · te6 (drawdown-managed, 6% vol) sleeve variant of the S&P 500 Extension 150/50 · same N014 core + 50% R2500 L/S overlay · benchmarked to S&P 500 TR · net of realistic cost @ $5M. ~1 pt/yr less than te8 on average, but +3 pts better in the 2025 junk rally — the more defensive sleeve.',
   },
   {
     // RESEARCH/PAPER — same-universe 130/30 extension: R2500 long-only core + a 50% R2500 L/S overlay.
