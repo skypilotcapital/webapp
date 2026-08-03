@@ -25,9 +25,9 @@ export default function StrategyPage() {
         backHref="/portfolios"
         backLabel="← All portfolios"
         periodLabel={product.track === 'production'
-          ? 'Full track 2005–2026 · production (modeled paper) · first IBKR paper candidate'
+          ? 'Full track 2005–2026 · production (modeled paper) · the book traded in IBKR paper'
           : product.track === 'candidate'
-          ? 'Full track 2005–2026 · production candidate (not config-locked)'
+          ? 'Full track 2005–2026 · production candidate (config-locked and tracked, not held)'
           : 'Full track 2005–2026 · research (OOS descriptive)'}
         boundaryDate={INSAMPLE_END}
         topSlot={<TrackSelector product={product} />}
