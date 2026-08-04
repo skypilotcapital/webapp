@@ -190,18 +190,21 @@ def ledger(env: str, rebalance_id: int | None = None):
         for s in sched:
             by_step.setdefault(s["step"], []).append(dict(s))
 
-        # Observed runs. job_runs covers the trading-repo steps; run_log covers the data/alpha
-        # ones. Both are queried for THIS cycle only — an 'ok' from last month must not make this
-        # month's step look done.
-        since = hdr["proposed_at"] if hdr and hdr["proposed_at"] else None
+        # Observed runs, scoped to THIS REBALANCE — not to a time window.
+        #
+        # ⚠️ It was a 7-day window first, and the ledger promptly showed rebalance 7's fill-capture
+        # drill as rebalance 5's fill capture, which in turn made `execution` infer it had run.
+        # "Last month's ok must not make this month's step look done" needs the cycle key, not a
+        # date range; `trading.job_runs.rebalance_id` exists for this.
         runs = conn.execute(text("""
-            SELECT job AS step, status, started_at, finished_at, detail
+            SELECT job, status, started_at, finished_at, detail
             FROM trading.job_runs
-            WHERE (:since IS NULL OR started_at >= :since - interval '7 days')
-            ORDER BY started_at DESC"""), {"since": since}).mappings().all()
+            WHERE rebalance_id = :rid
+            ORDER BY started_at DESC"""),
+            {"rid": rebalance_id}).mappings().all() if rebalance_id is not None else []
         latest_run = {}
         for r in runs:
-            latest_run.setdefault(r["step"], dict(r))
+            latest_run.setdefault(r["job"], dict(r))
 
         # The data-side steps are multi-step CHAINS in pipeline.run_log, and each rolls up to one
         # ledger row: the operator wants to know whether the book got built, not which of ten
