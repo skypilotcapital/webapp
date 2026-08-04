@@ -368,7 +368,7 @@ def readiness(env: str):
             ).scalar()
 
         prod_labels = [r[0] for r in conn.execute(text(
-            "SELECT label FROM portfolio.backtest_meta WHERE is_production LIMIT 5")).all()]
+            "SELECT model_label FROM portfolio.backtest_meta WHERE is_production LIMIT 5")).all()]
 
         checks = []
 
