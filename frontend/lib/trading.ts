@@ -30,6 +30,9 @@ export interface LedgerStep {
   scheduled: ScheduledJob[] | null;
   chained: boolean;
   state: StepState;
+  /** The CLI equivalent, with {id} already resolved. For execution this is not a fallback —
+   *  it is the only way to run it (§3.10 auth boundary). */
+  manual_cmd: string | null;
   ran_at: string | null;
   detail: string | null;
   notes: string | null;

@@ -184,7 +184,7 @@ def ledger(env: str, rebalance_id: int | None = None):
                 {"r": rebalance_id}).mappings().first()
 
         steps = conn.execute(text(
-            "SELECT step, ord, label, act, manual_only, telemetry, notes, "
+            "SELECT step, ord, label, act, manual_only, telemetry, notes, manual_cmd, "
             "       COALESCE(job_name, step) AS job_name "
             "FROM trading.cycle_steps ORDER BY ord")).mappings().all()
 
@@ -302,6 +302,10 @@ def ledger(env: str, rebalance_id: int | None = None):
             "scheduled": sched_rows or None,
             "chained": chained,
             "state": state,
+            # {id} resolved server-side against the OPEN rebalance, so the operator copies a
+            # command that is ready to run rather than one they must edit under time pressure.
+            "manual_cmd": (s["manual_cmd"] or "").replace(
+                "{id}", str(rebalance_id) if rebalance_id is not None else "N") or None,
             "ran_at": run["finished_at"] or run["started_at"] if run else None,
             "detail": run["detail"] if run else None,
             "notes": s["notes"],

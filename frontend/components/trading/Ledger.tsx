@@ -171,10 +171,14 @@ export function LedgerTable({ env }: { env: string }) {
                         </span>;
                       }
                       if (!triggerable.includes(s.step)) {
+                        // No button, by design. So say WHY and give the command — an unexplained
+                        // dash on the execution row is the least helpful thing this page could do.
                         return <span className="text-[10px] text-[var(--tx-dim)]"
                                      title={s.manual_only
                                        ? 'the human gate — it has its own control'
-                                       : 'not triggerable from the web'}>—</span>;
+                                       : 'runs from the terminal by design'}>
+                          {s.step === 'execution' ? 'terminal only' : '—'}
+                        </span>;
                       }
                       return (
                         <button className="chip-btn text-[10px]"
@@ -193,6 +197,31 @@ export function LedgerTable({ env }: { env: string }) {
       </div>
 
       {runErr && <p className="text-[11px] text-[var(--neg)] mt-2">{runErr}</p>}
+
+      {/* THE COMMANDS, IN CYCLE ORDER. §3.10 requires every step keep a documented CLI equivalent;
+          a runbook you have to go and find is one you will not have open at 11:30 with the market
+          open. Execution has no button on purpose — this is how you run it. */}
+      <details className="mt-3">
+        <summary className="text-[11px] text-[var(--tx-mut)] cursor-pointer">
+          Run any step from the terminal — including <b>execution</b>, which has no button by design
+        </summary>
+        <div className="mt-2 text-[10px] font-mono space-y-1">
+          <div className="text-[var(--tx-dim)]">ssh -i ~/.ssh/id_personal root@165.22.47.36</div>
+          {data.steps.filter((s) => s.manual_cmd).map((s) => (
+            <div key={s.step} className="flex gap-2">
+              <span className="w-[104px] shrink-0 text-[var(--tx-dim)]">{s.step}</span>
+              <span className={s.step === 'execution'
+                ? 'text-[var(--neg)] font-semibold' : 'text-[var(--tx-mut)]'}>{s.manual_cmd}</span>
+            </div>
+          ))}
+        </div>
+        <p className="text-[10px] text-[var(--tx-dim)] mt-2">
+          Execution requires the rebalance to be <b>approved</b> and is safely re-runnable — a
+          repeat sends only what has not gone out, keyed on the cOID. Open a{' '}
+          <b>second SSH session</b> before you start it, with the kill switch already typed:
+          recalling an exact command under stress is the failure mode.
+        </p>
+      </details>
 
       {runs.length > 0 && (
         <details className="mt-3">
