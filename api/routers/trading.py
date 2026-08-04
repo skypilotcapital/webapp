@@ -413,7 +413,10 @@ def readiness(env: str):
         # holidays shift it, and half-implementing an exchange calendar for a warning banner would
         # be a worse error than reporting the elapsed window honestly.
         elapsed = conn.execute(text(
-            "SELECT count(*) FROM generate_series(:d::date + 1, current_date, '1 day') g "
+            # CAST(...), not `:d::date` — SQLAlchemy reads the `::` cast as part of the bind
+            # parameter name and hands Postgres a syntax error.
+            "SELECT count(*) FROM generate_series(CAST(:d AS date) + 1, current_date, "
+            "                                     INTERVAL '1 day') g "
             "WHERE extract(isodow FROM g) < 6"), {"d": signal}).scalar() or 0
 
     missing = [c for c in checks if c["present"] is False]
