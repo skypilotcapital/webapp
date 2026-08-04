@@ -264,7 +264,10 @@ def ledger(env: str, rebalance_id: int | None = None):
             run = chain_runs[step]
         # The human gate is not a job: its evidence is the rebalance row itself.
         if step == "approval" and hdr:
-            if hdr["approved_at"]:
+            if hdr["status"] == "cancelled" and not hdr["approved_at"]:
+                run = {"status": "failed", "started_at": None, "finished_at": None,
+                       "detail": "cancelled without approval"}
+            elif hdr["approved_at"]:
                 run = {"status": "ok", "started_at": hdr["approved_at"],
                        "finished_at": hdr["approved_at"],
                        "detail": f"approved by {hdr['approved_by']} (claimed, not authenticated)"}
@@ -304,11 +307,17 @@ def ledger(env: str, rebalance_id: int | None = None):
     # run too (you cannot freeze a book that was never generated), so a missing record there is a
     # gap in telemetry, not a step still to come. Live example: target generation produced the
     # book rebalance 5 was frozen from, but ran before its run_log instrumentation existed.
+    #
+    # ⚠️ NEVER INFER FOR A MANUAL-ONLY STEP. The premise is a DATA dependency — you cannot freeze a
+    # book that was never generated — and it does not hold for a human gate. Rebalance 7 proves it:
+    # a drill that deliberately sent orders WITHOUT approval, whose approval row the inference
+    # then described as "ran before this step had telemetry". Asserting that a human approved
+    # something when `approved_at` is NULL is the worst thing this ledger could say.
     done = [s["ord"] for s in out if s["state"] in ("ok", "warn", "failed", "awaiting")]
     if done:
         furthest = max(done)
         for s in out:
-            if s["ord"] < furthest and s["state"] == "not_due":
+            if s["ord"] < furthest and s["state"] == "not_due" and not s["manual_only"]:
                 s["state"] = "no_record"
                 s["detail"] = s["detail"] or "ran before this step had telemetry — no record kept"
 

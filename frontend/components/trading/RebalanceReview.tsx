@@ -136,6 +136,12 @@ export function RebalanceReview({ env, id }: { env: string; id: number }) {
             by <b>{h.approved_by}</b>
             <span className="text-[var(--tx-dim)]"> (claimed, not authenticated)</span>
           </p>
+        ) : h.status === 'cancelled' ? (
+          // State the fact from the rebalance row, never a ledger inference: this book was
+          // cancelled and no human ever approved it.
+          <p className="text-[12px] text-[var(--tx-mut)]">
+            — cancelled without approval
+          </p>
         ) : (
           <p className="text-[12px] text-[var(--cyan)]">
             ◇ {approvalStep?.detail ?? 'awaiting a human'}
