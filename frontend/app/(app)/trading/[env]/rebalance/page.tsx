@@ -1,5 +1,6 @@
 import { HaltControl } from '@/components/trading/HaltControl';
 import { LedgerTable } from '@/components/trading/Ledger';
+import { ReadinessPanel } from '@/components/trading/Readiness';
 import { RebalanceList } from '@/components/trading/RebalanceList';
 
 // S7 — the run ledger, with the archive beneath it. The front page shows whatever rebalance is
@@ -14,6 +15,9 @@ export default async function RebalanceLedgerPage({
     <div className="space-y-4">
       <h1 className="text-xl font-semibold">Rebalance</h1>
       <HaltControl env={env} />
+      {/* Above the ledger: this is the question you want answered BEFORE trade day, whereas
+          the ledger answers where you are today. */}
+      <ReadinessPanel env={env} />
       <LedgerTable env={env} />
       <RebalanceList env={env} />
     </div>

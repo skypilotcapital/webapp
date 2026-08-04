@@ -201,3 +201,22 @@ export const fetchRunRequests = (env: string, rebalanceId?: number) =>
 export const requestRun = (env: string, step: string, by: string, rebalanceId?: number) =>
   post<{ request_id: number }>(`/api/v1/trading/${env}/run-requests`,
                                { step, by, rebalance_id: rebalanceId ?? null });
+
+export interface ReadinessCheck {
+  name: string; what: string; rows: number | null;
+  /** true / false / null — null means the check could not RUN, which is neither present nor
+   *  missing. Reporting an unreadable artifact as missing cries wolf; as present is the failure
+   *  the panel exists to prevent. */
+  present: boolean | null;
+  landed_at: string | null; why: string; error: string | null;
+}
+
+export interface Readiness {
+  signal_date: string; weekdays_since_month_end: number;
+  checks: ReadinessCheck[]; n_missing: number; n_unknown: number;
+  verdict: 'ready' | 'building' | 'at_risk' | 'late' | 'unknown';
+  note: string;
+}
+
+export const fetchReadiness = (env: string) =>
+  get<Readiness>(`/api/v1/trading/${env}/readiness`);
