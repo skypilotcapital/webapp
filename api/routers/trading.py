@@ -179,7 +179,8 @@ def ledger(env: str, rebalance_id: int | None = None):
                 {"r": rebalance_id}).mappings().first()
 
         steps = conn.execute(text(
-            "SELECT step, ord, label, act, manual_only, telemetry, notes "
+            "SELECT step, ord, label, act, manual_only, telemetry, notes, "
+            "       COALESCE(job_name, step) AS job_name "
             "FROM trading.cycle_steps ORDER BY ord")).mappings().all()
 
         sched = conn.execute(text(
@@ -253,7 +254,9 @@ def ledger(env: str, rebalance_id: int | None = None):
     out = []
     for s in steps:
         step, sched_rows = s["step"], by_step.get(s["step"], [])
-        run = latest_run.get(step)
+        # Key on job_name, not step: `freeze` is recorded by a job called `freeze_targets`, and
+        # assuming the two strings match made a step that ran read as "no record".
+        run = latest_run.get(s["job_name"])
         if chain_runs.get(step):
             run = chain_runs[step]
         # The human gate is not a job: its evidence is the rebalance row itself.
