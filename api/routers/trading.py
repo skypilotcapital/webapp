@@ -337,6 +337,83 @@ def ledger(env: str, rebalance_id: int | None = None):
             "schedule_collected_at": stale}
 
 
+@router.get("/{env}/readiness")
+def readiness(env: str):
+    """§3.9 — upstream freshness, surfaced days early.
+
+    "A late factor build puts the rebalance at risk on trade day, and that is knowable on the 2nd
+    rather than discovered on the 5th."
+
+    ⚠️ IT CHECKS THE OUTPUTS, NOT THE JOB STATUSES. The ledger already shows whether each build
+    RAN; this asks the different and more important question — did the data the next rebalance
+    needs actually LAND for the month-end we are about to trade? That distinction is the whole
+    F-006 lesson: the daily job reported "complete" every weekday for months while five things
+    underneath it were dead. A green job row is not evidence of a green artifact.
+
+    The chain is a chain: factor.scores feeds the models, the models feed portfolio.weights, and
+    the freeze copies portfolio.weights. A hole anywhere upstream surfaces at the freeze, which is
+    two days before the trade and far too late to rebuild a 2.5-hour factor panel.
+    """
+    _env(env)
+    with get_db() as conn:
+        # The month-end we are trading. The open rebalance names it; with none open, the last
+        # completed month-end is the one the NEXT rebalance will use.
+        signal = conn.execute(text(
+            "SELECT signal_date FROM trading.rebalances "
+            "WHERE status NOT IN ('cancelled','closed','reconciled') "
+            "ORDER BY rebalance_id DESC LIMIT 1")).scalar()
+        if signal is None:
+            signal = conn.execute(text(
+                "SELECT MAX(date) FROM clean.prices WHERE date < date_trunc('month', now())")
+            ).scalar()
+
+        prod_labels = [r[0] for r in conn.execute(text(
+            "SELECT label FROM portfolio.backtest_meta WHERE is_production LIMIT 5")).all()]
+
+        checks = []
+
+        def add(name, what, sql, params, why):
+            row = conn.execute(text(sql), params).mappings().first()
+            n = int(row["n"] or 0) if row else 0
+            checks.append({"name": name, "what": what, "rows": n, "present": n > 0,
+                           "landed_at": (row or {}).get("landed_at"), "why": why})
+
+        add("factor.scores", "SP500 feature panel",
+            "SELECT count(*) AS n, NULL::timestamptz AS landed_at "
+            "FROM factor.scores WHERE date = :d", {"d": signal},
+            "the 53-feature panel the models read; without it there are no predictions")
+        add("factor.scores_full", "R2500 feature panel",
+            "SELECT count(*) AS n, NULL::timestamptz AS landed_at "
+            "FROM factor.scores_full WHERE date = :d", {"d": signal},
+            "the broad universe, built chained behind the SP500 panel (~2h20m)")
+        add("targets.forward_returns", "training targets",
+            "SELECT count(*) AS n, NULL::timestamptz AS landed_at "
+            "FROM targets.forward_returns WHERE eom_date = :d", {"d": signal},
+            "what the models are trained against")
+        for lbl in prod_labels:
+            add(f"portfolio.weights · {lbl[:34]}", "the book itself",
+                "SELECT count(*) AS n, NULL::timestamptz AS landed_at FROM portfolio.weights "
+                "WHERE model_label = :l AND date = :d", {"l": lbl, "d": signal},
+                "the optimizer's output — this is what the freeze copies")
+
+        # Calendar pressure. Deliberately counted in WEEKDAYS since the month-end rather than
+        # against a computed TD3: the trade date is the 3rd TRADING day (operating_calendar.md),
+        # holidays shift it, and half-implementing an exchange calendar for a warning banner would
+        # be a worse error than reporting the elapsed window honestly.
+        elapsed = conn.execute(text(
+            "SELECT count(*) FROM generate_series(:d::date + 1, current_date, '1 day') g "
+            "WHERE extract(isodow FROM g) < 6"), {"d": signal}).scalar() or 0
+
+    missing = [c for c in checks if not c["present"]]
+    verdict = ("ready" if not missing else
+               "late" if elapsed >= 3 else
+               "at_risk" if elapsed >= 2 else "building")
+    return {"env": env, "signal_date": signal, "weekdays_since_month_end": int(elapsed),
+            "checks": checks, "n_missing": len(missing), "verdict": verdict,
+            "note": ("Trade day is TD3, the 3rd trading day of the month "
+                     "(operating_calendar.md). Everything above must be present before the freeze.")}
+
+
 @router.get("/{env}/health")
 def health(env: str):
     """S6-lite: job outcomes and the freshness of the schedule mirror.
