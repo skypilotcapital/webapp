@@ -60,6 +60,7 @@ def get_db() -> Connection:
 # the read path must stay incapable of writing, so the separation is a connection, not a flag.
 _halt_engine = None
 _approve_engine = None
+_request_engine = None
 
 
 def halt_writes_enabled() -> bool:
@@ -109,3 +110,29 @@ def get_halt_engine():
         kwargs = {"connect_args": {"ssl_context": False}} if _USE_PG8000 else {}
         _halt_engine = create_engine(url, pool_pre_ping=True, pool_size=2, **kwargs)
     return _halt_engine
+
+
+# ---------------------------------------------------------------------------- run requests ----
+def request_writes_enabled() -> bool:
+    s = get_settings()
+    return bool(s.request_db_user and s.request_db_password)
+
+
+def get_request_engine():
+    """Engine for enqueuing run requests, or None if no requester credentials are configured.
+
+    A FOURTH role. The pattern is now explicit: read, halt, approve, request — each its own login,
+    each granted the least it can do the job with. The alternative is one powerful connection whose
+    safety depends on every endpoint being written carefully forever.
+    """
+    global _request_engine
+    if not request_writes_enabled():
+        return None
+    if _request_engine is None:
+        s = get_settings()
+        driver = "pg8000" if _USE_PG8000 else "psycopg2"
+        url = (f"postgresql+{driver}://{s.request_db_user}:{s.request_db_password}"
+               f"@{s.db_host}:{s.db_port}/{s.db_name}")
+        kwargs = {"connect_args": {"ssl_context": False}} if _USE_PG8000 else {}
+        _request_engine = create_engine(url, pool_pre_ping=True, pool_size=2, **kwargs)
+    return _request_engine

@@ -27,7 +27,8 @@ from pydantic import BaseModel, Field
 from sqlalchemy import text
 
 from api.db import (approve_writes_enabled, get_approve_engine, get_db,
-                    get_halt_engine, halt_writes_enabled)
+                    get_halt_engine, get_request_engine, halt_writes_enabled,
+                    request_writes_enabled)
 
 router = APIRouter(prefix="/api/v1/trading", tags=["trading"])
 
@@ -660,3 +661,90 @@ def approve(env: str, rebalance_id: int, body: ApproveRequest):
             "note": ("Approval recorded. NOTHING has been submitted — execution is a separate "
                      "action and remains CLI-only: "
                      f"python run_rebalance.py --rebalance-id {rebalance_id} --execute")}
+
+
+# =================================================================================================
+# TIER-1 TRIGGERS ([10-RBAL] phase 5, §3.10)
+#
+# THE WEBSITE NEVER RUNS A STEP. IT REQUESTS ONE. A button writes a row here; `jobs.run_worker` on
+# the droplet picks it up. Three reasons, none stylistic:
+#
+#   * Duration — a 186-order submission takes minutes, and HTTP request/response is the wrong shape
+#     for it. You would be fighting gateway timeouts on the most important call in the system.
+#   * Ambiguity — if the browser closes mid-request you get a half-executed step of unknown extent,
+#     which is exactly the state the cOID design exists to make impossible (F-011).
+#   * It is the plan-is-a-contract principle again: write the intent down, then act on it. A
+#     durable row survives a reboot, gives the ledger its queued->running->ok/failed states for
+#     free, and is the audit record of who asked for what.
+#
+# ONE CODE PATH: the scheduler and the button enqueue the SAME row. A separate manual path rots
+# quietly and then fails during an incident, which is the only time anyone reaches for it.
+# =================================================================================================
+
+# Tier 1 only — idempotent, no money moves. `approval` is a decision with its own endpoint above;
+# `execution` sends real orders and is the LAST thing to get a trigger, behind the auth boundary
+# that makes website auth into trading auth. The worker refuses both again independently.
+TRIGGERABLE = {"freeze", "dry_run", "fill_capture", "factor_build", "target_gen"}
+
+
+class RunRequest(BaseModel):
+    step: str = Field(min_length=1, max_length=40)
+    by: str = Field(min_length=1, max_length=80)
+    rebalance_id: int | None = None
+
+
+@router.post("/{env}/run-requests")
+def enqueue_run(env: str, body: RunRequest):
+    """Ask for a step to run. Returns as soon as the intent is recorded — it does not wait.
+
+    The 409 on an already-active request is the partial unique index doing its job: a double-click
+    must not double-run. It is reported as "already queued", not as an error, because that is what
+    the operator needs to know.
+    """
+    _env(env)
+    if body.step not in TRIGGERABLE:
+        raise HTTPException(status_code=400, detail=(
+            f"'{body.step}' cannot be triggered from the web. Approval has its own gate, and "
+            f"execution sends real orders — both stay deliberate human actions (§3.10)."))
+    eng = get_request_engine()
+    if eng is None:
+        raise HTTPException(status_code=503,
+                            detail="run-request path not configured on this deployment")
+    try:
+        with eng.begin() as conn:
+            if body.rebalance_id is not None:
+                ok = conn.execute(text("SELECT 1 FROM trading.rebalances WHERE rebalance_id = :r"),
+                                  {"r": body.rebalance_id}).first()
+                if not ok:
+                    raise HTTPException(status_code=404, detail="no such rebalance")
+            row = conn.execute(text(
+                "INSERT INTO trading.run_requests (rebalance_id, step, source, requested_by) "
+                "VALUES (:r, :s, 'web', :by) RETURNING request_id"),
+                {"r": body.rebalance_id, "s": body.step, "by": body.by}).first()
+    except HTTPException:
+        raise
+    except Exception as e:                                            # noqa: BLE001
+        if "run_requests_one_active" in str(e):
+            raise HTTPException(status_code=409, detail=(
+                f"'{body.step}' is already queued or running for this rebalance — "
+                f"one at a time, so a double-click cannot double-run."))
+        raise
+    return {"env": env, "request_id": row[0], "step": body.step, "status": "queued",
+            "note": "Queued. The droplet worker polls every minute; watch the ledger for the result."}
+
+
+@router.get("/{env}/run-requests")
+def list_runs(env: str, rebalance_id: int | None = None, limit: int = Query(20, ge=1, le=100)):
+    """Recent run requests — the queued->running->ok/failed trail the ledger renders."""
+    _env(env)
+    with get_db() as conn:
+        rows = conn.execute(text("""
+            SELECT request_id, rebalance_id, step, source, requested_by, requested_at,
+                   status, started_at, finished_at, result
+            FROM trading.run_requests
+            WHERE (:r IS NULL OR rebalance_id = :r)
+            ORDER BY requested_at DESC LIMIT :lim"""),
+            {"r": rebalance_id, "lim": limit}).mappings().all()
+    return {"env": env, "requests": [dict(r) for r in rows],
+            "can_request": request_writes_enabled(),
+            "triggerable": sorted(TRIGGERABLE)}

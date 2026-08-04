@@ -40,6 +40,11 @@ class Settings(BaseSettings):
     approve_db_user: str = ""
     approve_db_password: str = ""
 
+    # The RUN-REQUEST path (§3.10). A fourth role, whose entire privilege is INSERT on one queue
+    # table — it can ask for work, and the droplet worker decides what to do about it.
+    request_db_user: str = ""
+    request_db_password: str = ""
+
     # Reports directory — absolute path to the folder containing report subdirectories.
     # On the droplet: /root/Main/Reports
     # Leave blank for local dev (reports list will return empty gracefully).
