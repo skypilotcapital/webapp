@@ -339,3 +339,101 @@ def health(env: str):
     return {"env": env, "jobs": [dict(j) for j in jobs],
             "account": dict(acct) if acct else None,
             "schedule_collected_at": sched_age}
+
+
+@router.get("/{env}/rebalances/{rebalance_id}/blotter")
+def blotter(env: str, rebalance_id: int):
+    """S4 — plan vs actual, keyed to OUR rebalance.
+
+    Not a broker blotter: IBKR has one and it is better. This shows the thing the broker cannot,
+    because the broker never saw the plan — what we meant to trade beside what happened.
+
+    Semantics mirror `orders.fill_reconciliation` in the trading repo deliberately, so the screen
+    and the CLI cannot disagree about the same rebalance:
+
+      * `filled` is SUM(qty) and sales are stored SIGNED, so a residual is planned − filled.
+      * `slip_bps` is signed so POSITIVE ALWAYS MEANS WORSE FOR US, whichever side we were on,
+        measured against the plan price — the arrival reference the share count was derived from.
+      * ⚠️ Slippage is NULL where nothing filled. An avg price of 0 there means "no data", and
+        running it through the formula prints a confident −10,000 bps for every unfilled name.
+      * Dust and side-less rows are excluded: they were never orders.
+
+    Feeds open question [06-T7] (cost-model calibration against real fills) — arrival-vs-fill by
+    name and size is exactly that dataset, so it comes back in a shape that exports.
+    """
+    _env(env)
+    with get_db() as conn:
+        rows = conn.execute(text("""
+            SELECT p.ticker, p.conid, p.side, p.delta AS planned, p.price AS plan_price,
+                   p.est_notional, o.coid, o.status, o.ibkr_order_id, o.qty AS submitted_qty,
+                   o.submitted_at, o.last_status_at,
+                   COALESCE(f.filled, 0) AS filled, f.avg_price,
+                   COALESCE(f.commission, 0) AS commission, COALESCE(f.n, 0) AS n_fills,
+                   f.first_fill, f.last_fill
+            FROM trading.trade_plans p
+            LEFT JOIN ibkr.orders o
+                   ON o.rebalance_id = p.rebalance_id AND o.conid = p.conid
+            LEFT JOIN (SELECT internal_order_id, SUM(qty) AS filled, COUNT(*) AS n,
+                              SUM(ABS(qty) * price) / NULLIF(SUM(ABS(qty)), 0) AS avg_price,
+                              SUM(commission) AS commission,
+                              MIN(exec_ts) AS first_fill, MAX(exec_ts) AS last_fill
+                       FROM ibkr.executions GROUP BY 1) f
+                   ON f.internal_order_id = o.internal_order_id
+            WHERE p.rebalance_id = :r AND p.plan_kind = 'final'
+              AND p.dust_filtered = FALSE AND p.side IS NOT NULL
+            ORDER BY ABS(COALESCE(p.delta, 0) - COALESCE(f.filled, 0)) DESC"""),
+            {"r": rebalance_id}).mappings().all()
+
+        # The cross-check on a lying trades endpoint: orders the BROKER calls filled for which we
+        # hold no execution rows. `capture_fills` reporting "0 new executions" is indistinguishable
+        # from a healthy no-op, so it has to be compared against something independent.
+        unexplained = conn.execute(text("""
+            SELECT o.coid, o.status, o.conid
+            FROM ibkr.orders o
+            WHERE o.rebalance_id = :r AND o.status IN ('filled', 'partial')
+              AND NOT EXISTS (SELECT 1 FROM ibkr.executions e
+                               WHERE e.internal_order_id = o.internal_order_id)"""),
+            {"r": rebalance_id}).mappings().all()
+
+    out, roll = [], {"planned": 0, "submitted": 0, "filled": 0, "unfilled": 0, "partial": 0,
+                     "rejected": 0, "commission": 0.0, "est_cost": 0.0}
+    for r in rows:
+        d = dict(r)
+        planned = float(d["planned"] or 0)
+        filled = float(d["filled"] or 0)
+        d["residual"] = planned - filled
+        px, avg = d["plan_price"], d["avg_price"]
+        # NULL, not zero — see the docstring. A confident wrong number is worse than a blank.
+        d["slip_bps"] = (
+            (float(avg) - float(px)) / float(px) * 10_000 * (1 if planned > 0 else -1)
+            if filled and px and avg and float(px) != 0 else None)
+        out.append(d)
+
+        roll["planned"] += 1
+        if d["coid"]:
+            roll["submitted"] += 1
+        if d["status"] == "rejected":
+            roll["rejected"] += 1
+        elif filled == 0:
+            roll["unfilled"] += 1
+        elif abs(filled) < abs(planned):
+            roll["partial"] += 1
+        else:
+            roll["filled"] += 1
+        roll["commission"] += float(d["commission"] or 0)
+        roll["est_cost"] += float(d["est_notional"] or 0)
+
+    # Rejected and unfilled to the top — they are the rows that need a decision.
+    rank = {"rejected": 0, "unfilled": 1, "partial": 2}
+    def _key(d):
+        s = ("rejected" if d["status"] == "rejected" else
+             "unfilled" if not float(d["filled"] or 0) else
+             "partial" if abs(float(d["filled"] or 0)) < abs(float(d["planned"] or 0)) else "done")
+        return (rank.get(s, 3), -abs(float(d["est_notional"] or 0)))
+    out.sort(key=_key)
+
+    filled_rows = [d for d in out if d["slip_bps"] is not None]
+    roll["avg_slip_bps"] = (sum(d["slip_bps"] for d in filled_rows) / len(filled_rows)
+                            if filled_rows else None)
+    return {"env": env, "rebalance_id": rebalance_id, "rows": out, "rollup": roll,
+            "unexplained_fills": [dict(u) for u in unexplained]}
