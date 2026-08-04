@@ -182,3 +182,19 @@ export const clearHalt = (env: string, by: string, rebalanceId?: number) =>
 
 export const approveRebalance = (env: string, id: number, by: string, reviewId: number) =>
   post(`/api/v1/trading/${env}/rebalances/${id}/approve`, { by, review_id: reviewId });
+
+export interface RunRequestRow {
+  request_id: number; rebalance_id: number | null; step: string; source: string;
+  requested_by: string; requested_at: string;
+  status: 'queued' | 'running' | 'ok' | 'warn' | 'failed' | 'cancelled';
+  started_at: string | null; finished_at: string | null; result: string | null;
+}
+
+export const fetchRunRequests = (env: string, rebalanceId?: number) =>
+  get<{ requests: RunRequestRow[]; can_request: boolean; triggerable: string[] }>(
+    `/api/v1/trading/${env}/run-requests` + (rebalanceId ? `?rebalance_id=${rebalanceId}` : ''));
+
+// The website REQUESTS a step; it never runs one. Returns as soon as the intent is recorded.
+export const requestRun = (env: string, step: string, by: string, rebalanceId?: number) =>
+  post<{ request_id: number }>(`/api/v1/trading/${env}/run-requests`,
+                               { step, by, rebalance_id: rebalanceId ?? null });

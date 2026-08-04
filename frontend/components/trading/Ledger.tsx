@@ -1,8 +1,11 @@
 'use client';
 
 import Link from 'next/link';
-import { useEffect, useState } from 'react';
-import { fetchLedger, type Ledger, type LedgerStep, type StepState } from '@/lib/trading';
+import { useCallback, useEffect, useState } from 'react';
+import {
+  fetchLedger, fetchRunRequests, requestRun,
+  type Ledger, type LedgerStep, type RunRequestRow, type StepState,
+} from '@/lib/trading';
 
 // FOUR STATES, NOT TWO (IA §3.7 rule b). "Not due yet" must not look like "ok", and neither may
 // look like "failed" — collapsing them is precisely how a job reported success for months while
@@ -42,11 +45,41 @@ function scheduleText(s: LedgerStep): string {
 
 export function LedgerTable({ env }: { env: string }) {
   const [data, setData] = useState<Ledger | null>(null);
+  const [runs, setRuns] = useState<RunRequestRow[]>([]);
+  const [triggerable, setTriggerable] = useState<string[]>([]);
+  const [canRequest, setCanRequest] = useState(false);
+  const [pending, setPending] = useState<string | null>(null);
+  const [runErr, setRunErr] = useState<string | null>(null);
   const [err, setErr] = useState<string | null>(null);
 
-  useEffect(() => {
+  const load = useCallback(() => {
     fetchLedger(env).then(setData).catch((e) => setErr(String(e)));
+    fetchRunRequests(env).then((d) => {
+      setRuns(d.requests); setTriggerable(d.triggerable); setCanRequest(d.can_request);
+    }).catch(() => {});
   }, [env]);
+
+  useEffect(() => { load(); }, [load]);
+
+  // Poll while anything is in flight — a queued request is picked up by the droplet worker within
+  // a minute, and a page that needed a manual refresh to show that would send people to the
+  // terminal to find out, which defeats the purpose.
+  const inFlight = runs.some((r) => r.status === 'queued' || r.status === 'running');
+  useEffect(() => {
+    if (!inFlight) return;
+    const t = setInterval(load, 5000);
+    return () => clearInterval(t);
+  }, [inFlight, load]);
+
+  const trigger = async (step: string) => {
+    setPending(step); setRunErr(null);
+    try {
+      await requestRun(env, step, 'web', data?.rebalance?.rebalance_id);
+      load();
+    } catch (e) {
+      setRunErr(e instanceof Error ? e.message : String(e));
+    } finally { setPending(null); }
+  };
 
   if (err) return <div className="panel p-4 text-[var(--neg)] text-sm">Ledger unavailable: {err}</div>;
   if (!data) return <div className="panel p-4 text-sm text-[var(--tx-dim)]">Loading…</div>;
@@ -87,6 +120,7 @@ export function LedgerTable({ env }: { env: string }) {
               <th className="text-left">Ran</th>
               <th className="text-left">Status</th>
               <th className="text-left">Notes</th>
+              <th className="text-left">Run</th>
             </tr>
           </thead>
           <tbody>
@@ -118,8 +152,38 @@ export function LedgerTable({ env }: { env: string }) {
                   <td className={`whitespace-nowrap font-medium ${st.cls}`}>
                     <span className="mr-1">{st.glyph}</span>{st.word}
                   </td>
-                  <td className="text-[11px] text-[var(--tx-dim)] max-w-[380px]">
+                  <td className="text-[11px] text-[var(--tx-dim)] max-w-[340px]">
                     {s.detail || (s.state === 'unbuilt' ? s.notes : '')}
+                  </td>
+                  {/* THE WEBSITE REQUESTS, IT NEVER RUNS (§3.10). This writes an intent row; the
+                      droplet worker executes it within a minute. The button stays here forever,
+                      including after the step is scheduled — at which point it BECOMES the retry
+                      and override path, i.e. by definition the thing you reach for when something
+                      has already gone wrong, so it must be the best-tested path in the system. */}
+                  <td className="whitespace-nowrap">
+                    {(() => {
+                      const live = runs.find(
+                        (r) => r.step === s.step
+                          && (r.status === 'queued' || r.status === 'running'));
+                      if (live) {
+                        return <span className="text-[10px] text-[var(--cyan)]">
+                          {live.status}…
+                        </span>;
+                      }
+                      if (!triggerable.includes(s.step)) {
+                        return <span className="text-[10px] text-[var(--tx-dim)]"
+                                     title={s.manual_only
+                                       ? 'the human gate — it has its own control'
+                                       : 'not triggerable from the web'}>—</span>;
+                      }
+                      return (
+                        <button className="chip-btn text-[10px]"
+                                disabled={!canRequest || pending === s.step}
+                                onClick={() => trigger(s.step)}>
+                          {pending === s.step ? '…' : 'run'}
+                        </button>
+                      );
+                    })()}
                   </td>
                 </tr>
               );
@@ -127,6 +191,24 @@ export function LedgerTable({ env }: { env: string }) {
           </tbody>
         </table>
       </div>
+
+      {runErr && <p className="text-[11px] text-[var(--neg)] mt-2">{runErr}</p>}
+
+      {runs.length > 0 && (
+        <details className="mt-3">
+          <summary className="text-[11px] text-[var(--tx-mut)] cursor-pointer">
+            Recent run requests ({runs.length}) — who asked for what
+          </summary>
+          <ul className="mt-1 space-y-0.5">
+            {runs.slice(0, 8).map((r) => (
+              <li key={r.request_id} className="text-[10px] font-mono text-[var(--tx-dim)]">
+                #{r.request_id} {r.step} · {r.status} · by {r.requested_by} ({r.source})
+                {r.result ? ` — ${r.result.split('\n')[0].slice(0, 70)}` : ''}
+              </li>
+            ))}
+          </ul>
+        </details>
+      )}
 
       <p className="text-[10px] text-[var(--tx-dim)] mt-3 leading-relaxed">
         Step order and manual-by-nature flags come from <code>trading.cycle_steps</code>; the
