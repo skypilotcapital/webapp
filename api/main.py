@@ -37,7 +37,10 @@ app.add_middleware(
     CORSMiddleware,
     allow_origins=settings.cors_origins,
     allow_credentials=False,
-    allow_methods=["GET"],
+    # POST is allowed solely for the HALT control ([10-RBAL] §3.8) — the one write the
+    # website has. Every other endpoint is GET, and the write path uses its own
+    # narrowly-granted DB role rather than the read connection.
+    allow_methods=["GET", "POST"],
     allow_headers=["*"],
 )
 

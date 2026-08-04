@@ -28,6 +28,13 @@ class Settings(BaseSettings):
     db_user: str
     db_password: str
 
+    # The HALT write path ([10-RBAL] phase 3). A SEPARATE role that can INSERT/UPDATE exactly
+    # trading.halts and nothing else — see sql/create_skypilot_halter_role.sql. Optional: absent
+    # credentials disable the endpoint rather than falling back to db_user, because silently
+    # writing with the read role would defeat the entire point of having two.
+    halt_db_user: str = ""
+    halt_db_password: str = ""
+
     # Reports directory — absolute path to the folder containing report subdirectories.
     # On the droplet: /root/Main/Reports
     # Leave blank for local dev (reports list will return empty gracefully).

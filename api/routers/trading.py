@@ -23,9 +23,10 @@ route cannot be reached by guessing the URL (Q3).
 """
 
 from fastapi import APIRouter, HTTPException, Query
+from pydantic import BaseModel, Field
 from sqlalchemy import text
 
-from api.db import get_db
+from api.db import get_db, get_halt_engine, halt_writes_enabled
 
 router = APIRouter(prefix="/api/v1/trading", tags=["trading"])
 
@@ -446,3 +447,108 @@ def blotter(env: str, rebalance_id: int):
                             if filled_rows else None)
     return {"env": env, "rebalance_id": rebalance_id, "rows": out, "rollup": roll,
             "unexplained_fills": [dict(u) for u in unexplained]}
+
+
+# =================================================================================================
+# THE ONE WRITE ([10-RBAL] phase 3)
+#
+# The web surface gets the HALT half of the kill switch and nothing else (§3.8). Reasons, in order:
+#
+#   * Halting is the half that WORKS. With MKT/DAY most of what has been sent is already filled, so
+#     cancel-all mostly cancels nothing, while the halt reliably saves the unsent remainder.
+#   * Halting is a tiny privilege — it writes a flag. Cancel-all means the website's backend gaining
+#     authority to talk to IBKR and cancel orders, which deserves its own design, not a free ride.
+#   * ⚠️ THIS MUST NEVER BE THE ONLY PATH. The frontend is Vercel and the API is on the droplet, so
+#     if the droplet is degraded this button dies exactly when it is needed. `jobs.kill_switch` and
+#     the IBKR browser stay first-class, and the file flag stays the no-dependency path.
+#
+# Latency-to-halt is the metric this control is judged on, not feature count.
+# =================================================================================================
+
+@router.get("/{env}/halt")
+def halt_state(env: str, rebalance_id: int | None = None):
+    """Current halt state. Read-only, so it works even when the write path is not configured."""
+    _env(env)
+    with get_db() as conn:
+        row = conn.execute(text("""
+            SELECT halt_id, rebalance_id, set_at, set_by, source, reason
+            FROM trading.halts
+            WHERE cleared_at IS NULL AND (rebalance_id IS NULL OR rebalance_id = :r)
+            ORDER BY set_at LIMIT 1"""), {"r": rebalance_id}).mappings().first()
+        recent = conn.execute(text(
+            "SELECT halt_id, rebalance_id, set_at, set_by, source, reason, cleared_at, cleared_by "
+            "FROM trading.halts ORDER BY set_at DESC LIMIT 10")).mappings().all()
+    return {"env": env, "halted": row is not None, "active": dict(row) if row else None,
+            "history": [dict(r) for r in recent],
+            "can_write": halt_writes_enabled(),
+            # The file half is invisible from here BY DESIGN — it lives on the droplet's disk and
+            # this API may be the thing that is broken. The UI must say so rather than imply that
+            # "not halted" is the whole truth.
+            "file_flag_not_visible_here": True}
+
+
+class HaltRequest(BaseModel):
+    by: str = Field(min_length=1, max_length=80)
+    reason: str = Field(min_length=1, max_length=500)
+    rebalance_id: int | None = None
+
+
+@router.post("/{env}/halt")
+def set_halt(env: str, body: HaltRequest):
+    """Stop the submitter before its next order.
+
+    Writes `trading.halts`; `orders.halted()` reads it before EVERY order, so a running basket
+    stops between any two of its 186. It does not cancel anything already working at the broker —
+    that is `jobs.kill_switch`, deliberately CLI-only.
+
+    `by` is a CLAIMED name (Q1). It is recorded, not verified, and the UI says so.
+    """
+    _env(env)
+    eng = get_halt_engine()
+    if eng is None:
+        # 503, not 500: the capability is absent, not broken. And the message points at the path
+        # that still works, because a halt request is not a moment for a bare error.
+        raise HTTPException(status_code=503, detail=(
+            "halt write path not configured on this deployment — use the CLI: "
+            "python -m jobs.kill_switch --rebalance-id N --halt-only"))
+    with eng.begin() as conn:
+        if body.rebalance_id is not None:
+            ok = conn.execute(text("SELECT 1 FROM trading.rebalances WHERE rebalance_id = :r"),
+                              {"r": body.rebalance_id}).first()
+            if not ok:
+                raise HTTPException(status_code=404, detail="no such rebalance")
+        # ON CONFLICT DO NOTHING against halts_one_active: a second click while a halt is already
+        # in force is a no-op, not a duplicate row and not an error. The caller asked for trading
+        # to be stopped; trading is stopped.
+        row = conn.execute(text(
+            "INSERT INTO trading.halts (rebalance_id, set_by, source, reason) "
+            "VALUES (:r, :by, 'web', :reason) ON CONFLICT DO NOTHING RETURNING halt_id"),
+            {"r": body.rebalance_id, "by": body.by, "reason": body.reason}).first()
+    return {"env": env, "halted": True, "halt_id": row[0] if row else None,
+            "already_halted": row is None,
+            "note": ("The submitter stops before its next order. Orders already WORKING at the "
+                     "broker are not cancelled — that is jobs.kill_switch, which is CLI-only.")}
+
+
+@router.post("/{env}/halt/clear")
+def clear_halt(env: str, body: HaltRequest):
+    """Lift the DB halt.
+
+    ⚠️ Clearing here does NOT clear the file flag, which lives on the droplet's disk and is the
+    path that survives this API being down. If a halt was set by the CLI, `jobs.kill_switch
+    --clear` is what lifts it. The response says so, because an operator who believes they have
+    cleared a halt and then cannot trade will not enjoy discovering the other half by experiment.
+    """
+    _env(env)
+    eng = get_halt_engine()
+    if eng is None:
+        raise HTTPException(status_code=503, detail="halt write path not configured")
+    with eng.begin() as conn:
+        n = conn.execute(text(
+            "UPDATE trading.halts SET cleared_at = now(), cleared_by = :by "
+            "WHERE cleared_at IS NULL AND rebalance_id IS NOT DISTINCT FROM :r"),
+            {"by": body.by, "r": body.rebalance_id}).rowcount
+    return {"env": env, "cleared": n, "halted": False,
+            "note": ("Cleared the DATABASE halt only. A halt set from the CLI also wrote a file "
+                     "flag on the droplet, which this cannot see or remove — use "
+                     "`python -m jobs.kill_switch --clear` for that.")}

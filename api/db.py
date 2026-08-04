@@ -53,3 +53,33 @@ def get_db() -> Connection:
     engine = _get_engine()
     with engine.connect() as conn:
         yield conn
+
+
+# --------------------------------------------------------------------------- halt writes ----
+# A SECOND engine, on the narrow `skypilot_halter` role. Deliberately not a mode of the main one:
+# the read path must stay incapable of writing, so the separation is a connection, not a flag.
+_halt_engine = None
+
+
+def halt_writes_enabled() -> bool:
+    s = get_settings()
+    return bool(s.halt_db_user and s.halt_db_password)
+
+
+def get_halt_engine():
+    """Engine for the halt write path, or None if no halter credentials are configured.
+
+    Returning None rather than falling back to `db_user` is the point: a misconfigured deployment
+    must lose the button, not quietly gain a write path through the read role.
+    """
+    global _halt_engine
+    if not halt_writes_enabled():
+        return None
+    if _halt_engine is None:
+        s = get_settings()
+        driver = "pg8000" if _USE_PG8000 else "psycopg2"
+        url = (f"postgresql+{driver}://{s.halt_db_user}:{s.halt_db_password}"
+               f"@{s.db_host}:{s.db_port}/{s.db_name}")
+        kwargs = {"connect_args": {"ssl_context": False}} if _USE_PG8000 else {}
+        _halt_engine = create_engine(url, pool_pre_ping=True, pool_size=2, **kwargs)
+    return _halt_engine
