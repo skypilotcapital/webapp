@@ -65,6 +65,8 @@ export function Sidebar() {
         <div className="text-[9px] font-bold tracking-[1.5px] px-2.5 pt-3.5 pb-1.5" style={{ color: 'var(--tx-dim)' }}>
           PRODUCTION
         </div>
+        <NavLink href="/trading/paper" label="Trading" icon="⌁"
+                 active={pathname.startsWith('/trading')} />
         <NavLink href="/portfolios" label="Portfolios" icon="◈"
           active={pathname === '/portfolios' || pathname.startsWith('/portfolios/')} />
         <DisabledLink label="Settings" icon="⚙" />

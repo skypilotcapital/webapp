@@ -278,17 +278,33 @@ def ledger(env: str, rebalance_id: int | None = None):
         else:
             state = "not_due"
 
+        chained = "CHAINED" in (s["notes"] or "")
         out.append({
             "step": step, "label": s["label"], "act": s["act"], "ord": s["ord"],
-            "mode": "manual" if s["manual_only"] else ("scheduled" if sched_rows else "manual"),
+            "mode": ("manual" if s["manual_only"] else
+                     "chained" if chained else
+                     "scheduled" if sched_rows else "manual"),
             "manual_only": s["manual_only"],
             "scheduled": sched_rows or None,
-            "chained": "CHAINED" in (s["notes"] or ""),
+            "chained": chained,
             "state": state,
             "ran_at": run["finished_at"] or run["started_at"] if run else None,
             "detail": run["detail"] if run else None,
             "notes": s["notes"],
         })
+
+    # "Happened but unrecorded" must not look like "hasn't happened yet" — the same collapse rule
+    # (b) forbids at the ok/warn/failed end. If a LATER step has run, every earlier step must have
+    # run too (you cannot freeze a book that was never generated), so a missing record there is a
+    # gap in telemetry, not a step still to come. Live example: target generation produced the
+    # book rebalance 5 was frozen from, but ran before its run_log instrumentation existed.
+    done = [s["ord"] for s in out if s["state"] in ("ok", "warn", "failed", "awaiting")]
+    if done:
+        furthest = max(done)
+        for s in out:
+            if s["ord"] < furthest and s["state"] == "not_due":
+                s["state"] = "no_record"
+                s["detail"] = s["detail"] or "ran before this step had telemetry — no record kept"
 
     stale = None
     if sched:
