@@ -137,3 +137,41 @@ export interface Blotter {
 
 export const fetchBlotter = (env: string, id: number) =>
   get<Blotter>(`/api/v1/trading/${env}/rebalances/${id}/blotter`);
+
+export interface HaltState {
+  halted: boolean;
+  active: { halt_id: number; rebalance_id: number | null; set_at: string; set_by: string;
+            source: string; reason: string | null } | null;
+  history: { halt_id: number; set_at: string; set_by: string; source: string;
+             reason: string | null; cleared_at: string | null; cleared_by: string | null }[];
+  /** False when the deployment has no halter credentials — the button disables rather than
+   *  silently writing through the read role. */
+  can_write: boolean;
+  /** Always true: the file half of the switch lives on the droplet's disk and this API may be the
+   *  very thing that is broken, so "not halted" here is never the whole truth. */
+  file_flag_not_visible_here: boolean;
+}
+
+async function post<T>(path: string, body: unknown): Promise<T> {
+  const res = await fetch(`${API_BASE}${path}`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+  });
+  if (!res.ok) {
+    const detail = await res.json().catch(() => null);
+    throw new Error(detail?.detail ?? `${res.status} ${res.statusText}`);
+  }
+  return res.json();
+}
+
+export const fetchHaltState = (env: string, rebalanceId?: number) =>
+  get<HaltState>(`/api/v1/trading/${env}/halt` +
+    (rebalanceId ? `?rebalance_id=${rebalanceId}` : ''));
+
+export const postHalt = (env: string, by: string, reason: string, rebalanceId?: number) =>
+  post(`/api/v1/trading/${env}/halt`, { by, reason, rebalance_id: rebalanceId ?? null });
+
+export const clearHalt = (env: string, by: string, rebalanceId?: number) =>
+  post(`/api/v1/trading/${env}/halt/clear`,
+       { by, reason: 'cleared from the operations page', rebalance_id: rebalanceId ?? null });

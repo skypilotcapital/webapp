@@ -7,6 +7,7 @@ import {
   type Ledger, type PlanResponse, type RebalanceDetail, type Review,
 } from '@/lib/trading';
 import { BlotterSection } from './Blotter';
+import { HaltControl } from './HaltControl';
 
 const CHECK: Record<string, { glyph: string; cls: string }> = {
   ok:   { glyph: '●', cls: 'text-[var(--pos)]' },
@@ -48,6 +49,10 @@ export function RebalanceReview({ env, id }: { env: string; id: number }) {
 
   return (
     <div className="space-y-4">
+      {/* Top of the page, above everything: during an execution this is the control you reach
+          for, and it must not require scrolling past a provenance table to find. */}
+      <HaltControl env={env} rebalanceId={id} />
+
       {/* (a) Provenance — what produced this book. Unseen, an audit trail is not real (§3.9). */}
       <div className="panel p-4">
         <div className="flex items-baseline justify-between flex-wrap gap-2">

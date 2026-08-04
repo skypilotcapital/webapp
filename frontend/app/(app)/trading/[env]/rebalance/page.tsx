@@ -1,3 +1,4 @@
+import { HaltControl } from '@/components/trading/HaltControl';
 import { LedgerTable } from '@/components/trading/Ledger';
 import { RebalanceList } from '@/components/trading/RebalanceList';
 
@@ -12,6 +13,7 @@ export default async function RebalanceLedgerPage({
   return (
     <div className="space-y-4">
       <h1 className="text-xl font-semibold">Rebalance</h1>
+      <HaltControl env={env} />
       <LedgerTable env={env} />
       <RebalanceList env={env} />
     </div>
