@@ -59,11 +59,37 @@ def get_db() -> Connection:
 # A SECOND engine, on the narrow `skypilot_halter` role. Deliberately not a mode of the main one:
 # the read path must stay incapable of writing, so the separation is a connection, not a flag.
 _halt_engine = None
+_approve_engine = None
 
 
 def halt_writes_enabled() -> bool:
     s = get_settings()
     return bool(s.halt_db_user and s.halt_db_password)
+
+
+def approve_writes_enabled() -> bool:
+    s = get_settings()
+    return bool(s.approve_db_user and s.approve_db_password)
+
+
+def get_approve_engine():
+    """Engine for the approval write path, or None if no approver credentials are configured.
+
+    A THIRD engine, on `skypilot_approver`. One role per capability (A8): the halt role cannot
+    approve and the approver role cannot halt, so a flaw in either endpoint is bounded by its own
+    grant rather than by which code path happened to reach it.
+    """
+    global _approve_engine
+    if not approve_writes_enabled():
+        return None
+    if _approve_engine is None:
+        s = get_settings()
+        driver = "pg8000" if _USE_PG8000 else "psycopg2"
+        url = (f"postgresql+{driver}://{s.approve_db_user}:{s.approve_db_password}"
+               f"@{s.db_host}:{s.db_port}/{s.db_name}")
+        kwargs = {"connect_args": {"ssl_context": False}} if _USE_PG8000 else {}
+        _approve_engine = create_engine(url, pool_pre_ping=True, pool_size=2, **kwargs)
+    return _approve_engine
 
 
 def get_halt_engine():

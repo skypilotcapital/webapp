@@ -35,6 +35,11 @@ class Settings(BaseSettings):
     halt_db_user: str = ""
     halt_db_password: str = ""
 
+    # The APPROVAL write path (Q2). Its own role again — approval is a decision and halting is a
+    # brake, and neither should inherit the other's privileges.
+    approve_db_user: str = ""
+    approve_db_password: str = ""
+
     # Reports directory — absolute path to the folder containing report subdirectories.
     # On the droplet: /root/Main/Reports
     # Leave blank for local dev (reports list will return empty gracefully).

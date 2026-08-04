@@ -26,7 +26,8 @@ from fastapi import APIRouter, HTTPException, Query
 from pydantic import BaseModel, Field
 from sqlalchemy import text
 
-from api.db import get_db, get_halt_engine, halt_writes_enabled
+from api.db import (approve_writes_enabled, get_approve_engine, get_db,
+                    get_halt_engine, halt_writes_enabled)
 
 router = APIRouter(prefix="/api/v1/trading", tags=["trading"])
 
@@ -107,8 +108,10 @@ def rebalance_review(env: str, rebalance_id: int):
     if rv is None:
         # Not an error: a rebalance simply may not have been reviewed yet. The page says so
         # rather than showing an empty checklist, which would read as "all clear".
-        return {"env": env, "rebalance_id": rebalance_id, "review": None}
-    return {"env": env, "rebalance_id": rebalance_id, "review": dict(rv)}
+        return {"env": env, "rebalance_id": rebalance_id, "review": None,
+                "can_approve": approve_writes_enabled()}
+    return {"env": env, "rebalance_id": rebalance_id, "review": dict(rv),
+            "can_approve": approve_writes_enabled()}
 
 
 @router.get("/{env}/rebalances/{rebalance_id}/plan")
@@ -552,3 +555,105 @@ def clear_halt(env: str, body: HaltRequest):
             "note": ("Cleared the DATABASE halt only. A halt set from the CLI also wrote a file "
                      "flag on the droplet, which this cannot see or remove — use "
                      "`python -m jobs.kill_switch --clear` for that.")}
+
+
+# =================================================================================================
+# THE APPROVAL GATE (Q2, [10-RBAL] phase 4)
+#
+# The one place a human is REQUIRED to make a decision. The web version can do strictly less than
+# the CLI, on purpose: it cannot recompute a review — that needs a broker session, which this API
+# must never hold (§3.8) — so it can only RATIFY one that already exists, is fresh, is clean, and
+# is the one the operator actually had on screen. Anything else goes to the terminal, where the
+# full output is in front of them when they decide.
+# =================================================================================================
+
+APPROVE_MAX_REVIEW_AGE_S = 4 * 3600
+
+
+class ApproveRequest(BaseModel):
+    by: str = Field(min_length=1, max_length=80)
+    # The review the browser was DISPLAYING. Required: approving without naming what you read is
+    # the "someone looked at this screen once" that §3.2 exists to rule out.
+    review_id: int
+    note: str | None = Field(default=None, max_length=500)
+
+
+@router.post("/{env}/rebalances/{rebalance_id}/approve")
+def approve(env: str, rebalance_id: int, body: ApproveRequest):
+    """Mark a proposed rebalance approved. Submits NOTHING — execution is a separate, deliberate
+    second action (§3.2) and remains CLI-only.
+
+    ⚠️ EVERY PRECONDITION IS RE-CHECKED HERE against the database, ignoring what the browser
+    believes (Q2: the write path is never trusted). The browser is a display; this is the gate.
+    Five refusals, each for a different way an approval could be hollow:
+
+      1. not 'proposed'   — already approved, submitted or cancelled underneath the page
+      2. no review at all — nobody has looked; there is nothing to ratify
+      3. stale review     — a pre-trade check computed hours ago is not a pre-trade check
+      4. a FAILED check   — the web has no --force. Overriding is a judgement that belongs in the
+                            terminal with the full output visible, not behind a button
+      5. a NEWER review   — the operator read one thing and clicked on another. Refuse and make
+                            them look again; this is what `approved_review_id` exists for
+    """
+    _env(env)
+    eng = get_approve_engine()
+    if eng is None:
+        raise HTTPException(status_code=503, detail=(
+            "approval write path not configured on this deployment — approve from the CLI: "
+            f"python -m jobs.approve_rebalance --rebalance-id {rebalance_id} --approver NAME"))
+
+    with eng.begin() as conn:
+        hdr = conn.execute(text(
+            "SELECT status FROM trading.rebalances WHERE rebalance_id = :r"),
+            {"r": rebalance_id}).mappings().first()
+        if hdr is None:
+            raise HTTPException(status_code=404, detail="no such rebalance")
+        if hdr["status"] != "proposed":
+            raise HTTPException(status_code=409, detail=(
+                f"rebalance is '{hdr['status']}', not 'proposed' — nothing to approve"))
+
+        rv = conn.execute(text("""
+            SELECT review_id, worst_state, summary,
+                   EXTRACT(EPOCH FROM (now() - computed_at)) AS age_s
+            FROM trading.rebalance_reviews
+            WHERE rebalance_id = :r ORDER BY computed_at DESC LIMIT 1"""),
+            {"r": rebalance_id}).mappings().first()
+        if rv is None:
+            raise HTTPException(status_code=409, detail=(
+                "no pre-trade review exists for this rebalance. Run it first — approving a book "
+                "nobody has checked is exactly what this gate prevents."))
+        if int(rv["review_id"]) != int(body.review_id):
+            raise HTTPException(status_code=409, detail=(
+                f"a newer review (#{rv['review_id']}) exists than the one on your screen "
+                f"(#{body.review_id}). Reload and read it before approving."))
+        if float(rv["age_s"]) > APPROVE_MAX_REVIEW_AGE_S:
+            raise HTTPException(status_code=409, detail=(
+                f"the review is {float(rv['age_s']) / 3600:.1f} h old. Re-run it against current "
+                "positions and quotes — a stale pre-trade check is not a pre-trade check."))
+        if rv["worst_state"] == "fail":
+            raise HTTPException(status_code=409, detail=(
+                "a pre-trade check FAILED. The website has no override: approve from the CLI with "
+                "--force if you have decided the failure is acceptable, so that the full output is "
+                "in front of you when you do."))
+
+        note = (f"APPROVED via web by {body.by} (claimed, not authenticated) against review "
+                f"#{rv['review_id']}: {rv['summary'] or ''}")
+        if body.note:
+            note += f"  |  {body.note}"
+        # WHERE status='proposed' again, inside the same transaction: optimistic concurrency, so
+        # two operators clicking at the same moment cannot both succeed.
+        n = conn.execute(text(
+            "UPDATE trading.rebalances "
+            "SET status = 'approved', approved_by = :by, approved_at = now(), "
+            "    approved_review_id = :rev, "
+            "    notes = COALESCE(notes || E'\\n', '') || :note "
+            "WHERE rebalance_id = :r AND status = 'proposed'"),
+            {"by": body.by, "rev": rv["review_id"], "note": note, "r": rebalance_id}).rowcount
+        if not n:
+            raise HTTPException(status_code=409,
+                                detail="rebalance changed underneath the approval")
+    return {"env": env, "rebalance_id": rebalance_id, "status": "approved",
+            "approved_review_id": int(rv["review_id"]),
+            "note": ("Approval recorded. NOTHING has been submitted — execution is a separate "
+                     "action and remains CLI-only: "
+                     f"python run_rebalance.py --rebalance-id {rebalance_id} --execute")}
