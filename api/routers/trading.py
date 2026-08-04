@@ -373,10 +373,22 @@ def readiness(env: str):
         checks = []
 
         def add(name, what, sql, params, why):
-            row = conn.execute(text(sql), params).mappings().first()
+            # A check that cannot RUN is its own state — never "present" and never "missing".
+            # Reporting an unreadable artifact as missing would cry wolf on trade morning;
+            # reporting it as present is the failure this whole panel exists to prevent. And one
+            # ungranted table must not 500 the page: the other checks are still worth having.
+            try:
+                row = conn.execute(text(sql), params).mappings().first()
+            except Exception as e:                                    # noqa: BLE001
+                conn.rollback()
+                checks.append({"name": name, "what": what, "rows": None, "present": None,
+                               "landed_at": None, "why": why,
+                               "error": f"cannot check: {type(e).__name__}"})
+                return
             n = int(row["n"] or 0) if row else 0
             checks.append({"name": name, "what": what, "rows": n, "present": n > 0,
-                           "landed_at": (row or {}).get("landed_at"), "why": why})
+                           "landed_at": (row or {}).get("landed_at"), "why": why,
+                           "error": None})
 
         add("factor.scores", "SP500 feature panel",
             "SELECT count(*) AS n, NULL::timestamptz AS landed_at "
@@ -404,12 +416,15 @@ def readiness(env: str):
             "SELECT count(*) FROM generate_series(:d::date + 1, current_date, '1 day') g "
             "WHERE extract(isodow FROM g) < 6"), {"d": signal}).scalar() or 0
 
-    missing = [c for c in checks if not c["present"]]
-    verdict = ("ready" if not missing else
+    missing = [c for c in checks if c["present"] is False]
+    unknown = [c for c in checks if c["present"] is None]
+    verdict = ("unknown" if unknown and not missing else
+               "ready" if not missing else
                "late" if elapsed >= 3 else
                "at_risk" if elapsed >= 2 else "building")
     return {"env": env, "signal_date": signal, "weekdays_since_month_end": int(elapsed),
-            "checks": checks, "n_missing": len(missing), "verdict": verdict,
+            "checks": checks, "n_missing": len(missing), "n_unknown": len(unknown),
+            "verdict": verdict,
             "note": ("Trade day is TD3, the 3rd trading day of the month "
                      "(operating_calendar.md). Everything above must be present before the freeze.")}
 
