@@ -202,24 +202,16 @@ def ledger(env: str, rebalance_id: int | None = None):
         for r in runs:
             latest_run.setdefault(r["step"], dict(r))
 
+        # The data-side steps are multi-step CHAINS in pipeline.run_log, and each rolls up to one
+        # ledger row: the operator wants to know whether the book got built, not which of ten
+        # sub-steps is running. `mode` is the discriminator — 'as-of' is the monthly SP500 factor
+        # build, 'broad' the R2500 one, and target_gen is its own flow.
         plog = conn.execute(text("""
-            SELECT step, status, started_at, completed_at, error_msg
+            SELECT flow, mode, step, status, started_at, completed_at, error_msg
             FROM pipeline.run_log
-            WHERE flow IN ('target_gen', 'build_factor_layer')
+            WHERE (flow = 'target_gen' OR (flow = 'build_factor_layer' AND mode IN ('as-of','broad')))
               AND started_at >= now() - interval '35 days'
             ORDER BY started_at DESC""")).mappings().all()
-        # The ten-step target_gen chain rolls up to ONE ledger row: the operator wants to know
-        # whether the book got built, not which of ten sub-steps is running.
-        tg = [p for p in plog if p["status"] is not None]
-        target_gen = None
-        if tg:
-            failed = next((p for p in tg if p["status"] not in ("complete", "ok")), None)
-            newest = tg[0]
-            target_gen = {"status": "fail" if failed else "ok",
-                          "started_at": newest["started_at"],
-                          "finished_at": newest["completed_at"],
-                          "detail": (failed["error_msg"] if failed
-                                     else f"{len(tg)} step(s) recorded, latest {newest['step']}")}
 
         review = None
         if rebalance_id is not None:
@@ -228,12 +220,42 @@ def ledger(env: str, rebalance_id: int | None = None):
                 "WHERE rebalance_id = :r ORDER BY computed_at DESC LIMIT 1"),
                 {"r": rebalance_id}).mappings().first()
 
+    def _rollup(rows):
+        """Latest attempt per sub-step, then worst outcome.
+
+        ⚠️ Latest ATTEMPT, not any attempt. On 2026-08-01 the monthly build's `quality` step
+        errored at 01:00 and succeeded on the 02:18 retry; a rollup that flagged any failure in
+        the window would render a recovered chain as failed forever, which is the mirror image of
+        the collapse rule (b) forbids.
+        """
+        latest = {}
+        for r in rows:                                    # rows arrive newest-first
+            latest.setdefault(r["step"], r)
+        if not latest:
+            return None
+        bad = [r for r in latest.values() if r["status"] not in ("complete", "ok")]
+        newest = max(latest.values(), key=lambda r: r["started_at"])
+        return {"status": "fail" if bad else "ok",
+                "started_at": newest["started_at"], "finished_at": newest["completed_at"],
+                "detail": (f"{len(bad)} step(s) failed: "
+                           + ", ".join(f"{r['step']} ({(r['error_msg'] or '')[:40]})" for r in bad)
+                           if bad else
+                           f"{len(latest)} step(s) complete, latest {newest['step']}")}
+
+    chain_runs = {
+        "target_gen":   _rollup([p for p in plog if p["flow"] == "target_gen"]),
+        "factor_build": _rollup([p for p in plog if p["flow"] == "build_factor_layer"
+                                 and p["mode"] == "as-of"]),
+        "broad_build":  _rollup([p for p in plog if p["flow"] == "build_factor_layer"
+                                 and p["mode"] == "broad"]),
+    }
+
     out = []
     for s in steps:
         step, sched_rows = s["step"], by_step.get(s["step"], [])
         run = latest_run.get(step)
-        if step == "target_gen" and target_gen:
-            run = target_gen
+        if chain_runs.get(step):
+            run = chain_runs[step]
         # The human gate is not a job: its evidence is the rebalance row itself.
         if step == "approval" and hdr:
             if hdr["approved_at"]:
