@@ -6,6 +6,7 @@ import {
   fetchLedger, fetchPlan, fetchRebalance, fetchReview,
   type Ledger, type PlanResponse, type RebalanceDetail, type Review,
 } from '@/lib/trading';
+import { BlotterSection } from './Blotter';
 
 const CHECK: Record<string, { glyph: string; cls: string }> = {
   ok:   { glyph: '●', cls: 'text-[var(--pos)]' },
@@ -202,7 +203,12 @@ export function RebalanceReview({ env, id }: { env: string; id: number }) {
         </div>
       )}
 
-      {/* (e) History — append-only, trigger-written. */}
+      {/* (e) What actually happened. Renders itself away when there are no orders — a rebalance
+          that has not been submitted has no blotter, and an empty table would only ask the reader
+          to work out that nothing is wrong. */}
+      <BlotterSection env={env} id={id} status={h.status} />
+
+      {/* (f) History — append-only, trigger-written. */}
       <div className="panel p-4">
         <h2 className="text-sm font-semibold mb-2">History</h2>
         <ul className="text-[11px] space-y-1">

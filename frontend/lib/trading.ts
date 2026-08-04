@@ -113,3 +113,27 @@ export const fetchReview = (env: string, id: number) =>
 // operator read rehearsal share counts as the ones about to be sent.
 export const fetchPlan = (env: string, id: number, kind: 'preview' | 'final' = 'preview') =>
   get<PlanResponse>(`/api/v1/trading/${env}/rebalances/${id}/plan?kind=${kind}`);
+
+export interface BlotterRow {
+  ticker: string; conid: number; side: string; planned: number; plan_price: number | null;
+  est_notional: number | null; coid: string | null; status: string | null;
+  ibkr_order_id: string | null; submitted_qty: number | null; submitted_at: string | null;
+  filled: number; avg_price: number | null; commission: number; n_fills: number;
+  first_fill: string | null; last_fill: string | null;
+  residual: number;
+  /** Signed so POSITIVE always means worse for us. null where nothing filled — an avg price of
+   *  0 is "no data", and running it through the formula prints a confident −10,000 bps. */
+  slip_bps: number | null;
+}
+
+export interface Blotter {
+  rows: BlotterRow[];
+  rollup: {
+    planned: number; submitted: number; filled: number; unfilled: number; partial: number;
+    rejected: number; commission: number; est_cost: number; avg_slip_bps: number | null;
+  };
+  unexplained_fills: { coid: string; status: string; conid: number }[];
+}
+
+export const fetchBlotter = (env: string, id: number) =>
+  get<Blotter>(`/api/v1/trading/${env}/rebalances/${id}/blotter`);
