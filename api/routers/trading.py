@@ -623,9 +623,12 @@ def approve(env: str, rebalance_id: int, body: ApproveRequest):
                 "no pre-trade review exists for this rebalance. Run it first — approving a book "
                 "nobody has checked is exactly what this gate prevents."))
         if int(rv["review_id"]) != int(body.review_id):
+            # "different", not "newer": the id sent may be stale OR simply wrong, and asserting
+            # which is a guess. What matters is that the operator read something other than the
+            # current review, and the fix is the same either way.
             raise HTTPException(status_code=409, detail=(
-                f"a newer review (#{rv['review_id']}) exists than the one on your screen "
-                f"(#{body.review_id}). Reload and read it before approving."))
+                f"the current review is #{rv['review_id']}, not the #{body.review_id} your screen "
+                f"was showing. Reload and read it before approving."))
         if float(rv["age_s"]) > APPROVE_MAX_REVIEW_AGE_S:
             raise HTTPException(status_code=409, detail=(
                 f"the review is {float(rv['age_s']) / 3600:.1f} h old. Re-run it against current "

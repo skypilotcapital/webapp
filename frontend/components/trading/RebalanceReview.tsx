@@ -7,6 +7,7 @@ import {
   type Ledger, type PlanResponse, type RebalanceDetail, type Review,
 } from '@/lib/trading';
 import { BlotterSection } from './Blotter';
+import { ApproveControl } from './ApproveControl';
 import { HaltControl } from './HaltControl';
 
 const CHECK: Record<string, { glyph: string; cls: string }> = {
@@ -28,6 +29,7 @@ function age(sec: number): string {
 export function RebalanceReview({ env, id }: { env: string; id: number }) {
   const [detail, setDetail] = useState<RebalanceDetail | null>(null);
   const [review, setReview] = useState<Review | null | undefined>(undefined);
+  const [canApprove, setCanApprove] = useState(false);
   const [plan, setPlan] = useState<PlanResponse | null>(null);
   const [ledger, setLedger] = useState<Ledger | null>(null);
   const [showTable, setShowTable] = useState(false);
@@ -35,7 +37,8 @@ export function RebalanceReview({ env, id }: { env: string; id: number }) {
 
   useEffect(() => {
     fetchRebalance(env, id).then(setDetail).catch((e) => setErr(String(e)));
-    fetchReview(env, id).then((d) => setReview(d.review)).catch(() => setReview(null));
+    fetchReview(env, id).then((d) => { setReview(d.review); setCanApprove(d.can_approve); })
+      .catch(() => setReview(null));
     fetchPlan(env, id, 'preview').then(setPlan).catch(() => setPlan(null));
     fetchLedger(env, id).then(setLedger).catch(() => setLedger(null));
   }, [env, id]);
@@ -153,10 +156,18 @@ export function RebalanceReview({ env, id }: { env: string; id: number }) {
           </p>
         )}
         <p className="text-[10px] text-[var(--tx-dim)] mt-2">
-          Approval is a CLI action for now — this page shows the gate, it does not open it.
-          Run it <b>during the session</b>: outside market hours the broker returns prices that are
-          not trade-time, and the quote check says so rather than pretending otherwise.
+          Approve <b>during the session</b>: outside market hours the broker returns prices that are
+          not trade-time, and the quote check above says so rather than pretending otherwise.
         </p>
+        {/* The gate itself. Deliberately BELOW the checks — the decision is the last thing on the
+            panel, never the first (§3.1: approve by exception). */}
+        <ApproveControl
+          env={env} rebalanceId={id} review={review ?? null} canApprove={canApprove}
+          status={h.status}
+          onApproved={() => {
+            fetchRebalance(env, id).then(setDetail).catch(() => {});
+            fetchLedger(env, id).then(setLedger).catch(() => {});
+          }} />
       </div>
 
       {/* (d) The trade table — collapsed. Nobody checks 186 rows, and a UI that presents them all

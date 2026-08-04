@@ -59,6 +59,10 @@ export interface ReviewCheck {
   name: string; state: 'ok' | 'warn' | 'fail'; headline: string; detail: string[];
 }
 
+/** True when the deployment has approval credentials. False disables the control rather than
+ *  letting a click fail — the same posture as the halt button. */
+export interface ReviewResponse { review: Review | null; can_approve: boolean }
+
 export interface Review {
   review_id: number; computed_at: string; computed_by: string | null;
   worst_state: 'ok' | 'warn' | 'fail';
@@ -106,7 +110,7 @@ export const fetchRebalance = (env: string, id: number) =>
   get<RebalanceDetail>(`/api/v1/trading/${env}/rebalances/${id}`);
 
 export const fetchReview = (env: string, id: number) =>
-  get<{ review: Review | null }>(`/api/v1/trading/${env}/rebalances/${id}/review`);
+  get<ReviewResponse>(`/api/v1/trading/${env}/rebalances/${id}/review`);
 
 // `kind` is explicit on purpose: preview (a rehearsal) and final (the contract the executor
 // submits) are different objects, and a page that silently showed whichever existed would let an
@@ -175,3 +179,6 @@ export const postHalt = (env: string, by: string, reason: string, rebalanceId?: 
 export const clearHalt = (env: string, by: string, rebalanceId?: number) =>
   post(`/api/v1/trading/${env}/halt/clear`,
        { by, reason: 'cleared from the operations page', rebalance_id: rebalanceId ?? null });
+
+export const approveRebalance = (env: string, id: number, by: string, reviewId: number) =>
+  post(`/api/v1/trading/${env}/rebalances/${id}/approve`, { by, review_id: reviewId });
