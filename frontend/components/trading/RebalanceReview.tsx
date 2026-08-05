@@ -36,7 +36,6 @@ export function RebalanceReview({ env, id }: { env: string; id: number }) {
   const [canExecute, setCanExecute] = useState(false);
   const [plan, setPlan] = useState<PlanResponse | null>(null);
   const [ledger, setLedger] = useState<Ledger | null>(null);
-  const [showTable, setShowTable] = useState(false);
   const [err, setErr] = useState<string | null>(null);
 
   useEffect(() => {
@@ -106,11 +105,27 @@ export function RebalanceReview({ env, id }: { env: string; id: number }) {
       <div className="panel p-4">
         <div className="flex items-baseline justify-between flex-wrap gap-2 mb-2">
           <h2 className="text-sm font-semibold">Pre-trade checks</h2>
+          {/* "STALE" alone answers neither question a reader actually has: WHICH checks went off,
+              and HOW do I refresh them. Conid resolution and frozen-vs-reproducible have no market
+              input and never go stale; what ages is everything derived from a quote. And the CLI
+              hint matters because a re-run needs a broker session, so this page cannot do it
+              itself — until the [10-RBAL] run-request trigger lands. */}
           {review && (
-            <span className={`text-[11px] ${review.is_stale ? 'text-[var(--amber)]' : 'text-[var(--tx-mut)]'}`}>
-              computed {age(review.age_seconds)}
-              {review.is_stale && ' — STALE, re-run before approving'}
-            </span>
+            <div className="text-right">
+              <span className={`text-[11px] ${review.is_stale ? 'text-[var(--amber)]' : 'text-[var(--tx-mut)]'}`}>
+                computed {age(review.age_seconds)}
+                {review.is_stale && ' — quote-derived checks are out of date'}
+              </span>
+              {review.is_stale && (
+                <p className="text-[10px] text-[var(--tx-dim)] mt-0.5">
+                  coverage · dust · margin · large trades move with prices; conid resolution and
+                  frozen-vs-reproducible do not. Re-run <em>during the session</em>:
+                  <code className="ml-1 font-mono">
+                    jobs.approve_rebalance --rebalance-id {h.rebalance_id} --review
+                  </code>
+                </p>
+              )}
+            </div>
           )}
         </div>
 
@@ -204,7 +219,7 @@ export function RebalanceReview({ env, id }: { env: string; id: number }) {
           working surface: sortable, filterable by sleeve, carrying the company name so you are
           checking a business rather than a symbol. */}
       {plan && plan.plan.length > 0 && (
-        <TradePlanTable plan={plan} show={showTable} onToggle={() => setShowTable((v) => !v)} />
+        <TradePlanTable plan={plan} />
       )}
 
       {/* (e) What actually happened. Renders itself away when there are no orders — a rebalance

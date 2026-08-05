@@ -26,9 +26,7 @@ const SLEEVE_LABEL: Record<string, string> = {
   core: 'LO core', sleeve: 'L/S sleeve', unknown: 'unknown',
 };
 
-export function TradePlanTable(
-  { plan, show, onToggle }: { plan: PlanResponse; show: boolean; onToggle: () => void },
-) {
+export function TradePlanTable({ plan }: { plan: PlanResponse }) {
   const [sort, setSort] = useState<{ key: Key; dir: 1 | -1 }>({ key: 'est_notional', dir: -1 });
   const [only, setOnly] = useState<'all' | 'core' | 'sleeve'>('all');
 
@@ -52,6 +50,19 @@ export function TradePlanTable(
       ? { key: k, dir: (s.dir * -1) as 1 | -1 }
       : { key: k, dir: COLS.find((c) => c.key === k)?.num ? -1 : 1 }));
 
+  // Counts describe WHAT IS ON SCREEN, not the whole plan. With a sleeve selected, plan-level
+  // totals are a different book from the rows below them, and the reader has no way to tell.
+  const shown = useMemo(() => {
+    const traded = rows.filter((r) => r.side && !r.dust_filtered);
+    return {
+      n: rows.length,
+      buy: traded.filter((r) => r.side === 'BUY').length,
+      sell: traded.filter((r) => r.side === 'SELL').length,
+      dust: rows.filter((r) => r.dust_filtered).length,
+      gross: traded.reduce((a, r) => a + Number(r.est_notional ?? 0), 0),
+    };
+  }, [rows]);
+
   const bySleeve = plan.summary.by_sleeve ?? {};
 
   return (
@@ -63,15 +74,18 @@ export function TradePlanTable(
             PREVIEW — recomputed at submission
           </span>
         </h2>
-        <button className="chip-btn text-[11px]" onClick={onToggle}>
-          {show ? 'Hide' : `Show ${plan.summary.n_rows} rows`}
-        </button>
       </div>
 
+      {/* Always open. This is the working surface — hiding it behind a toggle put a click between
+          the reviewer and the only place the actual trades are visible, and the toggle's label
+          ("Show 186 rows") could not follow the sleeve filter below it, so it contradicted the
+          selection. */}
       <p className="text-[11px] text-[var(--tx-mut)] mt-1">
-        {plan.summary.n_trades} trades — {plan.summary.n_buy} buys, {plan.summary.n_sell} sells,
-        {' '}{plan.summary.n_dust} dust-filtered · est. gross $
-        {Math.round(plan.summary.gross_notional).toLocaleString()}
+        {shown.buy + shown.sell} trades — {shown.buy} buys, {shown.sell} sells,
+        {' '}{shown.dust} dust-filtered · est. gross ${Math.round(shown.gross).toLocaleString()}
+        {only !== 'all' && (
+          <span className="text-[var(--tx-dim)]"> · {SLEEVE_LABEL[only]} only</span>
+        )}
       </p>
 
       {/* THE TWO MANDATES, side by side. There is one account and one order per name — the broker
@@ -96,8 +110,7 @@ export function TradePlanTable(
         </div>
       )}
 
-      {show && (
-        <div className="overflow-x-auto mt-3 max-h-[560px] overflow-y-auto">
+      <div className="overflow-x-auto mt-3 max-h-[560px] overflow-y-auto">
           <table className="dtable w-full text-[11px]">
             <thead className="sticky top-0 bg-[var(--panel)]">
               <tr>
@@ -141,8 +154,7 @@ export function TradePlanTable(
               ))}
             </tbody>
           </table>
-        </div>
-      )}
+      </div>
     </div>
   );
 }
