@@ -184,6 +184,71 @@ def rebalance_plan(env: str, rebalance_id: int,
             }}
 
 
+@router.get("/{env}/rebalances/{rebalance_id}/exposures")
+def rebalance_exposures(env: str, rebalance_id: int):
+    """§3.9 — what the frozen book is BETTING ON, per sleeve, before you approve it.
+
+    The pre-trade checks ask whether the book is SOUND (can we price it, borrow it, afford the
+    margin). This asks what it is EXPOSED to — the class of error no per-name check can see,
+    because every individual trade looks fine while forty of them together drift a sector to 8%
+    active or lean the book onto size.
+
+    ⚠️ EXPOSURES ONLY, NEVER CONTRIBUTIONS. `ret_contrib` needs the FOLLOWING month's factor
+    returns (`build_attribution`: the holding-period return is `fr.loc[t_next]`), so for the book
+    you are about to trade it does not exist and cannot. That is fine for this screen — pre-trade
+    the question is "what am I taking on", not "what did it earn". Return attribution stays in
+    Portfolios, where it is retrospective by nature.
+
+    ⚠️ AND IT REPORTS ITS OWN AS-OF DATE. Attribution is computed by a local job, so the newest
+    available date can lag the signal date. A stale exposure shown as current would be worse than
+    none — it would describe a book you are not trading — so the date is part of the payload and
+    `is_current` is computed, not assumed.
+    """
+    _env(env)
+    with get_db() as conn:
+        hdr = conn.execute(text("SELECT source, signal_date FROM trading.rebalances "
+                                "WHERE rebalance_id = :r"),
+                           {"r": rebalance_id}).mappings().first()
+        if hdr is None:
+            raise HTTPException(status_code=404, detail="no such rebalance")
+        sig = hdr["signal_date"]
+        labels = ((hdr["source"] or {}).get("component_labels") or [])
+
+        sleeves = []
+        for lbl in labels:
+            tag = "sleeve" if "_ls_" in lbl else "core"
+            asof = conn.execute(text(
+                "SELECT max(date) FROM portfolio.attribution "
+                "WHERE model_label = :l AND date <= :d"), {"l": lbl, "d": sig}).scalar()
+            if asof is None:
+                sleeves.append({"sleeve": tag, "label": lbl, "as_of": None, "is_current": False,
+                                "factors": [], "note": "no attribution computed for this book yet"})
+                continue
+            rows = conn.execute(text("""
+                SELECT factor, active_exposure, risk_var_contrib
+                FROM portfolio.attribution
+                WHERE model_label = :l AND date = :d AND factor NOT IN ('total', 'specific')
+                  AND active_exposure IS NOT NULL
+                ORDER BY ABS(active_exposure) DESC"""),
+                {"l": lbl, "d": asof}).mappings().all()
+            spec = conn.execute(text(
+                "SELECT risk_var_contrib FROM portfolio.attribution "
+                "WHERE model_label = :l AND date = :d AND factor = 'specific'"),
+                {"l": lbl, "d": asof}).scalar()
+            sleeves.append({
+                "sleeve": tag, "label": lbl, "as_of": asof, "is_current": asof == sig,
+                "specific_risk_var": spec,
+                # Sectors and styles answer different questions and a PM reads them separately —
+                # "am I accidentally long energy" is not "am I accidentally long size".
+                "factors": [{"factor": r["factor"],
+                             "kind": ("sector" if r["factor"].startswith("sec_")
+                                      else "market" if r["factor"] == "market" else "style"),
+                             "active_exposure": r["active_exposure"],
+                             "risk_var_contrib": r["risk_var_contrib"]} for r in rows],
+            })
+    return {"env": env, "rebalance_id": rebalance_id, "signal_date": sig, "sleeves": sleeves}
+
+
 @router.get("/{env}/ledger")
 def ledger(env: str, rebalance_id: int | None = None):
     """S7 — the rebalance as an ordered PROCESS with a clock. One row per step.

@@ -235,3 +235,26 @@ export const fetchReadiness = (env: string) =>
 export const executeRebalance = (env: string, id: number, by: string, phrase: string) =>
   post<{ request_id: number }>(
     `/api/v1/trading/${env}/rebalances/${id}/execute`, { by, phrase });
+
+
+export interface ExposureFactor {
+  factor: string; kind: 'sector' | 'style' | 'market';
+  active_exposure: number; risk_var_contrib: number | null;
+}
+
+export interface Exposures {
+  signal_date: string;
+  sleeves: {
+    sleeve: string; label: string;
+    /** The date the exposures were computed for. May LAG the signal date — attribution is a local
+     *  job — so `is_current` is computed rather than assumed, and the UI says which book it is
+     *  describing. */
+    as_of: string | null; is_current: boolean;
+    specific_risk_var?: number | null;
+    factors: ExposureFactor[];
+    note?: string;
+  }[];
+}
+
+export const fetchExposures = (env: string, id: number) =>
+  get<Exposures>(`/api/v1/trading/${env}/rebalances/${id}/exposures`);

@@ -10,6 +10,7 @@ import { BlotterSection } from './Blotter';
 import { TradePlanTable } from './TradePlanTable';
 import { ApproveControl } from './ApproveControl';
 import { ExecuteControl } from './ExecuteControl';
+import { ExposuresSection } from './Exposures';
 import { HaltControl } from './HaltControl';
 
 const CHECK: Record<string, { glyph: string; cls: string }> = {
@@ -195,6 +196,8 @@ export function RebalanceReview({ env, id }: { env: string; id: number }) {
           and above the trade table because that is the thing it will send. */}
       <ExecuteControl env={env} rebalanceId={id} status={h.status} canExecute={canExecute}
                       onQueued={() => fetchRebalance(env, id).then(setDetail).catch(() => {})} />
+
+      <ExposuresSection env={env} id={id} />
 
       {/* (d) The trade table — collapsed. Nobody checks 186 rows, and a UI that presents them all
           with a button underneath produces false assurance, not diligence. Once opened it is a
