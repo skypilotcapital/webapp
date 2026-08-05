@@ -7,6 +7,7 @@ import {
   type Ledger, type PlanResponse, type RebalanceDetail, type Review,
 } from '@/lib/trading';
 import { BlotterSection } from './Blotter';
+import { TradePlanTable } from './TradePlanTable';
 import { ApproveControl } from './ApproveControl';
 import { ExecuteControl } from './ExecuteControl';
 import { HaltControl } from './HaltControl';
@@ -145,7 +146,6 @@ export function RebalanceReview({ env, id }: { env: string; id: number }) {
           <p className="text-[12px]">
             <span className="text-[var(--pos)]">●</span> approved {h.approved_at.slice(0, 16).replace('T', ' ')} UTC
             by <b>{h.approved_by}</b>
-            <span className="text-[var(--tx-dim)]"> (claimed, not authenticated)</span>
           </p>
         ) : h.status === 'cancelled' ? (
           // State the fact from the rebalance row, never a ledger inference: this book was
@@ -179,58 +179,11 @@ export function RebalanceReview({ env, id }: { env: string; id: number }) {
                       onQueued={() => fetchRebalance(env, id).then(setDetail).catch(() => {})} />
 
       {/* (d) The trade table — collapsed. Nobody checks 186 rows, and a UI that presents them all
-          with a button underneath produces false assurance, not diligence (§3.1). */}
+          with a button underneath produces false assurance, not diligence. Once opened it is a
+          working surface: sortable, filterable by sleeve, carrying the company name so you are
+          checking a business rather than a symbol. */}
       {plan && plan.plan.length > 0 && (
-        <div className="panel p-4">
-          <div className="flex items-baseline justify-between flex-wrap gap-2">
-            <h2 className="text-sm font-semibold">
-              Trade plan
-              <span className="ml-2 text-[10px] font-normal px-1.5 py-0.5 rounded bg-[var(--bg)] text-[var(--tx-mut)]">
-                PREVIEW — recomputed at submission
-              </span>
-            </h2>
-            <button className="chip-btn text-[11px]" onClick={() => setShowTable((v) => !v)}>
-              {showTable ? 'Hide' : `Show ${plan.summary.n_rows} rows`}
-            </button>
-          </div>
-          <p className="text-[11px] text-[var(--tx-mut)] mt-1">
-            {plan.summary.n_trades} trades — {plan.summary.n_buy} buys, {plan.summary.n_sell} sells,
-            {' '}{plan.summary.n_dust} dust-filtered · est. gross {fmtUsd(plan.summary.gross_notional)}
-          </p>
-          {showTable && (
-            <div className="overflow-x-auto mt-3 max-h-[520px] overflow-y-auto">
-              <table className="dtable w-full text-[11px]">
-                <thead>
-                  <tr>
-                    <th className="text-left">Ticker</th><th className="text-right">Weight</th>
-                    <th className="text-right">Now</th><th className="text-right">Target</th>
-                    <th className="text-right">Δ</th><th className="text-left">Side</th>
-                    <th className="text-right">Price</th><th className="text-left">Src</th>
-                    <th className="text-right">Notional</th><th className="text-left">Note</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {plan.plan.map((p) => (
-                    <tr key={p.conid}>
-                      <td>{p.ticker}</td>
-                      <td className="text-right">{(Number(p.weight) * 100).toFixed(2)}%</td>
-                      <td className="text-right">{p.current_qty ?? '—'}</td>
-                      <td className="text-right">{p.target_qty ?? '—'}</td>
-                      <td className="text-right">{p.delta ?? '—'}</td>
-                      <td className={p.side === 'BUY' ? 'text-[var(--pos)]' : 'text-[var(--neg)]'}>
-                        {p.side ?? ''}
-                      </td>
-                      <td className="text-right">{p.price ?? '—'}</td>
-                      <td className="text-[var(--tx-dim)]">{p.price_src ?? ''}</td>
-                      <td className="text-right">{fmtUsd(p.est_notional)}</td>
-                      <td className="text-[10px] text-[var(--tx-dim)] max-w-[220px]">{p.note}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          )}
-        </div>
+        <TradePlanTable plan={plan} show={showTable} onToggle={() => setShowTable((v) => !v)} />
       )}
 
       {/* (e) What actually happened. Renders itself away when there are no orders — a rebalance

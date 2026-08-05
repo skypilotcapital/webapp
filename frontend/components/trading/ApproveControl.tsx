@@ -102,11 +102,7 @@ export function ApproveControl({
                   className="px-3 py-1.5 rounded text-[12px] font-semibold bg-[var(--teal)] text-[#fffdf9] disabled:opacity-35">
             {busy ? 'approving…' : `Approve #${rebalanceId}`}
           </button>
-          {/* Q1, verbatim: recorded, not verified. A paper-era record must never later read as an
-              authenticated one. */}
-          <span className="text-[10px] text-[var(--tx-dim)]">
-            recorded, not authenticated — the site is behind one shared passcode
-          </span>
+
         </div>
       )}
 

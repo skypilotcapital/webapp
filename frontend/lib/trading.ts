@@ -93,13 +93,18 @@ export interface PlanRow {
   planned_qty: number | null; ref_price: number | null; price: number | null;
   price_src: string | null; est_notional: number | null; dust_filtered: boolean;
   note: string | null; planned_at: string;
+  isin: string | null; company: string | null; sector: string | null; industry: string | null;
+  /** 'core' (S&P 500 long-only) | 'sleeve' (R2500 L/S) | 'unknown'. Read from the frozen
+   *  provenance, not inferred — see the endpoint for why it is only safe here. */
+  sleeve: 'core' | 'sleeve' | 'unknown';
 }
 
 export interface PlanResponse {
   kind: 'preview' | 'final';
   plan: PlanRow[];
   summary: { n_rows: number; n_trades: number; n_buy: number; n_sell: number;
-             n_dust: number; gross_notional: number };
+             n_dust: number; gross_notional: number;
+             by_sleeve: Record<string, { n: number; gross_notional: number }> };
 }
 
 export const fetchLedger = (env: string, rebalanceId?: number) =>

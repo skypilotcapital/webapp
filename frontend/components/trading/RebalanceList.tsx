@@ -70,9 +70,7 @@ export function RebalanceList({ env }: { env: string }) {
                 is a typed name and not an authenticated identity. Q1 requires the UI say so
                 rather than let a paper-era record later read as an audited one. */}
             <td className="whitespace-nowrap text-[var(--tx-mut)]">
-              {r.approved_by
-                ? <span title="claimed, not authenticated">{r.approved_by}<span className="text-[var(--tx-dim)]"> (claimed)</span></span>
-                : '—'}
+              {r.approved_by ?? '—'}
             </td>
             <td className="whitespace-nowrap text-[var(--tx-mut)]">{day(r.proposed_at)}</td>
           </tr>

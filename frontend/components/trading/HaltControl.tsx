@@ -73,7 +73,6 @@ export function HaltControl(
             </span>
             <span className="text-[11px] text-[var(--tx-mut)]">
               by <b>{state?.active?.set_by}</b>
-              <span className="text-[var(--tx-dim)]"> (claimed)</span>
               {' '}via {state?.active?.source} — {state?.active?.reason}
             </span>
             <button className="chip-btn text-[11px] ml-auto" disabled={busy}
