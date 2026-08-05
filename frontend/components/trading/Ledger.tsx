@@ -193,7 +193,8 @@ export function LedgerTable({ env }: { env: string }) {
                         <button className="chip-btn text-[10px]"
                                 disabled={!canRequest || pending === s.step}
                                 onClick={() => trigger(s.step)}>
-                          {pending === s.step ? '…' : 'run'}
+                          {pending === s.step ? '…'
+                            : ['ok', 'warn', 'failed'].includes(s.state) ? 're-run' : 'run'}
                         </button>
                       );
                     })()}

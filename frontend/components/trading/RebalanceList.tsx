@@ -87,13 +87,17 @@ export function RebalanceList({ env }: { env: string }) {
       {open.length ? <Table data={open} />
         : <p className="text-[11px] text-[var(--tx-dim)]">Nothing open.</p>}
 
-      <h2 className="text-sm font-semibold mt-5 mb-2">
-        Archive <span className="font-normal text-[10px] text-[var(--tx-dim)]">
-          — reconciled, closed or cancelled
-        </span>
-      </h2>
-      {archive.length ? <Table data={archive} />
-        : <p className="text-[11px] text-[var(--tx-dim)]">Empty.</p>}
+      <details className="mt-4">
+        <summary className="text-sm font-semibold cursor-pointer">
+          Archive <span className="font-normal text-[10px] text-[var(--tx-dim)]">
+            — {archive.length} reconciled, closed or cancelled
+          </span>
+        </summary>
+        <div className="mt-2">
+          {archive.length ? <Table data={archive} />
+            : <p className="text-[11px] text-[var(--tx-dim)]">Empty.</p>}
+        </div>
+      </details>
     </div>
   );
 }
