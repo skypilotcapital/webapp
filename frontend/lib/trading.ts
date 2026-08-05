@@ -278,3 +278,62 @@ export interface Exposures {
 
 export const fetchExposures = (env: string, id: number) =>
   get<Exposures>(`/api/v1/trading/${env}/rebalances/${id}/exposures`);
+
+/** [10-GEXP] HOW BIG the book is, and the chain that determined it.
+ *
+ *  ⚠️ GROSS IS AN OUTPUT, NOT A SETTING. Read the fields in this order and the arithmetic closes:
+ *  `vol_budget = te_target × cap_calibration` is what the sleeve may risk; `pred_vol` is what the
+ *  optimizer spent (the vol cap binds, so it spends all of it); `sigma_eff = pred_vol / gross` is
+ *  the vol per unit of gross; therefore `gross = pred_vol / sigma_eff`. Nobody picks the gross.
+ *
+ *  `cap_bound` is the fact that went unsaid for five months: 'floor' or 'ceiling' means the
+ *  estimator was OVERRULED by a bound, which is a different state from a cap it chose. */
+export interface RiskDiagnostic {
+  date: string; is_live: boolean;
+  gross: number; net: number;
+  n_long: number; n_short: number; n_names: number;
+  median_abs_w: number | null; n_at_floor: number; min_position: number | null;
+  active_share: number | null;
+  te_target: number; cap_calibration: number;
+  cap_lo: number | null; cap_hi: number | null;
+  cap_bound: 'floor' | 'ceiling' | 'interior' | 'static';
+  vol_budget: number; pred_vol: number; sigma_eff: number; status: string;
+  realized_vol_12m: number | null; realized_vol_24m: number | null; implied_b: number | null;
+  /** Provenance. The SHAPE columns (gross, names, median |w|) are always the published holdings.
+   *  'run' = the chain came from the same pass that wrote those holdings. 'backfill' = the chain
+   *  was reconstructed by a later re-run of the same config, which for the L/S books does not
+   *  reliably reproduce the identical book — so the size is exact and the explanation is a
+   *  close reconstruction. */
+  source: 'run' | 'backfill' | null;
+}
+
+export interface GrossExposure {
+  signal_date: string;
+  /** The book actually being approved, from the FROZEN rows — not a reconstruction. The leg split
+   *  is carried because "why is a 150/50 running 1.31?" is answerable only as 115-long/16-short. */
+  composite: { n: number; gross: number; net: number; long_gross: number; short_gross: number;
+               n_long: number; n_short: number } | null;
+  sleeves: {
+    sleeve: string; label: string;
+    /** May LAG the signal date; `is_current` is computed, never assumed. A risk number rendered as
+     *  current while describing an older book is worse than showing none. */
+    as_of: string | null; is_current: boolean;
+    current: RiskDiagnostic | null;
+    prev: { gross: number; active_share: number | null } | null;
+    /** Whole-history context for BOTH size measures — pick the one the mandate makes meaningful.
+     *  A long-only book's gross is 1.00 every month, so its range and percentile are undefined
+     *  rather than merely small; what varies for it is active share. Null when the book has no
+     *  values for that measure (an L/S book has no active share — its benchmark is cash). */
+    context: Partial<Record<'gross' | 'active_share',
+      { lo: number; hi: number; months: number; pctile: number;
+        lo12: number | null; hi12: number | null } | null>>;
+    history: Pick<RiskDiagnostic,
+      'date' | 'gross' | 'active_share' | 'cap_calibration' | 'cap_bound' | 'n_names'
+      | 'pred_vol' | 'sigma_eff'>[];
+    note?: string;
+  }[];
+}
+
+export const fetchGrossExposure = (env: string, id: number, history = 24) =>
+  get<GrossExposure>(
+    `/api/v1/trading/${env}/rebalances/${id}/gross-exposure?history=${history}`);

@@ -278,6 +278,141 @@ def rebalance_exposures(env: str, rebalance_id: int):
     return {"env": env, "rebalance_id": rebalance_id, "signal_date": sig, "sleeves": sleeves}
 
 
+@router.get("/{env}/rebalances/{rebalance_id}/gross-exposure")
+def rebalance_gross_exposure(env: str, rebalance_id: int, history: int = 24):
+    """[10-GEXP] — HOW BIG is this book, and WHY is it that size?
+
+    The exposures endpoint above says what the book is betting ON. This says how large the bet is
+    and, more usefully, what determined that. The provoking case: a frozen book at gross 1.31
+    against a design documented as 150/50, with nothing on the page explaining the gap.
+
+    THE ONE THING A READER SHOULD LEAVE WITH: **gross is an output, not a setting.** Nobody chose
+    1.31. The chain, in the order the payload presents it:
+
+        vol_budget = te_target x cap_calibration      what the sleeve is ALLOWED to risk
+        pred_vol                                      what the optimizer spent — it spends the lot,
+                                                      the vol cap binds every month
+        sigma_eff  = pred_vol / gross                 vol per unit of gross
+        gross      = pred_vol / sigma_eff             therefore an OUTPUT of the two above
+
+    and `n_names` / `n_at_floor` / `min_position` are why `sigma_eff` moves: the position-size floor
+    forbids a proportional scale-down, so a shrinking book sheds NAMES, loses diversification, and
+    needs more gross per unit of vol — which sheds more names. Full argument in
+    `05_risk_optimizer/degrossing_review_2026-07.md` §10; the page carries the story, not the essay.
+
+    ⚠️ A LEVEL ALONE MEANS NOTHING, so this never returns one on its own. te6 ran gross 1.75-2.0 in
+    2005-2019 (when the GROSS cap bound, not the vol cap) and 0.84-0.97 since 2021. Every reading
+    comes with the book's own trailing range, its percentile in its own history, and `history`
+    months of series — the `pipeline/coverage.py` rule: report the CHANGE, not the level.
+
+    ⚠️ AND IT REPORTS ITS OWN AS-OF DATE, per sleeve, exactly like `/exposures`. Diagnostics are
+    written by the monthly optimizer run; a sleeve whose newest row predates the signal date is
+    describing a DIFFERENT book and says so via `is_current`, rather than being rendered as the
+    thing you are about to trade.
+
+    ⚠️ AND EACH ROW DECLARES ITS PROVENANCE (`source`). `portfolio.weights` is the authority on what
+    the book IS and this table on WHY, so the shape columns always describe the published holdings.
+    On a `run` row the chain came from the same pass that wrote those holdings. On a `backfill` row
+    it was reconstructed by a later re-run of the same config — which for the L/S books does not
+    reliably land on the identical book (measured 2026-08-05). The number stays right; the client is
+    told how far to trust the explanation attached to it.
+
+    MONITOR, NEVER GATE. Nothing here blocks approval — it informs the human doing the approving.
+    """
+    _env(env)
+    with get_db() as conn:
+        hdr = conn.execute(text("SELECT source, signal_date FROM trading.rebalances "
+                                "WHERE rebalance_id = :r"),
+                           {"r": rebalance_id}).mappings().first()
+        if hdr is None:
+            raise HTTPException(status_code=404, detail="no such rebalance")
+        sig = hdr["signal_date"]
+        labels = ((hdr["source"] or {}).get("component_labels") or [])
+
+        # The COMPOSITE is what actually gets traded, and it is the number the reviewer is looking
+        # at on screen. It comes from the frozen rows themselves — not from any model book — so it
+        # is the book being approved, not a reconstruction of it.
+        # The LEG SPLIT, not just the total, because the question a reader actually arrives with is
+        # "this is supposed to be 150/50 — why is it 1.31?", and the answer is legible only as
+        # 115-long / 16-short. Total gross alone cannot distinguish a symmetric shrink from a short
+        # book that has nearly disappeared.
+        comp = conn.execute(text("""
+            SELECT COUNT(*) AS n, COALESCE(SUM(ABS(target_wt)), 0) AS gross,
+                   COALESCE(SUM(target_wt), 0) AS net,
+                   COALESCE(SUM(target_wt) FILTER (WHERE target_wt > 0), 0) AS long_gross,
+                   COALESCE(-SUM(target_wt) FILTER (WHERE target_wt < 0), 0) AS short_gross,
+                   COUNT(*) FILTER (WHERE target_wt > 0) AS n_long,
+                   COUNT(*) FILTER (WHERE target_wt < 0) AS n_short
+            FROM trading.target_positions WHERE rebalance_id = :r"""),
+            {"r": rebalance_id}).mappings().first()
+
+        sleeves = []
+        for lbl in labels:
+            tag = "sleeve" if "_ls_" in lbl else "core"
+            asof = conn.execute(text(
+                "SELECT max(date) FROM portfolio.risk_diagnostics "
+                "WHERE model_label = :l AND date <= :d"), {"l": lbl, "d": sig}).scalar()
+            if asof is None:
+                sleeves.append({"sleeve": tag, "label": lbl, "as_of": None, "is_current": False,
+                                "current": None, "prev": None, "context": {}, "history": [],
+                                "note": "no risk diagnostics for this book yet"})
+                continue
+            cur = conn.execute(text("""
+                SELECT date, is_live, gross, net, n_long, n_short, n_names, median_abs_w,
+                       n_at_floor, min_position, active_share, te_target, cap_calibration,
+                       cap_lo, cap_hi, cap_bound, vol_budget, pred_vol, sigma_eff, status,
+                       realized_vol_12m, realized_vol_24m, implied_b, source
+                FROM portfolio.risk_diagnostics WHERE model_label = :l AND date = :d"""),
+                {"l": lbl, "d": asof}).mappings().first()
+            # Series for the sparkline. Gross and cap_calibration TOGETHER: the ratchet's effect on
+            # the book is only legible against time, and against the cap it is being driven by.
+            hist = conn.execute(text("""
+                SELECT date, gross, active_share, cap_calibration, cap_bound, n_names,
+                       pred_vol, sigma_eff
+                FROM portfolio.risk_diagnostics
+                WHERE model_label = :l AND date <= :d
+                ORDER BY date DESC LIMIT :n"""),
+                {"l": lbl, "d": asof, "n": max(1, min(history, 240))}).mappings().all()
+
+            # ⚠️ CONTEXT IS COMPUTED FOR BOTH SIZE MEASURES, and the client picks the one its
+            # mandate makes meaningful. A long-only book is fully invested, so its gross is 1.00
+            # EVERY month — a range of 1.00–1.00 and a percentile over a constant are not small
+            # numbers, they are undefined ones, and "p87 of 259 months" invites a reader to think
+            # the book is unusually large when nothing has varied at all. What varies for a
+            # long-only book is how far it sits from its benchmark: active share.
+            #
+            # Both are computed here rather than branching on the label, so the sleeve/core rule
+            # lives in exactly one place (the component that renders it) instead of two.
+            ctx = {}
+            for metric in ("gross", "active_share"):
+                row = conn.execute(text(f"""
+                    SELECT MIN({metric}) AS lo, MAX({metric}) AS hi, COUNT({metric}) AS months,
+                           AVG(CASE WHEN {metric} <= :v THEN 1.0 ELSE 0.0 END) AS pctile
+                    FROM portfolio.risk_diagnostics
+                    WHERE model_label = :l AND date <= :d AND {metric} IS NOT NULL"""),
+                    {"l": lbl, "d": asof, "v": cur[metric]}).mappings().first() if \
+                    cur[metric] is not None else None
+                w12 = [r[metric] for r in hist[:12] if r[metric] is not None]
+                ctx[metric] = ({"lo": row["lo"], "hi": row["hi"], "months": row["months"],
+                                "pctile": row["pctile"],
+                                "lo12": min(w12, default=None), "hi12": max(w12, default=None)}
+                               if row else None)
+            prev = conn.execute(text("""
+                SELECT gross, active_share FROM portfolio.risk_diagnostics
+                WHERE model_label = :l AND date < :d ORDER BY date DESC LIMIT 1"""),
+                {"l": lbl, "d": asof}).mappings().first()
+
+            sleeves.append({
+                "sleeve": tag, "label": lbl, "as_of": asof, "is_current": asof == sig,
+                "current": dict(cur),
+                "prev": dict(prev) if prev else None,
+                "context": ctx,
+                "history": [dict(r) for r in reversed(hist)],
+            })
+    return {"env": env, "rebalance_id": rebalance_id, "signal_date": sig,
+            "composite": dict(comp) if comp else None, "sleeves": sleeves}
+
+
 @router.get("/{env}/ledger")
 def ledger(env: str, rebalance_id: int | None = None):
     """S7 — the rebalance as an ordered PROCESS with a clock. One row per step.

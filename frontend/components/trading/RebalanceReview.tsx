@@ -11,6 +11,7 @@ import { TradePlanTable } from './TradePlanTable';
 import { ApproveControl } from './ApproveControl';
 import { ExecuteControl } from './ExecuteControl';
 import { ExposuresSection } from './Exposures';
+import { GrossExposureSection } from './GrossExposure';
 import { HaltControl } from './HaltControl';
 
 const CHECK: Record<string, { glyph: string; cls: string }> = {
@@ -211,6 +212,11 @@ export function RebalanceReview({ env, id }: { env: string; id: number }) {
           and above the trade table because that is the thing it will send. */}
       <ExecuteControl env={env} rebalanceId={id} status={h.status} canExecute={canExecute}
                       onQueued={() => fetchRebalance(env, id).then(setDetail).catch(() => {})} />
+
+      {/* HOW BIG, then WHAT IT IS BETTING ON. Size first because it is the cruder question and the
+          one a reviewer notices from across the room — a book at 1.31× against a documented 150/50
+          is a "why" you want answered before you start reading factor tilts. */}
+      <GrossExposureSection env={env} id={id} />
 
       <ExposuresSection env={env} id={id} />
 
