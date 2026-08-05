@@ -22,6 +22,8 @@ TWO BOUNDARIES THIS ROUTER DOES NOT CROSS, both deliberate:
 route cannot be reached by guessing the URL (Q3).
 """
 
+import json
+
 from fastapi import APIRouter, HTTPException, Query
 from pydantic import BaseModel, Field
 from sqlalchemy import text
@@ -84,9 +86,24 @@ def rebalance_detail(env: str, rebalance_id: int):
         orders = conn.execute(text(
             "SELECT status, count(*) AS n FROM ibkr.orders WHERE rebalance_id = :r GROUP BY status"),
             {"r": rebalance_id}).mappings().all()
+        # Repair lineage, BOTH directions. A reader landing on either book must be able to tell a
+        # REPAIR from a RE-DECISION and find the other half — otherwise a cancelled book looks
+        # abandoned and its replacement looks like it appeared from nowhere.
+        succ = conn.execute(text(
+            "SELECT rebalance_id, status, proposed_at FROM trading.rebalances "
+            "WHERE (source->'repair'->>'repair_of')::int = :r ORDER BY rebalance_id"),
+            {"r": rebalance_id}).mappings().all()
+
+    src = hdr["source"]
+    if isinstance(src, str):
+        src = json.loads(src)
+    rep = (src or {}).get("repair")
     return {"env": env, "header": dict(hdr),
             "events": [dict(e) for e in events],
-            "orders": {o["status"]: o["n"] for o in orders}}
+            "orders": {o["status"]: o["n"] for o in orders},
+            # present => this book IS a repair of `repair_of`; absent => an ordinary freeze
+            "repair": rep,
+            "superseded_by": [dict(s) for s in succ]}
 
 
 @router.get("/{env}/rebalances/{rebalance_id}/review")
@@ -448,10 +465,15 @@ def ledger(env: str, rebalance_id: int | None = None):
                 "       approved_at, submitted_at FROM trading.rebalances WHERE rebalance_id = :r"),
                 {"r": rebalance_id}).mappings().first()
 
+        # `exceptional` steps are EXCLUDED. The repair (`refreeze`) is an exception path, not a
+        # stage of the month: rendering it as a cycle row would put a permanent "not run" step into
+        # every clean cycle, which is rule (b) in reverse — a step that is CORRECTLY never run,
+        # displayed as one that has not run yet. Repairs surface against the book they superseded.
         steps = conn.execute(text(
             "SELECT step, ord, label, act, manual_only, telemetry, notes, manual_cmd, "
             "       COALESCE(job_name, step) AS job_name "
-            "FROM trading.cycle_steps ORDER BY ord")).mappings().all()
+            "FROM trading.cycle_steps WHERE NOT COALESCE(exceptional, FALSE) "
+            "ORDER BY ord")).mappings().all()
 
         sched = conn.execute(text(
             "SELECT step, unit, kind, schedule, enabled, next_run, last_run, collected_at "
@@ -1222,6 +1244,202 @@ def execute(env: str, rebalance_id: int, body: ExecuteRequest):
     return {"env": env, "rebalance_id": rebalance_id, "request_id": row[0], "status": "queued",
             "note": ("Queued. The worker picks it up within a minute, re-checks that the book is "
                      "approved and unhalted, then submits in waves. HALT stops it between orders.")}
+
+
+# =================================================================================================
+# TRADABILITY + TIER 1.5 REPAIR ([10-TRAD] / [10-CAEX], 2026-08-05)
+#
+# The case: EA was taken private between the freeze and the trade of rebalance 5. It sat in an
+# APPROVED book as a 51-share buy with no bid, no ask and a previous-close marker, and nothing in
+# the pipeline noticed. These endpoints are the two halves of not repeating that — see it, fix it.
+#
+# ⚠️ NO IBKR PRICE EVER CROSSES THIS BOUNDARY, and that is a licensing constraint, not a style
+# choice. `ibkr.quote_snapshots` carries: "IBKR market data is licensed for internal use; nothing
+# derived from this table may appear on the investor-facing site without confirming with IBKR"
+# (ibkr_data_ingestion_spec.md §8). The trading section sits on the same domain behind the same
+# shared login as the investor-facing pages, so the conservative reading governs.
+#
+# What is published is therefore OUR OWN operational assessment — a status enum and the count of
+# consecutive captures that produced it — together with OUR book weight and notional. bid, ask,
+# last and mark are read on the server to compute the status and are then dropped. A reader can
+# see THAT a name is untradeable and how much of the book it is; they cannot read a quote off it.
+# =================================================================================================
+
+# IBKR marks a price it cannot vouch for as live: 'C' = previous close, 'H' = halted. `sizing_price`
+# already refuses these; here they are the detection signal rather than a sizing guard.
+_MARKERS = ("C", "H")
+
+
+def _classify(bid, ask, last) -> tuple[str, str]:
+    """(status, why) for one snapshot row. Mirrors rebalance.sizing_price's acceptance test, which
+    is what makes this a PRE-check of the executor rather than a second opinion about it."""
+    def marked(v):
+        s = str(v or "").strip()
+        return s[:1].upper() in _MARKERS
+
+    if marked(bid) or marked(ask) or marked(last):
+        return "stale_marker", "priced at previous close / halted, not a live quote"
+    try:
+        b, a = float(bid), float(ask)
+    except (TypeError, ValueError):
+        return "no_two_sided_quote", "no bid and/or no ask in the last capture"
+    if b > 0 and a >= b:
+        return "tradable", ""
+    return "no_two_sided_quote", "bid/ask not a valid two-sided market"
+
+
+@router.get("/{env}/rebalances/{rebalance_id}/tradability")
+def tradability(env: str, rebalance_id: int, lookback: int = Query(5, ge=1, le=30)):
+    """Per-name tradability of a frozen book, from the most recent quote capture.
+
+    Reported PER NAME with weight and notional, never as a count: the response to an untradeable
+    target depends entirely on how much weight it carries (corporate_actions_policy.md §3 tiers a
+    1% name and a 6% name completely differently), and a bare number cannot answer that.
+
+    `consecutive` counts how many of the most recent captures showed the name unquotable. One is
+    usually thin-market noise; two or more is a halt or a delisting, and is the earliest signal
+    available to us — the actions feed lags by up to a week and would not have caught EA at all.
+    """
+    _env(env)
+    with get_db() as conn:
+        hdr = conn.execute(text(
+            "SELECT rebalance_id, strategy, signal_date, status, sized_equity "
+            "FROM trading.rebalances WHERE rebalance_id = :r"),
+            {"r": rebalance_id}).mappings().first()
+        if hdr is None:
+            raise HTTPException(status_code=404, detail="no such rebalance")
+
+        snaps = conn.execute(text(
+            "SELECT DISTINCT snap_ts FROM ibkr.quote_snapshots "
+            "ORDER BY snap_ts DESC LIMIT :n"), {"n": lookback}).scalars().all()
+        if not snaps:
+            return {"env": env, "rebalance_id": rebalance_id, "as_of": None,
+                    "state": "no_data", "names": [], "n_flagged": 0, "weight_flagged": 0.0,
+                    "note": ("No quote captures exist yet. Tradability is UNKNOWN, which is not "
+                             "the same as clear — the 18:00 UTC capture is the source.")}
+
+        rows = conn.execute(text("""
+            SELECT t.isin, t.ticker, t.conid, t.target_wt::float AS weight,
+                   t.target_qty::float AS qty, t.ref_price::float AS ref_price,
+                   q.snap_ts, q.bid, q.ask, q.last
+            FROM trading.target_positions t
+            LEFT JOIN ibkr.quote_snapshots q
+                   ON q.conid = t.conid AND q.snap_ts = ANY(:ts)
+            WHERE t.rebalance_id = :r AND t.mandate = 'composite'"""),
+            {"r": rebalance_id, "ts": list(snaps)}).mappings().all()
+
+    equity = float(hdr["sized_equity"] or 0.0)
+    latest = snaps[0]
+    per: dict[str, dict] = {}
+    for r in rows:
+        e = per.setdefault(r["isin"], {
+            "isin": r["isin"], "ticker": r["ticker"], "conid": r["conid"],
+            "weight": r["weight"], "notional": abs(r["weight"]) * equity,
+            "side": "long" if (r["weight"] or 0) > 0 else "short",
+            "status": "unknown", "why": "no quote captured for this conid",
+            "consecutive": 0, "last_seen": None})
+        if r["snap_ts"] is None:
+            continue
+        status, why = _classify(r["bid"], r["ask"], r["last"])
+        if r["snap_ts"] == latest:
+            e["status"], e["why"], e["last_seen"] = status, why, r["snap_ts"]
+        if status != "tradable":
+            e["consecutive"] += 1
+
+    names = sorted(per.values(), key=lambda x: -abs(x["weight"]))
+    flagged = [n for n in names if n["status"] != "tradable"]
+    # 'unknown' is deliberately flagged rather than assumed fine. A conid the capture never
+    # returned is a name we have no evidence about, and treating absence of evidence as evidence
+    # of tradability is precisely how EA reached an approved book.
+    return {
+        "env": env, "rebalance_id": rebalance_id, "strategy": hdr["strategy"],
+        "status": hdr["status"], "as_of": latest, "captures_examined": len(snaps),
+        "state": "flagged" if flagged else "clear",
+        "n_names": len(names), "n_flagged": len(flagged),
+        "weight_flagged": round(sum(abs(n["weight"]) for n in flagged), 6),
+        "notional_flagged": round(sum(n["notional"] for n in flagged), 2),
+        "names": flagged,
+        "note": ("Statuses are our own assessment computed server-side; IBKR quote values are not "
+                 "published (ibkr_data_ingestion_spec.md §8)."),
+    }
+
+
+class RepairRequest(BaseModel):
+    by: str = Field(min_length=1, max_length=80)
+    phrase: str = Field(min_length=1, max_length=60)
+    exclude: list[str] = Field(min_length=1, max_length=25)
+    method: str = Field(pattern="^(drop|prorata)$")
+    reason: str = Field(min_length=3, max_length=500)
+
+
+@router.post("/{env}/rebalances/{rebalance_id}/repair")
+def repair_book(env: str, rebalance_id: int, body: RepairRequest):
+    """Request a Tier 1.5 repair: cancel this book and re-freeze it minus the named targets.
+
+    Queues it. The droplet worker runs the same `jobs.freeze_targets` a CLI operator would, which
+    re-resolves every ticker against the book, redistributes within the excluded name's own mandate
+    and re-checks the position-cap and sector gates. **A gate failure from the web is final** —
+    there is no override on this path, by design: a breach has to reach a human at a terminal who
+    can read it and write down why it is acceptable.
+
+    `method` is required and has no default. 'drop' leaves the weight uninvested and 'prorata'
+    redistributes it; they produce different books and the choice belongs to the operator, not to
+    whoever wrote the form.
+
+    The typed phrase proves intent, matching the execute control. There is no passcode: this sends
+    no orders. It does, though, CANCEL AN APPROVAL — the replacement comes back as 'proposed' and
+    has to be approved again — so it is not a free action either.
+    """
+    _env(env)
+    if body.phrase.strip().lower() != f"repair {rebalance_id}":
+        raise HTTPException(status_code=400,
+                            detail=f"type 'repair {rebalance_id}' to confirm")
+    eng = get_request_engine()
+    if eng is None:
+        raise HTTPException(status_code=503, detail="run-request path not configured")
+
+    with get_db() as conn:
+        hdr = conn.execute(text(
+            "SELECT status, strategy FROM trading.rebalances WHERE rebalance_id = :r"),
+            {"r": rebalance_id}).mappings().first()
+        if hdr is None:
+            raise HTTPException(status_code=404, detail="no such rebalance")
+        if hdr["status"] in ("cancelled", "closed", "reconciled"):
+            raise HTTPException(status_code=409, detail=(
+                f"rebalance is '{hdr['status']}' — a repair supersedes an ACTIVE book. "
+                f"Freeze a fresh one instead."))
+        n_orders = conn.execute(text(
+            "SELECT count(*) FROM ibkr.orders WHERE rebalance_id = :r"),
+            {"r": rebalance_id}).scalar()
+        if n_orders:
+            raise HTTPException(status_code=409, detail=(
+                f"{n_orders} order(s) already exist at the broker for this rebalance. Repairing a "
+                f"part-executed book would leave the target and the account describing different "
+                f"portfolios — reconcile and decide by hand."))
+
+    # The payload rides in `params` as typed JSON. It is never interpolated into a command: the
+    # worker passes only `--from-request <int>` and the job reads this back out of the database
+    # (run_worker's module docstring; freeze_targets.params_from_request).
+    params = {"exclude": [s.strip().upper() for s in body.exclude if s.strip()],
+              "method": body.method, "reason": body.reason, "strategy": hdr["strategy"]}
+    if not params["exclude"]:
+        raise HTTPException(status_code=400, detail="name at least one target to exclude")
+    try:
+        with eng.begin() as conn:
+            row = conn.execute(text(
+                "INSERT INTO trading.run_requests (rebalance_id, step, source, requested_by, params) "
+                "VALUES (:r, 'refreeze', 'web', :by, CAST(:p AS jsonb)) RETURNING request_id"),
+                {"r": rebalance_id, "by": body.by, "p": json.dumps(params)}).first()
+    except Exception as e:                                            # noqa: BLE001
+        if "run_requests_one_active" in str(e):
+            raise HTTPException(status_code=409, detail=(
+                "a repair is already queued or running for this rebalance — one at a time."))
+        raise
+    return {"env": env, "rebalance_id": rebalance_id, "request_id": row[0], "status": "queued",
+            "excluded": params["exclude"], "method": body.method,
+            "note": ("Queued. The worker cancels this book and freezes its replacement in one "
+                     "transaction, at the SAME signal date and price as-of. The new book comes "
+                     "back as 'proposed' and MUST BE APPROVED AGAIN before it can trade.")}
 
 
 @router.get("/{env}/run-requests")

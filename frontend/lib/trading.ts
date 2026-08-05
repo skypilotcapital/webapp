@@ -85,6 +85,12 @@ export interface RebalanceDetail {
   events: { at: string; kind: string; from_status: string | null; to_status: string | null;
             actor: string | null; detail: string | null }[];
   orders: Record<string, number>;
+  /** Present iff this book IS a Tier 1.5 repair of another. Absent = an ordinary freeze. This is
+   *  what lets a reader tell a REPAIR from a RE-DECISION without reading the provenance blob. */
+  repair?: RepairProvenance | null;
+  /** The book(s) that superseded this one. Lineage is exposed in BOTH directions so a cancelled
+   *  book does not look abandoned and its replacement does not look like it appeared from nowhere. */
+  superseded_by?: { rebalance_id: number; status: string; proposed_at: string }[];
 }
 
 export interface PlanRow {
@@ -337,3 +343,76 @@ export interface GrossExposure {
 export const fetchGrossExposure = (env: string, id: number, history = 24) =>
   get<GrossExposure>(
     `/api/v1/trading/${env}/rebalances/${id}/gross-exposure?history=${history}`);
+
+// =================================================================================================
+// TRADABILITY + TIER 1.5 REPAIR ([10-TRAD] / [10-CAEX], 2026-08-05)
+//
+// EA was taken private between the freeze and the trade of rebalance 5 and sat in an APPROVED book
+// as a 51-share buy of a company that had stopped trading. Nothing noticed. These are the two
+// halves of not repeating that: see it, then fix it without re-running the optimizer.
+//
+// ⚠️ There is no bid/ask/last in any of these types, and that is deliberate. IBKR market data is
+// licensed for internal use and may not be redistributed on the investor-facing site
+// (ibkr_data_ingestion_spec.md §8), so the API computes a STATUS server-side and publishes only
+// that, alongside our own weight and notional.
+// =================================================================================================
+
+export type TradabilityStatus =
+  | 'tradable'
+  /** no bid and/or no ask in the latest capture — a halt or a delisting, or a very thin market */
+  | 'no_two_sided_quote'
+  /** priced at previous close ('C') or halted ('H') — not a live quote */
+  | 'stale_marker'
+  /** the capture never returned this conid. NOT the same as fine: absence of evidence. */
+  | 'unknown';
+
+export interface TradabilityName {
+  isin: string; ticker: string; conid: number | null;
+  weight: number; notional: number; side: 'long' | 'short';
+  status: TradabilityStatus; why: string;
+  /** how many of the recent captures showed it unquotable. 1 is often noise; >=2 is a real event. */
+  consecutive: number;
+  last_seen: string | null;
+}
+
+export interface Tradability {
+  rebalance_id: number; strategy: string; status: string;
+  as_of: string | null; captures_examined: number;
+  /** 'no_data' is a THIRD state on purpose — unknown is not clear. */
+  state: 'clear' | 'flagged' | 'no_data';
+  n_names: number; n_flagged: number;
+  weight_flagged: number; notional_flagged: number;
+  names: TradabilityName[];
+  note: string;
+}
+
+export const fetchTradability = (env: string, id: number) =>
+  get<Tradability>(`/api/v1/trading/${env}/rebalances/${id}/tradability`);
+
+/** The provenance stamp's `repair` block — present iff the book IS a repair. */
+export interface RepairProvenance {
+  method: 'drop' | 'prorata';
+  excluded: string[];
+  excluded_detail: { isin: string; ticker: string; mandate: string; weight: number }[];
+  redistribution: { mandate: string; side: string; released_wt: number; factor: number;
+                    n_scaled: number; note: string }[];
+  n_before: number; n_after: number;
+  gross_before: number; gross_after: number;
+  net_before: number; net_after: number;
+  gates: { gate: string; mandate: string; basis: string; state: 'ok' | 'warn' | 'fail';
+           breaches: Record<string, unknown>[] }[];
+  gate_state: 'ok' | 'warn' | 'fail';
+  unchecked_gates: string[];
+  overridden?: boolean;
+  reason: string | null;
+  repair_of: number | null;
+  actor: string | null;
+}
+
+// method has NO default: 'drop' leaves the weight uninvested and 'prorata' redistributes it within
+// the excluded name's own mandate. Different books; the operator chooses.
+export const repairRebalance = (
+  env: string, id: number, by: string, phrase: string,
+  exclude: string[], method: 'drop' | 'prorata', reason: string,
+) => post<{ request_id: number; excluded: string[]; method: string }>(
+  `/api/v1/trading/${env}/rebalances/${id}/repair`, { by, phrase, exclude, method, reason });

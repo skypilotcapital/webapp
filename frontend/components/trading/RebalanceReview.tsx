@@ -13,6 +13,8 @@ import { ExecuteControl } from './ExecuteControl';
 import { ExposuresSection } from './Exposures';
 import { GrossExposureSection } from './GrossExposure';
 import { HaltControl } from './HaltControl';
+import { RepairBanner } from './RepairBanner';
+import { TradabilityPanel } from './TradabilityPanel';
 
 const CHECK: Record<string, { glyph: string; cls: string }> = {
   ok:   { glyph: '●', cls: 'text-[var(--pos)]' },
@@ -35,6 +37,7 @@ export function RebalanceReview({ env, id }: { env: string; id: number }) {
   const [review, setReview] = useState<Review | null | undefined>(undefined);
   const [canApprove, setCanApprove] = useState(false);
   const [canExecute, setCanExecute] = useState(false);
+  const [canRequest, setCanRequest] = useState(false);
   const [plan, setPlan] = useState<PlanResponse | null>(null);
   const [ledger, setLedger] = useState<Ledger | null>(null);
   const [err, setErr] = useState<string | null>(null);
@@ -45,7 +48,10 @@ export function RebalanceReview({ env, id }: { env: string; id: number }) {
       .catch(() => setReview(null));
     fetchPlan(env, id, 'preview').then(setPlan).catch(() => setPlan(null));
     fetchLedger(env, id).then(setLedger).catch(() => setLedger(null));
-    fetchRunRequests(env, id).then((d) => setCanExecute(d.can_execute)).catch(() => {});
+    fetchRunRequests(env, id).then((d) => {
+      setCanExecute(d.can_execute);
+      setCanRequest(d.can_request);
+    }).catch(() => {});
   }, [env, id]);
 
   if (err) return <div className="panel p-4 text-[var(--neg)] text-sm">Unavailable: {err}</div>;
@@ -78,6 +84,11 @@ export function RebalanceReview({ env, id }: { env: string; id: number }) {
       {/* Above everything actionable: during an execution this is the control you reach for, and
           it must not require scrolling past a provenance table to find. */}
       <HaltControl env={env} rebalanceId={id} />
+
+      {/* WHAT KIND OF BOOK IS THIS — repair or ordinary freeze — before any of its numbers are
+          read, because it changes how every one of them should be interpreted. Renders nothing
+          for a book with no repair lineage, which is the normal case. */}
+      <RepairBanner detail={detail} env={env} />
 
       {/* (a) Provenance — what produced this book. Unseen, an audit trail is not real (§3.9). */}
       <div className="panel p-4">
@@ -171,6 +182,18 @@ export function RebalanceReview({ env, id }: { env: string; id: number }) {
           </>
         )}
       </div>
+
+      {/* CAN EVERY TARGET ACTUALLY BE TRADED — deliberately immediately above the approval gate.
+          The EA case (2026-08-05) is exactly what happens when this question is answered AFTER
+          approval: an untradeable name reached an approved book and the only thing that would have
+          caught it was the broker rejecting the order mid-rebalance. A reviewer must see this
+          before they decide, not while the orders are going out. */}
+      <TradabilityPanel
+        env={env} rebalanceId={id} status={h.status} canRequest={canRequest}
+        onQueued={() => {
+          fetchRebalance(env, id).then(setDetail).catch(() => {});
+          fetchRunRequests(env, id).then((d) => setCanExecute(d.can_execute)).catch(() => {});
+        }} />
 
       {/* (c) The approval gate — READ-ONLY here. Approving from the web needs the dedicated
           skypilot_approver role (Q2), which lands in a later phase; until then the CLI is the
