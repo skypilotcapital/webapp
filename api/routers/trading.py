@@ -126,18 +126,45 @@ def rebalance_plan(env: str, rebalance_id: int,
     """
     _env(env)
     with get_db() as conn:
+        # Which SLEEVE each name comes from. The frozen provenance names the two component labels,
+        # and their weights at the signal date are still in portfolio.weights — so the split is
+        # read, not reconstructed.
+        #
+        # ⚠️ IT WORKS HERE BECAUSE THE UNIVERSES ARE DISJOINT. The core is S&P 500 and the sleeve is
+        # R2500 501-2500, so no name appears in both (53 + 133 = 186 exactly, and the weights
+        # reconcile: 1.000 + 0.5 x 0.626 = 1.313). Where two mandates DID overlap, the account
+        # nets them per conid and the netting is not invertible from broker data
+        # (`live_target_and_sleeve_ledger.md`) — attribution would then have to come from our own
+        # records, not from a join like this one.
+        src = conn.execute(text("SELECT source, signal_date FROM trading.rebalances "
+                                "WHERE rebalance_id = :r"), {"r": rebalance_id}).mappings().first()
+        sleeve_of: dict[str, str] = {}
+        if src and src["source"]:
+            labels = (src["source"] or {}).get("component_labels") or []
+            for lbl in labels:
+                tag = "sleeve" if "_ls_" in lbl else "core"
+                for w in conn.execute(text(
+                    "SELECT isin, weight FROM portfolio.weights "
+                    "WHERE model_label = :l AND date = :d AND ABS(weight) > 1e-9"),
+                        {"l": lbl, "d": src["signal_date"]}).mappings():
+                    sleeve_of[w["isin"]] = tag
+
         rows = conn.execute(text("""
             SELECT p.ticker, p.conid, COALESCE(t.target_wt, 0) AS weight, p.current_qty,
                    p.target_qty, p.delta, p.side, p.planned_qty, p.ref_price, p.price,
-                   p.price_src, p.est_notional, p.dust_filtered, p.note, p.planned_at
+                   p.price_src, p.est_notional, p.dust_filtered, p.note, p.planned_at,
+                   t.isin, s.name AS company, s.sector, s.industry
             FROM trading.trade_plans p
             LEFT JOIN trading.target_positions t
                    ON t.rebalance_id = p.rebalance_id AND t.conid = p.conid
                   AND t.mandate = 'composite'
+            LEFT JOIN secmaster.securities s ON s.isin = t.isin
             WHERE p.rebalance_id = :r AND p.plan_kind = :k
             ORDER BY ABS(COALESCE(p.est_notional, 0)) DESC"""),
             {"r": rebalance_id, "k": kind}).mappings().all()
     plan = [dict(r) for r in rows]
+    for r in plan:
+        r["sleeve"] = sleeve_of.get(r.get("isin") or "", "unknown")
     traded = [r for r in plan if r["side"] and not r["dust_filtered"]]
     return {"env": env, "rebalance_id": rebalance_id, "kind": kind, "plan": plan,
             "summary": {
@@ -146,6 +173,14 @@ def rebalance_plan(env: str, rebalance_id: int,
                 "n_sell": sum(1 for r in traded if r["side"] == "SELL"),
                 "n_dust": sum(1 for r in plan if r["dust_filtered"]),
                 "gross_notional": float(sum(float(r["est_notional"] or 0) for r in traded)),
+                "by_sleeve": {
+                    tag: {
+                        "n": sum(1 for r in traded if r["sleeve"] == tag),
+                        "gross_notional": float(sum(float(r["est_notional"] or 0)
+                                                    for r in traded if r["sleeve"] == tag)),
+                    } for tag in ("core", "sleeve", "unknown")
+                    if any(r["sleeve"] == tag for r in traded)
+                },
             }}
 
 
