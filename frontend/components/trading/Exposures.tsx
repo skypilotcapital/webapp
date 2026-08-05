@@ -70,20 +70,53 @@ function Group({ title, rows }: { title: string; rows: Exposures['sleeves'][0]['
 // on beta, size and volatility — reads as "no bet" while both legs sit in the same corner of the
 // universe. For a sleeve that is de-grossing, that is the wrong thing to be blind to.
 //
-// PAIRED ROWS ON A SHARED SCALE, not two stacked lists. The question is "how does the short side
-// differ from the long side", which is a comparison; putting the legs in separate blocks with
-// separate orderings and separate axes makes the one question the panel exists to answer the one
-// it cannot answer. Colour distinguishes the LEG; position about the centre line still carries the
-// sign, as in the net view above.
-function LegBar({ v, max, leg }: { v: number; max: number; leg: 'long' | 'short' }) {
+// PAIRED ROWS, THE TWO LEGS STACKED ON ONE SHARED AXIS. The question is "how does the short side
+// differ from the long side", which is a comparison — and a comparison is only as good as the
+// scale it is made on. Side by side in two tracks, each leg has its own centre line, so reading
+// them against each other means comparing lengths from two different origins: the weakest of the
+// available encodings. Stacked, they share ONE axis and ONE zero, one directly above the other,
+// which is the strongest. It also makes the finding this panel exists for — both legs leaning the
+// SAME way behind a near-zero net — a single glance rather than a reconstruction.
+//
+// Freeing the second track buys the axis its width back (208px, was 104), which is what makes the
+// group's shared scale survivable: `size` at −47% sets it, and at half this width every other
+// factor was a sliver. Same honest scale, twice the resolution.
+const AXIS_W = 208;   // px
+const BAR_H = 8;      // px — thin on purpose: a pair must read as one object, not two rows
+
+function LegFill({ v, max, leg, edge }: {
+  v: number; max: number; leg: 'long' | 'short'; edge: 'top-0' | 'bottom-0';
+}) {
   const pct = Math.min(Math.abs(v) / max, 1) * 50;
   const pos = v >= 0;
   return (
-    <div className="relative h-3 w-[104px] bg-[var(--bg)] rounded-sm shrink-0">
-      <div className="absolute top-0 bottom-0 left-1/2 w-px bg-[var(--border-soft)]" />
+    <div className={`absolute ${edge} left-0 right-0 bg-[var(--bg)] rounded-sm`}
+         style={{ height: BAR_H }}>
       <div className={`absolute top-0 bottom-0 ${leg === 'long' ? 'bg-[var(--teal)]' : 'bg-[var(--amber)]'}`}
            style={pos ? { left: '50%', width: `${pct}%` }
                       : { right: '50%', width: `${pct}%` }} />
+    </div>
+  );
+}
+
+// ⚠️ STACKING COSTS THE ONE CUE SIDE-BY-SIDE GAVE FOR FREE: which bar is which leg was POSITION,
+// and is now colour alone. Colour alone is the weaker cue and the one that fails under colour-vision
+// deficiency, so each bar carries an L/S tick as a redundant, hue-independent label.
+function LegPair({ long, short, max }: { long: number; short: number; max: number }) {
+  const h = BAR_H * 2 + 1;                        // 1px between the pair — see the ul's row gap
+  return (
+    <div className="flex items-stretch gap-1 shrink-0">
+      <div className="flex flex-col justify-between text-[8px] leading-none text-[var(--tx-dim)]"
+           style={{ height: h }} aria-hidden>
+        <span>L</span><span>S</span>
+      </div>
+      <div className="relative" style={{ width: AXIS_W, height: h }}>
+        <LegFill v={long} max={max} leg="long" edge="top-0" />
+        <LegFill v={short} max={max} leg="short" edge="bottom-0" />
+        {/* ONE continuous zero line spanning both bars — drawn last so it reads over the fills.
+            It is the shared origin, and it should look like one axis rather than two. */}
+        <div className="absolute inset-y-0 left-1/2 w-px bg-[var(--tx-dim)] opacity-50" />
+      </div>
     </div>
   );
 }
@@ -109,21 +142,30 @@ function LegGroup({ title, legs, net }: {
   // the same length — the comparison would be a lie told in the axis.
   const max = niceMax(Math.max(...rows.flatMap((r) => [Math.abs(r.long), Math.abs(r.short)])));
   return (
-    <div className="min-w-[420px]">
-      <div className="text-[10px] uppercase tracking-wider text-[var(--tx-dim)] mb-1 flex gap-2">
+    <div className="min-w-[380px]">
+      {/* Stacking leaves one column, so the per-leg COLUMN HEADINGS have nowhere to sit and become
+          a legend. `L`/`S` on the bars carry the identification; this carries the meaning. */}
+      <div className="text-[10px] uppercase tracking-wider text-[var(--tx-dim)] mb-1.5 flex items-baseline gap-2">
         <span className="w-[104px] shrink-0">{title}</span>
-        <span className="w-[104px] shrink-0 text-[var(--teal)]">long</span>
-        <span className="w-[104px] shrink-0 text-[var(--amber)]">short of</span>
-        <span className="normal-case tracking-normal">net · scale ±{(max * 100).toFixed(max < 0.02 ? 1 : 0)}%</span>
+        <span className="flex items-center gap-1 normal-case tracking-normal">
+          <i className="inline-block w-2 h-2 rounded-sm bg-[var(--teal)]" />
+          <span className="text-[var(--tx-mut)]">long</span>
+          <i className="inline-block w-2 h-2 rounded-sm bg-[var(--amber)] ml-1.5" />
+          <span className="text-[var(--tx-mut)]">short of</span>
+        </span>
+        <span className="normal-case tracking-normal ml-auto">
+          net · scale ±{(max * 100).toFixed(max < 0.02 ? 1 : 0)}%
+        </span>
       </div>
-      <ul className="space-y-0.5">
+      {/* PROXIMITY IS DOING REAL WORK HERE: 1px inside a pair (in LegPair) against 7px between
+          factors, so 24 bars read as 12 objects. Loosen this and the grouping collapses. */}
+      <ul className="space-y-[7px]">
         {rows.map((r) => (
           <li key={r.factor} className="flex items-center gap-2 text-[11px]">
             <span className="w-[104px] shrink-0 truncate" title={r.factor}>
               {r.factor.replace(/^sec_/, '')}
             </span>
-            <LegBar v={r.long} max={max} leg="long" />
-            <LegBar v={r.short} max={max} leg="short" />
+            <LegPair long={r.long} short={r.short} max={max} />
             <span className="w-[46px] text-right tabular-nums text-[var(--tx-mut)]">
               {((net.get(r.factor) ?? 0) * 100).toFixed(1)}%
             </span>
@@ -216,8 +258,9 @@ export function ExposuresSection({ env, id }: { env: string; id: number }) {
           and market caps (not the published index). <b>L/S sleeve</b> is shown as its two legs:
           each is normalised to its own gross (stated above) and measured against the cap-weighted
           R2500, with the outright <b>net</b> — longs minus shorts, what the risk model constrains —
-          in the last column. Style and sector are drawn on their own scales, shown above each
-          group; within a group both legs share one scale.
+          in the last column. The two legs are stacked on <b>one axis sharing one zero</b>, so their
+          lengths are directly comparable and two bars running the same way is a shared tilt. Style
+          and sector are drawn on their own scales, shown above each group.
         </div>
         {/* THE SIGN WARNING IS PART OF THE DELIVERABLE, NOT DECORATION. The short leg stores a
             HOLDING (|w|, a positive book of what you are short of), because that is the convention
