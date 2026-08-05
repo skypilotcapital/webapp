@@ -19,7 +19,7 @@ const STATE: Record<StepState, { glyph: string; cls: string; word: string }> = {
   warn:      { glyph: '▲', cls: 'text-[var(--amber)]',   word: 'warn' },
   failed:    { glyph: '■', cls: 'text-[var(--neg)]',     word: 'failed' },
   running:   { glyph: '◐', cls: 'text-[var(--cyan)]',    word: 'running' },
-  awaiting:  { glyph: '◇', cls: 'text-[var(--cyan)]',    word: 'awaiting you' },
+  awaiting:  { glyph: '◇', cls: 'text-[var(--cyan)]',    word: 'awaiting approval' },
   not_due:   { glyph: '·', cls: 'text-[var(--tx-dim)]',  word: 'not due' },
   no_record: { glyph: '?', cls: 'text-[var(--tx-mut)]',  word: 'no record' },
   unbuilt:   { glyph: '–', cls: 'text-[var(--tx-dim)]',  word: 'not built' },
@@ -127,33 +127,40 @@ export function LedgerTable({ env }: { env: string }) {
             {data.steps.map((s, i) => {
               const st = STATE[s.state] ?? STATE.not_due;
               const newAct = i === 0 || data.steps[i - 1].act !== s.act;
+              const live = ['awaiting', 'running', 'failed'].includes(s.state);
               return (
-                <tr key={s.step} className={newAct ? 'border-t border-[var(--border-soft)]' : ''}>
+                <tr key={s.step}
+                    className={(newAct ? 'border-t border-[var(--border-soft)] ' : '')
+                      + (live ? 'bg-[var(--bg)] font-medium' : '')}>
                   <td className="whitespace-nowrap">
                     {newAct && (
                       <div className="text-[9px] uppercase tracking-wider text-[var(--tx-dim)] pt-1">
                         {ACTS[s.act] ?? s.act}
                       </div>
                     )}
-                    <span className="text-[var(--tx-dim)] mr-1.5">{s.ord}.</span>{s.label}
+                    <span className="text-[var(--tx-dim)] mr-1.5">{s.ord}.</span>
+                    {s.state === 'awaiting' && data.rebalance ? (
+                      <Link href={`/trading/${env}/rebalance/${data.rebalance.rebalance_id}`}
+                            className="underline decoration-dotted underline-offset-2 text-[var(--cyan)]">
+                        {s.label}
+                      </Link>
+                    ) : s.label}
                   </td>
-                  <td className="whitespace-nowrap text-[var(--tx-mut)]">
+                  <td className="whitespace-nowrap text-[10px] text-[var(--tx-dim)]">
                     {s.mode}
                     {s.manual_only && (
-                      <span className="ml-1 text-[9px] text-[var(--tx-dim)]" title="the human gate — manual forever">
-                        (always)
-                      </span>
+                      <span className="ml-1" title="the human gate — manual forever">(always)</span>
                     )}
                   </td>
-                  <td className="whitespace-nowrap text-[var(--tx-mut)] font-mono text-[11px]">
+                  <td className="whitespace-nowrap text-[var(--tx-dim)] font-mono text-[10px]">
                     {scheduleText(s)}
                   </td>
                   <td className="whitespace-nowrap text-[var(--tx-mut)]">{when(s.ran_at)}</td>
                   <td className={`whitespace-nowrap font-medium ${st.cls}`}>
                     <span className="mr-1">{st.glyph}</span>{st.word}
                   </td>
-                  <td className="text-[11px] text-[var(--tx-dim)] overflow-hidden">
-                    <div className="truncate" title={s.detail || s.notes || ''}>
+                  <td className={`text-[11px] overflow-hidden ${live ? 'text-[var(--tx)]' : 'text-[var(--tx-dim)]'}`}>
+                    <div className={live ? '' : 'truncate'} title={s.detail || s.notes || ''}>
                       {s.detail || (s.state === 'unbuilt' ? s.notes : '')}
                     </div>
                   </td>

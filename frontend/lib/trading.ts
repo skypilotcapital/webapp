@@ -183,8 +183,10 @@ export const clearHalt = (env: string, by: string, rebalanceId?: number) =>
   post(`/api/v1/trading/${env}/halt/clear`,
        { by, reason: 'cleared from the operations page', rebalance_id: rebalanceId ?? null });
 
-export const approveRebalance = (env: string, id: number, by: string, reviewId: number) =>
-  post(`/api/v1/trading/${env}/rebalances/${id}/approve`, { by, review_id: reviewId });
+export const approveRebalance = (
+  env: string, id: number, by: string, reviewId: number, phrase: string,
+) => post(`/api/v1/trading/${env}/rebalances/${id}/approve`,
+          { by, review_id: reviewId, phrase });
 
 export interface RunRequestRow {
   request_id: number; rebalance_id: number | null; step: string; source: string;
@@ -225,7 +227,6 @@ export const fetchReadiness = (env: string) =>
 // Execution: two secrets, and neither is the real protection — the worker re-reads the database
 // and refuses unless the book is approved and nothing is halted. The passcode is never returned
 // by any endpoint, only posted.
-export const executeRebalance = (
-  env: string, id: number, by: string, phrase: string, passcode: string,
-) => post<{ request_id: number }>(
-  `/api/v1/trading/${env}/rebalances/${id}/execute`, { by, phrase, passcode });
+export const executeRebalance = (env: string, id: number, by: string, phrase: string) =>
+  post<{ request_id: number }>(
+    `/api/v1/trading/${env}/rebalances/${id}/execute`, { by, phrase });

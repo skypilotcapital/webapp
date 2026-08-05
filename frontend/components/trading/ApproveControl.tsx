@@ -1,27 +1,32 @@
 'use client';
 
-import { useState } from 'react';
-import { approveRebalance, type Review } from '@/lib/trading';
+import { useEffect, useState } from 'react';
+import { approveRebalance, type PlanResponse, type Review } from '@/lib/trading';
 
-// THE ONLY DECISION ON THIS SITE. Everything else in Trading reports; this commits a human to a
-// book. So the control is deliberately narrow: it ratifies the review shown ABOVE it, it names
-// what it read, and it can do strictly less than the CLI.
+// THE ONLY DECISION ON THIS SITE. Everything else reports, stops, or re-runs.
 //
-// What it cannot do, and why:
-//   * override a FAILED check — that judgement belongs in the terminal with the full output in
-//     front of you, not behind a button (the server refuses too; this just does not offer it)
-//   * submit — approval marks the book submittable, execution is a separate deliberate action
-//   * approve a stale review — the server refuses past 4h, and this says so before you click
+// It sits directly beneath the pre-trade checks and nowhere else, because what you are ratifying
+// is those checks. An approve button on a summary card elsewhere would be the "unexamined approval
+// that feels examined" §3.1 is written against — the whole reason approve-by-exception exists.
+//
+// Two deliberate frictions, and neither is security theatre:
+//   * a NAMED person (Q1: recorded, not authenticated — the UI must not overstate it)
+//   * a typed word, so the most consequential control on the page cannot be fired by a stray click
+//     or a browser autofilling its way through a form
 export function ApproveControl({
-  env, rebalanceId, review, canApprove, status, onApproved,
+  env, rebalanceId, review, plan, canApprove, status, onApproved,
 }: {
-  env: string; rebalanceId: number; review: Review | null;
+  env: string; rebalanceId: number; review: Review | null; plan: PlanResponse | null;
   canApprove: boolean; status: string; onApproved: () => void;
 }) {
   const [name, setName] = useState('');
-  const [armed, setArmed] = useState(false);
+  const [phrase, setPhrase] = useState('');
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
+
+  // Typed once, not once per rebalance. Q1 wants the name on the record; it does not want it to be
+  // a monthly chore that trains people to type "x".
+  useEffect(() => { setName(localStorage.getItem('sp.operator') ?? ''); }, []);
 
   if (status !== 'proposed') return null;
 
@@ -36,41 +41,69 @@ export function ApproveControl({
     : !canApprove ? 'This deployment has no approval write path configured.'
     : null;
 
+  const ready = phrase.trim().toLowerCase() === 'approve' && name.trim().length > 1;
+
   const submit = async () => {
     if (!review) return;
     setBusy(true); setErr(null);
     try {
-      await approveRebalance(env, rebalanceId, name.trim(), review.review_id);
+      localStorage.setItem('sp.operator', name.trim());
+      await approveRebalance(env, rebalanceId, name.trim(), review.review_id, 'approve');
       onApproved();
     } catch (e) {
-      setErr(String(e instanceof Error ? e.message : e));
-      setArmed(false);
+      setErr(e instanceof Error ? e.message : String(e));
     } finally { setBusy(false); }
   };
 
   return (
     <div className="mt-3 pt-3 border-t border-[var(--border-soft)]">
+      {/* WHAT YOU ARE APPROVING, stated in words. The screen above proves the book is SOUND; this
+          says what it IS. Those are different questions and the page previously answered only the
+          first, which left "approve" meaning "the checks were green" rather than "send this." */}
+      {review && plan && (
+        <div className="mb-3 p-2 rounded bg-[var(--bg)] text-[12px]">
+          <div className="text-[10px] uppercase tracking-wider text-[var(--tx-dim)] mb-1">
+            You are approving
+          </div>
+          <div className="flex flex-wrap gap-x-5 gap-y-1">
+            <span><b>{plan.summary.n_trades}</b> trades</span>
+            <span className="text-[var(--pos)]">{plan.summary.n_buy} buys</span>
+            <span className="text-[var(--neg)]">{plan.summary.n_sell} sells</span>
+            <span>~${Math.round(plan.summary.gross_notional).toLocaleString()} gross</span>
+            {review.pct_margin != null && (
+              <span>{(Number(review.pct_margin) * 100).toFixed(0)}% projected margin</span>
+            )}
+            <span className={review.worst_state === 'ok' ? 'text-[var(--pos)]' : 'text-[var(--amber)]'}>
+              {review.checks.filter((c) => c.state === 'ok').length}/{review.checks.length} checks clear
+            </span>
+          </div>
+          <p className="text-[10px] text-[var(--tx-dim)] mt-1">
+            Approving does not send anything — it marks the book submittable. Share counts are
+            recomputed at submission against live quotes, so the preview above is indicative.
+          </p>
+        </div>
+      )}
+
       {blocked ? (
         <p className="text-[11px] text-[var(--amber)]">⚠ Cannot approve here — {blocked}</p>
       ) : (
         <div className="flex items-center gap-2 flex-wrap">
           <input
-            value={name} onChange={(e) => { setName(e.target.value); setArmed(false); }}
-            placeholder="your name"
-            className="px-2 py-1 text-[12px] rounded border border-[var(--border-soft)] bg-[var(--bg)]"
+            value={name} onChange={(e) => setName(e.target.value)} placeholder="your name"
+            className="px-2 py-1 text-[12px] rounded border border-[var(--border-soft)] bg-[var(--bg)] w-[130px]"
           />
-          <button
-            disabled={busy || name.trim().length < 2}
-            onClick={() => (armed ? submit() : setArmed(true))}
-            className={`px-3 py-1.5 rounded text-[12px] font-semibold disabled:opacity-40 ${
-              armed ? 'bg-[var(--teal)] text-[#fffdf9]'
-                    : 'border border-[var(--teal)] text-[var(--teal)]'}`}>
-            {busy ? 'approving…'
-              : armed ? `CONFIRM — approve #${rebalanceId} against review #${review!.review_id}`
-              : 'Approve'}
+          <input
+            value={phrase} onChange={(e) => setPhrase(e.target.value)}
+            placeholder="type: approve" autoComplete="off"
+            onKeyDown={(e) => { if (e.key === 'Enter' && ready) submit(); }}
+            className="px-2 py-1 text-[12px] font-mono rounded border border-[var(--border-soft)] bg-[var(--bg)] w-[130px]"
+          />
+          <button disabled={busy || !ready} onClick={submit}
+                  className="px-3 py-1.5 rounded text-[12px] font-semibold bg-[var(--teal)] text-[#fffdf9] disabled:opacity-35">
+            {busy ? 'approving…' : `Approve #${rebalanceId}`}
           </button>
-          {/* Q1, verbatim in the UI: this name is recorded, not verified, and the doc requires the
-              interface not to overstate it. A paper-era record must never later read as audited. */}
+          {/* Q1, verbatim: recorded, not verified. A paper-era record must never later read as an
+              authenticated one. */}
           <span className="text-[10px] text-[var(--tx-dim)]">
             recorded, not authenticated — the site is behind one shared passcode
           </span>
@@ -78,12 +111,6 @@ export function ApproveControl({
       )}
 
       {err && <p className="text-[11px] text-[var(--neg)] mt-2">{err}</p>}
-
-      <p className="text-[10px] text-[var(--tx-dim)] mt-2">
-        Approving marks the book submittable. It sends nothing — execution is a separate action and
-        stays on the CLI:{' '}
-        <code>python run_rebalance.py --rebalance-id {rebalanceId} --execute</code>
-      </p>
     </div>
   );
 }

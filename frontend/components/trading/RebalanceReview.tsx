@@ -165,7 +165,7 @@ export function RebalanceReview({ env, id }: { env: string; id: number }) {
         {/* The gate itself. Deliberately BELOW the checks — the decision is the last thing on the
             panel, never the first (§3.1: approve by exception). */}
         <ApproveControl
-          env={env} rebalanceId={id} review={review ?? null} canApprove={canApprove}
+          env={env} rebalanceId={id} review={review ?? null} plan={plan} canApprove={canApprove}
           status={h.status}
           onApproved={() => {
             fetchRebalance(env, id).then(setDetail).catch(() => {});

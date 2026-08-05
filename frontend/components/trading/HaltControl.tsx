@@ -9,7 +9,9 @@ import { clearHalt, fetchHaltState, postHalt, type HaltState } from '@/lib/tradi
 // accidental halt is one click to clear it while the cost of a slow one is unbounded.
 const ARM_MS = 6000;
 
-export function HaltControl({ env, rebalanceId }: { env: string; rebalanceId?: number }) {
+export function HaltControl(
+  { env, rebalanceId, active = false }: { env: string; rebalanceId?: number; active?: boolean },
+) {
   const [state, setState] = useState<HaltState | null>(null);
   const [armed, setArmed] = useState(false);
   const [busy, setBusy] = useState(false);
@@ -34,6 +36,32 @@ export function HaltControl({ env, rebalanceId }: { env: string; rebalanceId?: n
   };
 
   const halted = state?.halted ?? false;
+
+  // COMPACT UNLESS IT MATTERS. A red HALT block at the top of every page on every day is not
+  // vigilance, it is wallpaper — and wallpaper is what you stop seeing on the day it counts. So
+  // when nothing is in flight it collapses to a single line; when a halt is set it takes over.
+  if (!halted && !active) {
+    return (
+      <div className="panel px-3 py-1.5 flex items-center gap-3">
+        <button disabled={busy || !state?.can_write}
+                onClick={() => (armed ? act(() =>
+                  postHalt(env, 'web', 'halted from the operations page', rebalanceId))
+                  : setArmed(true))}
+                className={`px-2 py-0.5 rounded text-[11px] font-bold ${armed
+                  ? 'bg-[var(--neg)] text-[#fffdf9]'
+                  : 'border border-[var(--neg)] text-[var(--neg)]'}`}>
+          {busy ? '…' : armed ? 'CONFIRM — stop trading' : '⛔ HALT'}
+        </button>
+        <span className="text-[10px] text-[var(--tx-dim)]">
+          {armed ? 'click again to stop the submitter before its next order'
+            : 'nothing is executing · stops the submitter between orders, never cancels working ones'}
+        </span>
+        <span className="text-[10px] text-[var(--tx-dim)] ml-auto font-mono">
+          CLI: jobs.kill_switch --rebalance-id {rebalanceId ?? 'N'}
+        </span>
+      </div>
+    );
+  }
 
   return (
     <div className={`panel p-3 ${halted ? 'border-2 border-[var(--neg)]' : ''}`}>

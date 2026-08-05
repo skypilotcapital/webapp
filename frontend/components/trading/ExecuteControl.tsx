@@ -1,24 +1,24 @@
 'use client';
 
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { executeRebalance } from '@/lib/trading';
 
 // THE ONLY CONTROL ON THIS SITE THAT CAN MOVE MONEY. Everything else reports, decides, or stops.
 //
-// Two secrets, because they prove different things (and neither is the real protection):
-//   * the PHRASE proves intent, and carries the rebalance id so muscle memory cannot fire on the
-//     wrong book — you cannot type "execute 5" while looking at #6
-//   * the PASSCODE proves authority. The site is behind one shared login, so having this page open
-//     is not evidence of who is clicking
-// The real protection is that this cannot execute anything: it queues a request, and the droplet
-// worker re-reads the database and refuses unless the book is approved and nothing is halted.
+// A typed word, not a passcode (user decision 2026-08-05, PAPER ONLY). On a paper account with
+// simulated fills and no client money, a second secret is friction without a matching risk — and
+// friction that is not earned gets routed around.
+//
+// The real protection was never in the browser anyway: this cannot execute anything. It queues a
+// request, and the droplet worker re-reads the database and refuses unless the book is APPROVED
+// and nothing is halted. LIVE is a different decision entirely, gated by Q1 and Q3, and
+// EXECUTE_ENVS keeps it out regardless of what this component does.
 export function ExecuteControl({
   env, rebalanceId, status, canExecute, onQueued,
 }: {
   env: string; rebalanceId: number; status: string; canExecute: boolean; onQueued: () => void;
 }) {
   const [phrase, setPhrase] = useState('');
-  const [passcode, setPasscode] = useState('');
   const [name, setName] = useState('');
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
@@ -26,17 +26,18 @@ export function ExecuteControl({
 
   // Only an APPROVED book can be executed, so the control does not exist before then. A disabled
   // execute button sitting under an unapproved book is an invitation to look for the way around it.
+  useEffect(() => { setName(localStorage.getItem('sp.operator') ?? ''); }, []);
+
   if (status !== 'approved') return null;
 
-  const want = `execute ${rebalanceId}`;
-  const ready = phrase.trim().toLowerCase() === want && passcode.length > 0 && name.trim().length > 1;
+  const ready = phrase.trim().toLowerCase() === 'execute' && name.trim().length > 1;
 
   const submit = async () => {
     setBusy(true); setErr(null);
     try {
-      const r = await executeRebalance(env, rebalanceId, name.trim(), phrase.trim(), passcode);
+      localStorage.setItem('sp.operator', name.trim());
+      const r = await executeRebalance(env, rebalanceId, name.trim(), phrase.trim());
       setQueued(r.request_id);
-      setPasscode('');
       onQueued();
     } catch (e) {
       setErr(e instanceof Error ? e.message : String(e));
@@ -70,14 +71,12 @@ export function ExecuteControl({
         <input value={name} onChange={(e) => setName(e.target.value)} placeholder="your name"
                className="px-2 py-1 text-[12px] rounded border border-[var(--border-soft)] bg-[var(--bg)] w-[130px]" />
         <input value={phrase} onChange={(e) => setPhrase(e.target.value)}
-               placeholder={`type: ${want}`}
-               className="px-2 py-1 text-[12px] font-mono rounded border border-[var(--border-soft)] bg-[var(--bg)] w-[150px]" />
-        <input value={passcode} onChange={(e) => setPasscode(e.target.value)}
-               type="password" placeholder="execution passcode" autoComplete="off"
-               className="px-2 py-1 text-[12px] rounded border border-[var(--border-soft)] bg-[var(--bg)] w-[170px]" />
+               placeholder="type: execute" autoComplete="off"
+               onKeyDown={(e) => { if (e.key === 'Enter' && ready && canExecute) submit(); }}
+               className="px-2 py-1 text-[12px] font-mono rounded border border-[var(--border-soft)] bg-[var(--bg)] w-[130px]" />
         <button disabled={!ready || busy || !canExecute} onClick={submit}
                 className="px-3 py-1.5 rounded text-[12px] font-bold bg-[var(--neg)] text-[#fffdf9] disabled:opacity-35">
-          {busy ? 'queueing…' : 'SUBMIT ORDERS'}
+          {busy ? 'queueing…' : `SUBMIT ORDERS — #${rebalanceId}`}
         </button>
       </div>
 

@@ -22,8 +22,6 @@ TWO BOUNDARIES THIS ROUTER DOES NOT CROSS, both deliberate:
 route cannot be reached by guessing the URL (Q3).
 """
 
-import secrets
-
 from fastapi import APIRouter, HTTPException, Query
 from pydantic import BaseModel, Field
 from sqlalchemy import text
@@ -305,7 +303,7 @@ def ledger(env: str, rebalance_id: int | None = None):
                        "detail": f"approved by {hdr['approved_by']} (claimed, not authenticated)"}
             elif hdr["status"] == "proposed":
                 run = {"status": "awaiting", "started_at": None, "finished_at": None,
-                       "detail": "waiting on a human"}
+                       "detail": "review the pre-trade checks, then approve"}
         # No telemetry, but the output is there: say so, and say how we know.
         if run is None and artifacts.get(step):
             run = {"status": "ok", "started_at": None, "finished_at": None,
@@ -709,6 +707,7 @@ class ApproveRequest(BaseModel):
     # The review the browser was DISPLAYING. Required: approving without naming what you read is
     # the "someone looked at this screen once" that §3.2 exists to rule out.
     review_id: int
+    phrase: str | None = Field(default=None, max_length=40)
     note: str | None = Field(default=None, max_length=500)
 
 
@@ -730,6 +729,10 @@ def approve(env: str, rebalance_id: int, body: ApproveRequest):
                             them look again; this is what `approved_review_id` exists for
     """
     _env(env)
+    # A deliberate word, typed, not a button alone — the same shape as execution so the two most
+    # consequential actions on the site feel the same and neither can be fired by a stray click.
+    if (body.phrase or "").strip().lower() != "approve":
+        raise HTTPException(status_code=400, detail="type 'approve' to confirm")
     eng = get_approve_engine()
     if eng is None:
         raise HTTPException(status_code=503, detail=(
@@ -895,7 +898,6 @@ EXECUTE_ENVS = {"paper"}
 class ExecuteRequest(BaseModel):
     by: str = Field(min_length=1, max_length=80)
     phrase: str = Field(min_length=1, max_length=60)
-    passcode: str = Field(min_length=1, max_length=200)
 
 
 @router.post("/{env}/rebalances/{rebalance_id}/execute")
@@ -910,20 +912,15 @@ def execute(env: str, rebalance_id: int, body: ExecuteRequest):
     if env not in EXECUTE_ENVS:
         raise HTTPException(status_code=403, detail="execution is not available in this environment")
 
-    settings = get_settings()
-    expected = (settings.execute_passcode or "").strip()
-    if not expected:
-        raise HTTPException(status_code=503, detail=(
-            "no execution passcode is configured on this deployment — execute from the CLI: "
-            f"python run_rebalance.py --rebalance-id {rebalance_id} --execute"))
-
-    want_phrase = f"execute {rebalance_id}"
-    if body.phrase.strip().lower() != want_phrase:
-        raise HTTPException(status_code=400,
-                            detail=f"type exactly '{want_phrase}' to confirm")
-    # Constant-time: a timing-distinguishable compare on a shared secret is a free win to avoid.
-    if not secrets.compare_digest(body.passcode.strip(), expected):
-        raise HTTPException(status_code=403, detail="execution passcode is not correct")
+    # ⚠️ NO PASSCODE — user decision 2026-08-05, PAPER ONLY. The typed phrase proves intent; on a
+    # paper account with simulated fills and no client money, a second secret is friction without
+    # a matching risk. What actually guards this is unchanged and is not in the browser: the worker
+    # re-reads the database and refuses unless the book is APPROVED and nothing is halted.
+    #
+    # This is explicitly a paper-grade control. Live execution is a different decision that Q1
+    # (per-user auth) and Q3 (live access control) both gate, and `EXECUTE_ENVS` keeps it out.
+    if body.phrase.strip().lower() != "execute":
+        raise HTTPException(status_code=400, detail="type 'execute' to confirm")
 
     eng = get_request_engine()
     if eng is None:
@@ -977,6 +974,5 @@ def list_runs(env: str, rebalance_id: int | None = None, limit: int = Query(20, 
             {"r": rebalance_id, "lim": limit}).mappings().all()
     return {"env": env, "requests": [dict(r) for r in rows],
             "can_request": request_writes_enabled(),
-            "can_execute": bool((get_settings().execute_passcode or "").strip())
-                           and request_writes_enabled() and env in EXECUTE_ENVS,
+            "can_execute": request_writes_enabled() and env in EXECUTE_ENVS,
             "triggerable": sorted(TRIGGERABLE)}
