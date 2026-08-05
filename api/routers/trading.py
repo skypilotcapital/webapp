@@ -22,10 +22,13 @@ TWO BOUNDARIES THIS ROUTER DOES NOT CROSS, both deliberate:
 route cannot be reached by guessing the URL (Q3).
 """
 
+import secrets
+
 from fastapi import APIRouter, HTTPException, Query
 from pydantic import BaseModel, Field
 from sqlalchemy import text
 
+from api.config import get_settings
 from api.db import (approve_writes_enabled, get_approve_engine, get_db,
                     get_halt_engine, get_request_engine, halt_writes_enabled,
                     request_writes_enabled)
@@ -863,6 +866,103 @@ def enqueue_run(env: str, body: RunRequest):
             "note": "Queued. The droplet worker polls every minute; watch the ledger for the result."}
 
 
+# =================================================================================================
+# EXECUTION FROM THE WEB (user decision, 2026-08-05)
+#
+# §3.10 sanctioned this for PAPER — "acceptable, with confirm-to-arm and the HALT control on the
+# same screen" — and forbade it for live. This implements the paper half.
+#
+# TWO SECRETS, BECAUSE THEY PROVE DIFFERENT THINGS:
+#
+#   * The typed PHRASE ("execute 5") proves INTENT, and it carries the rebalance id so muscle
+#     memory cannot fire on the wrong book. It is not a secret and is not treated as one.
+#   * The PASSCODE proves AUTHORITY. The site sits behind one shared login, so having the page open
+#     is not evidence of anything; a second secret that is not the site's means the person clicking
+#     holds the trading credential. Checked server-side with a constant-time compare, never sent to
+#     the browser, never in any response.
+#
+# Neither is the real protection. The real protection is that this endpoint cannot execute
+# anything — it can only put a row in a queue, and the worker re-reads the database and refuses
+# unless the book is APPROVED and nothing is halted.
+# =================================================================================================
+
+# A SECOND allow-list, deliberately not `ENVS`. If 'live' is ever added there for a read screen,
+# execution must not silently become available with it — the two lists have different reasons to
+# change, so they are different lists.
+EXECUTE_ENVS = {"paper"}
+
+
+class ExecuteRequest(BaseModel):
+    by: str = Field(min_length=1, max_length=80)
+    phrase: str = Field(min_length=1, max_length=60)
+    passcode: str = Field(min_length=1, max_length=200)
+
+
+@router.post("/{env}/rebalances/{rebalance_id}/execute")
+def execute(env: str, rebalance_id: int, body: ExecuteRequest):
+    """Request execution of an APPROVED rebalance. Queues it; the droplet worker submits.
+
+    It does not send orders itself and it does not wait for them. A 186-order submission takes
+    minutes, and holding an HTTP request open across it is how you get a half-executed rebalance of
+    unknown extent when a browser closes — the exact state the cOID design exists to prevent.
+    """
+    _env(env)
+    if env not in EXECUTE_ENVS:
+        raise HTTPException(status_code=403, detail="execution is not available in this environment")
+
+    settings = get_settings()
+    expected = (settings.execute_passcode or "").strip()
+    if not expected:
+        raise HTTPException(status_code=503, detail=(
+            "no execution passcode is configured on this deployment — execute from the CLI: "
+            f"python run_rebalance.py --rebalance-id {rebalance_id} --execute"))
+
+    want_phrase = f"execute {rebalance_id}"
+    if body.phrase.strip().lower() != want_phrase:
+        raise HTTPException(status_code=400,
+                            detail=f"type exactly '{want_phrase}' to confirm")
+    # Constant-time: a timing-distinguishable compare on a shared secret is a free win to avoid.
+    if not secrets.compare_digest(body.passcode.strip(), expected):
+        raise HTTPException(status_code=403, detail="execution passcode is not correct")
+
+    eng = get_request_engine()
+    if eng is None:
+        raise HTTPException(status_code=503, detail="run-request path not configured")
+
+    with get_db() as conn:
+        hdr = conn.execute(text("SELECT status FROM trading.rebalances WHERE rebalance_id = :r"),
+                           {"r": rebalance_id}).mappings().first()
+        if hdr is None:
+            raise HTTPException(status_code=404, detail="no such rebalance")
+        if hdr["status"] != "approved":
+            raise HTTPException(status_code=409, detail=(
+                f"rebalance is '{hdr['status']}', not 'approved'. Approval is a separate, "
+                f"deliberate action and it has to happen first."))
+        halt = conn.execute(text(
+            "SELECT set_by, reason FROM trading.halts WHERE cleared_at IS NULL "
+            "AND (rebalance_id IS NULL OR rebalance_id = :r) LIMIT 1"),
+            {"r": rebalance_id}).mappings().first()
+        if halt:
+            raise HTTPException(status_code=409, detail=(
+                f"trading is HALTED by {halt['set_by']} — {halt['reason']}. Clear the halt first."))
+
+    try:
+        with eng.begin() as conn:
+            row = conn.execute(text(
+                "INSERT INTO trading.run_requests (rebalance_id, step, source, requested_by) "
+                "VALUES (:r, 'execution', 'web', :by) RETURNING request_id"),
+                {"r": rebalance_id, "by": body.by}).first()
+    except Exception as e:                                            # noqa: BLE001
+        if "run_requests_one_active" in str(e):
+            raise HTTPException(status_code=409, detail=(
+                "execution is already queued or running for this rebalance. Watch the ledger — "
+                "do not queue a second one."))
+        raise
+    return {"env": env, "rebalance_id": rebalance_id, "request_id": row[0], "status": "queued",
+            "note": ("Queued. The worker picks it up within a minute, re-checks that the book is "
+                     "approved and unhalted, then submits in waves. HALT stops it between orders.")}
+
+
 @router.get("/{env}/run-requests")
 def list_runs(env: str, rebalance_id: int | None = None, limit: int = Query(20, ge=1, le=100)):
     """Recent run requests — the queued->running->ok/failed trail the ledger renders."""
@@ -877,4 +977,6 @@ def list_runs(env: str, rebalance_id: int | None = None, limit: int = Query(20, 
             {"r": rebalance_id, "lim": limit}).mappings().all()
     return {"env": env, "requests": [dict(r) for r in rows],
             "can_request": request_writes_enabled(),
+            "can_execute": bool((get_settings().execute_passcode or "").strip())
+                           and request_writes_enabled() and env in EXECUTE_ENVS,
             "triggerable": sorted(TRIGGERABLE)}

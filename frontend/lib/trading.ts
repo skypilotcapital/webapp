@@ -194,7 +194,8 @@ export interface RunRequestRow {
 }
 
 export const fetchRunRequests = (env: string, rebalanceId?: number) =>
-  get<{ requests: RunRequestRow[]; can_request: boolean; triggerable: string[] }>(
+  get<{ requests: RunRequestRow[]; can_request: boolean; can_execute: boolean;
+        triggerable: string[] }>(
     `/api/v1/trading/${env}/run-requests` + (rebalanceId ? `?rebalance_id=${rebalanceId}` : ''));
 
 // The website REQUESTS a step; it never runs one. Returns as soon as the intent is recorded.
@@ -220,3 +221,11 @@ export interface Readiness {
 
 export const fetchReadiness = (env: string) =>
   get<Readiness>(`/api/v1/trading/${env}/readiness`);
+
+// Execution: two secrets, and neither is the real protection — the worker re-reads the database
+// and refuses unless the book is approved and nothing is halted. The passcode is never returned
+// by any endpoint, only posted.
+export const executeRebalance = (
+  env: string, id: number, by: string, phrase: string, passcode: string,
+) => post<{ request_id: number }>(
+  `/api/v1/trading/${env}/rebalances/${id}/execute`, { by, phrase, passcode });

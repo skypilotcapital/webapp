@@ -3,11 +3,12 @@
 import Link from 'next/link';
 import { useEffect, useState } from 'react';
 import {
-  fetchLedger, fetchPlan, fetchRebalance, fetchReview,
+  fetchLedger, fetchPlan, fetchRebalance, fetchReview, fetchRunRequests,
   type Ledger, type PlanResponse, type RebalanceDetail, type Review,
 } from '@/lib/trading';
 import { BlotterSection } from './Blotter';
 import { ApproveControl } from './ApproveControl';
+import { ExecuteControl } from './ExecuteControl';
 import { HaltControl } from './HaltControl';
 
 const CHECK: Record<string, { glyph: string; cls: string }> = {
@@ -30,6 +31,7 @@ export function RebalanceReview({ env, id }: { env: string; id: number }) {
   const [detail, setDetail] = useState<RebalanceDetail | null>(null);
   const [review, setReview] = useState<Review | null | undefined>(undefined);
   const [canApprove, setCanApprove] = useState(false);
+  const [canExecute, setCanExecute] = useState(false);
   const [plan, setPlan] = useState<PlanResponse | null>(null);
   const [ledger, setLedger] = useState<Ledger | null>(null);
   const [showTable, setShowTable] = useState(false);
@@ -41,6 +43,7 @@ export function RebalanceReview({ env, id }: { env: string; id: number }) {
       .catch(() => setReview(null));
     fetchPlan(env, id, 'preview').then(setPlan).catch(() => setPlan(null));
     fetchLedger(env, id).then(setLedger).catch(() => setLedger(null));
+    fetchRunRequests(env, id).then((d) => setCanExecute(d.can_execute)).catch(() => {});
   }, [env, id]);
 
   if (err) return <div className="panel p-4 text-[var(--neg)] text-sm">Unavailable: {err}</div>;
@@ -169,6 +172,11 @@ export function RebalanceReview({ env, id }: { env: string; id: number }) {
             fetchLedger(env, id).then(setLedger).catch(() => {});
           }} />
       </div>
+
+      {/* The one control that can move money. Below approval because it cannot run before it,
+          and above the trade table because that is the thing it will send. */}
+      <ExecuteControl env={env} rebalanceId={id} status={h.status} canExecute={canExecute}
+                      onQueued={() => fetchRebalance(env, id).then(setDetail).catch(() => {})} />
 
       {/* (d) The trade table — collapsed. Nobody checks 186 rows, and a UI that presents them all
           with a button underneath produces false assurance, not diligence (§3.1). */}

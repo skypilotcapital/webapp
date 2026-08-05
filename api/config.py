@@ -45,6 +45,12 @@ class Settings(BaseSettings):
     request_db_user: str = ""
     request_db_password: str = ""
 
+    # The EXECUTION passcode — a SECOND secret, distinct from the site login. The site is behind
+    # one shared passcode, so having the page open proves nothing about who is clicking; this
+    # proves the person holds the trading credential. Empty disables execution-from-web entirely
+    # rather than degrading it to a single confirm.
+    execute_passcode: str = ""
+
     # Reports directory — absolute path to the folder containing report subdirectories.
     # On the droplet: /root/Main/Reports
     # Leave blank for local dev (reports list will return empty gracefully).
