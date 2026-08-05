@@ -242,6 +242,23 @@ export interface ExposureFactor {
   active_exposure: number; risk_var_contrib: number | null;
 }
 
+/** One side of a market-neutral book ([10-EXPO]). The net alone cannot distinguish a +20%/−13%
+ *  book from a +8%/+1% one, and for a sleeve that is de-grossing that is the wrong blindness.
+ *
+ *  `long` and `short` are each normalised to their OWN gross (`leg_gross`, reported so the scaling
+ *  is visible) and measured against the universe's cap-weighted benchmark. `benchmark` is that
+ *  benchmark's own exposure.
+ *
+ *  ⚠️ THE SHORT LEG IS A HOLDING, NOT A PREFERENCE. It is |w| — a positive book of what you are
+ *  SHORT OF — so a positive profitability number there means the names you are short are
+ *  profitable, i.e. a bet AGAINST profitability. Any surface rendering it must say which it is
+ *  showing; sign confusion on the short side is reliable. */
+export interface ExposureLeg {
+  leg: 'long' | 'short' | 'benchmark';
+  factor: string; kind: 'sector' | 'style' | 'market';
+  active_exposure: number; leg_gross: number | null; n_names: number | null;
+}
+
 export interface Exposures {
   signal_date: string;
   sleeves: {
@@ -252,6 +269,9 @@ export interface Exposures {
     as_of: string | null; is_current: boolean;
     specific_risk_var?: number | null;
     factors: ExposureFactor[];
+    /** Empty for a long-only book (its net IS its position vs the benchmark) and for any L/S book
+     *  whose leg split has not been computed. */
+    legs?: ExposureLeg[];
     note?: string;
   }[];
 }

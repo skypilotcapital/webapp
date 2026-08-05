@@ -193,6 +193,10 @@ def rebalance_exposures(env: str, rebalance_id: int):
     because every individual trade looks fine while forty of them together drift a sector to 8%
     active or lean the book onto size.
 
+    Two views per sleeve: `factors` (the net, one row per factor) and — for a market-neutral book
+    where the net is a difference of two large legs — `legs`, the long and short sides split apart.
+    See the leg block below for why the net alone is not enough.
+
     ⚠️ EXPOSURES ONLY, NEVER CONTRIBUTIONS. `ret_contrib` needs the FOLLOWING month's factor
     returns (`build_attribution`: the holding-period return is `fr.loc[t_next]`), so for the book
     you are about to trade it does not exist and cannot. That is fine for this screen — pre-trade
@@ -235,6 +239,25 @@ def rebalance_exposures(env: str, rebalance_id: int):
                 "SELECT risk_var_contrib FROM portfolio.attribution "
                 "WHERE model_label = :l AND date = :d AND factor = 'specific'"),
                 {"l": lbl, "d": asof}).scalar()
+
+            # ⚠️ THE NET IS NOT THE BOOK, FOR A MARKET-NEUTRAL SLEEVE ([10-EXPO]). The rows above
+            # are attributed with b = 0, so they are the OUTRIGHT NET of longs minus shorts: a net
+            # of +7% earnings_yield is equally consistent with +2%/−21% and with +8%/+1%. When the
+            # leg split exists for this book, serve it — same date, so it describes the same book.
+            #
+            # `long`/`short` are each normalised to their own gross and measured against the
+            # universe's cap-weighted benchmark; `benchmark` is that b's own exposure, kept so the
+            # decomposition can be re-checked without the risk model (see GATE D in
+            # build_attribution). The SHORT leg is |w|, a positive book of what you are SHORT OF —
+            # so a positive profitability reading there is a bet AGAINST profitability, and the
+            # client is required to say so.
+            legs = conn.execute(text("""
+                SELECT leg, factor, active_exposure, leg_gross, n_names
+                FROM portfolio.leg_exposures
+                WHERE model_label = :l AND date = :d
+                ORDER BY leg, ABS(active_exposure) DESC"""),
+                {"l": lbl, "d": asof}).mappings().all()
+
             sleeves.append({
                 "sleeve": tag, "label": lbl, "as_of": asof, "is_current": asof == sig,
                 "specific_risk_var": spec,
@@ -245,6 +268,12 @@ def rebalance_exposures(env: str, rebalance_id: int):
                                       else "market" if r["factor"] == "market" else "style"),
                              "active_exposure": r["active_exposure"],
                              "risk_var_contrib": r["risk_var_contrib"]} for r in rows],
+                "legs": [{"leg": r["leg"], "factor": r["factor"],
+                          "kind": ("sector" if r["factor"].startswith("sec_")
+                                   else "market" if r["factor"] == "market" else "style"),
+                          "active_exposure": r["active_exposure"],
+                          "leg_gross": r["leg_gross"], "n_names": r["n_names"]}
+                         for r in legs],
             })
     return {"env": env, "rebalance_id": rebalance_id, "signal_date": sig, "sleeves": sleeves}
 
