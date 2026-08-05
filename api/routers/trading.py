@@ -222,6 +222,30 @@ def ledger(env: str, rebalance_id: int | None = None):
               AND started_at >= now() - interval '35 days'
             ORDER BY started_at DESC""")).mappings().all()
 
+        # ARTIFACT VERIFICATION — the same "check the output, not the job row" principle the
+        # readiness panel is built on, applied backwards. A step can be provably complete with NO
+        # telemetry: target generation produced the book rebalance #5 was frozen from, but it ran
+        # before its run_log instrumentation existed. Reporting that as "no record" is true and
+        # useless; the honest answer is "it completed — here is the output".
+        artifacts = {}
+        if hdr is not None:
+            sig = hdr["signal_date"]
+            for step, sql in (
+                ("factor_build",
+                 "SELECT count(*) FROM factor.scores WHERE date = :d"),
+                ("broad_build",
+                 "SELECT count(*) FROM factor.scores_full WHERE date = :d"),
+                ("target_gen",
+                 "SELECT count(*) FROM portfolio.weights w JOIN portfolio.backtest_meta m "
+                 "  ON m.model_label = w.model_label "
+                 "WHERE m.is_production AND w.date = :d"),
+            ):
+                try:
+                    artifacts[step] = int(conn.execute(text(sql), {"d": sig}).scalar() or 0)
+                except Exception:                                     # noqa: BLE001
+                    conn.rollback()
+                    artifacts[step] = None
+
         review = None
         if rebalance_id is not None:
             review = conn.execute(text(
@@ -279,6 +303,13 @@ def ledger(env: str, rebalance_id: int | None = None):
             elif hdr["status"] == "proposed":
                 run = {"status": "awaiting", "started_at": None, "finished_at": None,
                        "detail": "waiting on a human"}
+        # No telemetry, but the output is there: say so, and say how we know.
+        if run is None and artifacts.get(step):
+            run = {"status": "ok", "started_at": None, "finished_at": None,
+                   "detail": f"no run record, but its output is present "
+                             f"({artifacts[step]:,} rows at {hdr['signal_date']}) — verified by "
+                             f"artifact, not telemetry"}
+
         if step == "dry_run" and review is not None and run is None:
             run = {"status": review["worst_state"].replace("fail", "warn"),
                    "started_at": review["computed_at"], "finished_at": review["computed_at"],

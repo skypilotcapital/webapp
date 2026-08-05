@@ -111,16 +111,16 @@ export function LedgerTable({ env }: { env: string }) {
       </div>
 
       <div className="overflow-x-auto">
-        <table className="dtable w-full text-[12px]">
+        <table className="dtable w-full text-[12px] table-fixed">
           <thead>
             <tr>
-              <th className="text-left">Step</th>
-              <th className="text-left">Mode</th>
-              <th className="text-left">Scheduled</th>
-              <th className="text-left">Ran</th>
-              <th className="text-left">Status</th>
+              <th className="text-left w-[190px]">Step</th>
+              <th className="text-left w-[92px]">Mode</th>
+              <th className="text-left w-[140px]">Scheduled</th>
+              <th className="text-left w-[120px]">Ran</th>
+              <th className="text-left w-[110px]">Status</th>
               <th className="text-left">Notes</th>
-              <th className="text-left">Run</th>
+              <th className="text-left w-[80px]">Run</th>
             </tr>
           </thead>
           <tbody>
@@ -152,8 +152,10 @@ export function LedgerTable({ env }: { env: string }) {
                   <td className={`whitespace-nowrap font-medium ${st.cls}`}>
                     <span className="mr-1">{st.glyph}</span>{st.word}
                   </td>
-                  <td className="text-[11px] text-[var(--tx-dim)] max-w-[340px]">
-                    {s.detail || (s.state === 'unbuilt' ? s.notes : '')}
+                  <td className="text-[11px] text-[var(--tx-dim)] max-w-[300px]">
+                    <div className="truncate" title={s.detail || s.notes || ''}>
+                      {s.detail || (s.state === 'unbuilt' ? s.notes : '')}
+                    </div>
                   </td>
                   {/* THE WEBSITE REQUESTS, IT NEVER RUNS (§3.10). This writes an intent row; the
                       droplet worker executes it within a minute. The button stays here forever,
