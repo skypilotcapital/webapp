@@ -114,13 +114,13 @@ export function LedgerTable({ env }: { env: string }) {
         <table className="dtable w-full text-[12px] table-fixed">
           <thead>
             <tr>
-              <th className="text-left w-[190px]">Step</th>
-              <th className="text-left w-[92px]">Mode</th>
-              <th className="text-left w-[140px]">Scheduled</th>
-              <th className="text-left w-[120px]">Ran</th>
-              <th className="text-left w-[110px]">Status</th>
+              <th className="text-left w-[19%]">Step</th>
+              <th className="text-left w-[9%]">Mode</th>
+              <th className="text-left w-[15%]">Scheduled</th>
+              <th className="text-left w-[12%]">Ran</th>
+              <th className="text-left w-[11%]">Status</th>
               <th className="text-left">Notes</th>
-              <th className="text-left w-[80px]">Run</th>
+              <th className="text-left w-[7%]">Run</th>
             </tr>
           </thead>
           <tbody>
@@ -152,7 +152,7 @@ export function LedgerTable({ env }: { env: string }) {
                   <td className={`whitespace-nowrap font-medium ${st.cls}`}>
                     <span className="mr-1">{st.glyph}</span>{st.word}
                   </td>
-                  <td className="text-[11px] text-[var(--tx-dim)] max-w-[300px]">
+                  <td className="text-[11px] text-[var(--tx-dim)] overflow-hidden">
                     <div className="truncate" title={s.detail || s.notes || ''}>
                       {s.detail || (s.state === 'unbuilt' ? s.notes : '')}
                     </div>
