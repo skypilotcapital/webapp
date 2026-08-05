@@ -56,8 +56,26 @@ export function RebalanceReview({ env, id }: { env: string; id: number }) {
 
   return (
     <div className="space-y-4">
-      {/* Top of the page, above everything: during an execution this is the control you reach
-          for, and it must not require scrolling past a provenance table to find. */}
+      <div>
+        <Link href={`/trading/${env}/rebalance`}
+              className="text-[11px] text-[var(--tx-mut)] underline decoration-dotted underline-offset-2">
+          ← Rebalance ledger
+        </Link>
+        <h1 className="text-xl font-semibold mt-1">
+          Frozen book #{id}
+          <span className="ml-2 text-[12px] font-normal text-[var(--tx-mut)]">
+            review &amp; approve for trading
+          </span>
+        </h1>
+        <p className="text-[11px] text-[var(--tx-dim)] mt-0.5 max-w-[80ch]">
+          One target portfolio, frozen at generation and immutable from then on. Everything below
+          describes it: what produced it, what is in it, whether it is sound, and the two
+          deliberate actions that can follow.
+        </p>
+      </div>
+
+      {/* Above everything actionable: during an execution this is the control you reach for, and
+          it must not require scrolling past a provenance table to find. */}
       <HaltControl env={env} rebalanceId={id} />
 
       {/* (a) Provenance — what produced this book. Unseen, an audit trail is not real (§3.9). */}
@@ -210,10 +228,6 @@ export function RebalanceReview({ env, id }: { env: string; id: number }) {
         </ul>
       </div>
 
-      <Link href={`/trading/${env}/rebalance`}
-            className="inline-block text-[11px] underline decoration-dotted underline-offset-2">
-        ← all rebalances
-      </Link>
     </div>
   );
 }

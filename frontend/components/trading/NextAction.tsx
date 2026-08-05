@@ -39,12 +39,12 @@ export function NextAction({ ledger, review }: { ledger: Ledger; review?: Review
     tone = 'border-2 border-[var(--neg)]';
     headline = `${failed[0].label} failed`;
     body = <>{failed[0].detail}</>;
-    cta = { label: 'Open the rebalance', href };
+    cta = { label: 'Open the frozen book', href };
   } else if (executing) {
     tone = 'border-2 border-[var(--amber)]';
     headline = 'Executing now';
     body = <>Orders are going out in waves. <b>HALT is above</b> and stops it between any two.</>;
-    cta = { label: 'Watch the blotter', href };
+    cta = { label: 'Open the frozen book', href };
   } else if (r.status === 'proposed') {
     tone = 'border-2 border-[var(--cyan)]';
     headline = 'Awaiting your approval';
@@ -58,21 +58,21 @@ export function NextAction({ ledger, review }: { ledger: Ledger; review?: Review
               : review.worst_state === 'warn' ? 'passed with warnings' : 'ONE FAILED'}
           </b>.</>
       : <>No pre-trade review has been computed yet — run the dry run first, then review it.</>;
-    cta = { label: 'Review the trade intent, then approve', href };
+    cta = { label: 'Review the frozen book', href };
   } else if (r.status === 'approved') {
     tone = 'border-2 border-[var(--neg)]';
     headline = 'Approved — ready to execute';
     body = <>The book is approved and nothing has been sent. Execution submits real orders to the
       paper account.</>;
-    cta = { label: 'Open and execute', href };
+    cta = { label: 'Open the frozen book', href };
   } else if (r.status === 'submitted') {
     headline = 'Submitted — capture fills next';
     body = <>Orders are in. Capture the fills, then reconcile.</>;
-    cta = { label: 'Open the blotter', href };
+    cta = { label: 'Open the frozen book', href };
   } else {
     headline = `Rebalance ${r.status}`;
     body = <>Nothing is waiting on you.</>;
-    cta = { label: 'Open the rebalance', href };
+    cta = { label: 'Open the frozen book', href };
   }
 
   return (
