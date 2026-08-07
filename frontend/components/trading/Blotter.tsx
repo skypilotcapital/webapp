@@ -32,9 +32,54 @@ const TONE: Record<string, string> = {
   done: '',
 };
 
-export function BlotterSection({ env, id, status }: { env: string; id: number; status: string }) {
+// --- sorting ------------------------------------------------------------------------------------
+// The columns worth sorting are the ones you scan for an exception: biggest residual, worst
+// slippage, everything rejected. `null` is NOT a value here — an unfilled name has no average price
+// and no slippage — so nulls always sink to the bottom whichever way the sort runs. Sorting them as
+// zero would float a page of dashes above the rows you asked to see.
+type SortKey = 'ticker' | 'side' | 'planned' | 'filled' | 'residual' | 'plan_price'
+  | 'avg_price' | 'slip_bps' | 'commission' | 'status';
+const NUMERIC: ReadonlySet<SortKey> = new Set<SortKey>(
+  ['planned', 'filled', 'residual', 'plan_price', 'avg_price', 'slip_bps', 'commission']);
+
+const COLS: { key: SortKey; label: string; align: 'left' | 'right' }[] = [
+  { key: 'ticker', label: 'Ticker', align: 'left' },
+  { key: 'side', label: 'Side', align: 'left' },
+  { key: 'planned', label: 'Planned', align: 'right' },
+  { key: 'filled', label: 'Filled', align: 'right' },
+  { key: 'residual', label: 'Residual', align: 'right' },
+  { key: 'plan_price', label: 'Plan px', align: 'right' },
+  { key: 'avg_price', label: 'Avg fill', align: 'right' },
+  { key: 'slip_bps', label: 'Slip bps', align: 'right' },
+  { key: 'commission', label: 'Comm', align: 'right' },
+  { key: 'status', label: 'Status', align: 'left' },
+];
+
+function sortRows(rows: BlotterRow[], key: SortKey | null, dir: 1 | -1): BlotterRow[] {
+  if (!key) return rows;
+  const numeric = NUMERIC.has(key);
+  // Sort a COPY: `data.rows` is the fetched object and the poll replaces it wholesale, so mutating
+  // it would race a refresh mid-render.
+  return [...rows].sort((a, b) => {
+    const av = a[key] as number | string | null;
+    const bv = b[key] as number | string | null;
+    const aNull = av == null || av === '';
+    const bNull = bv == null || bv === '';
+    if (aNull || bNull) return aNull && bNull ? 0 : aNull ? 1 : -1;   // nulls last, both directions
+    if (numeric) return ((av as number) - (bv as number)) * dir;
+    return String(av).localeCompare(String(bv)) * dir;
+  });
+}
+
+export function BlotterSection({ env, id, status, emptyMessage }: {
+  env: string; id: number; status: string;
+  // Embedded on the rebalance page, a blotter with no orders is not worth a panel and renders
+  // nothing. A page whose whole job IS the blotter must say why it is empty instead of going blank.
+  emptyMessage?: string;
+}) {
   const [data, setData] = useState<Blotter | null>(null);
   const [err, setErr] = useState<string | null>(null);
+  const [sort, setSort] = useState<{ key: SortKey | null; dir: 1 | -1 }>({ key: null, dir: 1 });
 
   useEffect(() => {
     let alive = true;
@@ -47,10 +92,17 @@ export function BlotterSection({ env, id, status }: { env: string; id: number; s
     return () => { alive = false; clearInterval(t); };
   }, [env, id, status]);
 
-  if (err) return null;                       // a rebalance with no orders is not an error
-  if (!data || data.rows.length === 0) return null;
+  if (err) return emptyMessage
+    ? <div className="panel p-4 text-[11px] text-[var(--tx-dim)]">{emptyMessage}</div>
+    : null;                                   // a rebalance with no orders is not an error
+  if (!data || data.rows.length === 0) return emptyMessage
+    ? <div className="panel p-4 text-[11px] text-[var(--tx-dim)]">{emptyMessage}</div>
+    : null;
 
   const R = data.rollup;
+  const rows = sortRows(data.rows, sort.key, sort.dir);
+  const onSort = (k: SortKey) => setSort((s) =>
+    s.key === k ? { key: k, dir: s.dir === 1 ? -1 : 1 } : { key: k, dir: k === 'ticker' ? 1 : -1 });
   return (
     <div className="panel p-4">
       <div className="flex items-baseline justify-between flex-wrap gap-2 mb-2">
@@ -98,16 +150,24 @@ export function BlotterSection({ env, id, status }: { env: string; id: number; s
         <table className="dtable w-full text-[11px]">
           <thead>
             <tr>
-              <th className="text-left">Ticker</th><th className="text-left">Side</th>
-              <th className="text-right">Planned</th><th className="text-right">Filled</th>
-              <th className="text-right">Residual</th>
-              <th className="text-right">Plan px</th><th className="text-right">Avg fill</th>
-              <th className="text-right">Slip bps</th><th className="text-right">Comm</th>
-              <th className="text-left">Status</th><th className="text-left">cOID</th>
+              {COLS.map((c) => (
+                <th key={c.key} className={`text-${c.align} cursor-pointer select-none whitespace-nowrap`}
+                    onClick={() => onSort(c.key)}
+                    title={`Sort by ${c.label}`}>
+                  {c.label}
+                  <span className="ml-1 text-[9px]"
+                        style={{ color: sort.key === c.key ? 'var(--teal)' : 'var(--tx-dim)',
+                                 opacity: sort.key === c.key ? 1 : 0.35 }}>
+                    {sort.key === c.key ? (sort.dir === 1 ? '▲' : '▼') : '↕'}
+                  </span>
+                </th>
+              ))}
+              {/* cOID is an identifier, not a measure — nothing is learned by ordering on it. */}
+              <th className="text-left">cOID</th>
             </tr>
           </thead>
           <tbody>
-            {data.rows.map((r) => {
+            {rows.map((r) => {
               const st = rowState(r);
               return (
                 <tr key={r.conid} className={TONE[st]}>

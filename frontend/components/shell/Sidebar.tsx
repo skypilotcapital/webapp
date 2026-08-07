@@ -8,6 +8,15 @@ const NAV = [
   { href: '/macro-beta', label: 'Macro Beta', icon: '∿' },
 ];
 
+// Trading gets sub-items for the same reason Research has them: the section is more than one
+// surface and the blotter is watched on its own, not scrolled to past an approval panel.
+// `/trading/paper` is hardcoded because paper is the only configured env (the live route 404s);
+// when live exists this becomes env-aware rather than a second copy of the list.
+const TRADING_SUB = [
+  { label: 'Rebalance', href: '/trading/paper/rebalance', match: ['/trading/paper/rebalance'] },
+  { label: 'Order blotter', href: '/trading/paper/blotter', match: ['/trading/paper/blotter'] },
+];
+
 const RESEARCH_SUB = [
   { label: 'Factors · P01', href: '/research/factors', match: ['/research/factors', '/research/r2500-factors'] },
   { label: 'Alpha Models · P02', href: '/research/models', match: ['/research/models', '/research/r2500-models'] },
@@ -67,6 +76,23 @@ export function Sidebar() {
         </div>
         <NavLink href="/trading/paper" label="Trading" icon="⌁"
                  active={pathname.startsWith('/trading')} />
+        <div className="ml-3 pl-3 flex flex-col gap-px my-1" style={{ borderLeft: '1px solid var(--border-soft)' }}>
+          {TRADING_SUB.map((s) => {
+            const active = s.match.some((m) => pathname === m || pathname.startsWith(m + '/'));
+            return (
+              <Link
+                key={s.href}
+                href={s.href}
+                className="px-2.5 py-1.5 rounded-md text-[11.5px] font-semibold transition-colors"
+                style={active
+                  ? { color: 'var(--teal)', background: 'rgba(14,124,111,0.10)' }
+                  : { color: 'var(--tx-mut)' }}
+              >
+                {s.label}
+              </Link>
+            );
+          })}
+        </div>
         <NavLink href="/portfolios" label="Portfolios" icon="◈"
           active={pathname === '/portfolios' || pathname.startsWith('/portfolios/')} />
         <DisabledLink label="Settings" icon="⚙" />
