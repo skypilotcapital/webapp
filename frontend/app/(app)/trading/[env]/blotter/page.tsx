@@ -1,7 +1,7 @@
 'use client';
 
 /**
- * Standalone order blotter — the execution surface on its own page.
+ * Standalone TRADE BLOTTER — the execution record, on its own page.
  *
  * The blotter already lives on the rebalance page, but that page is the APPROVAL surface: to watch
  * a submission you had to scroll past the pre-trade checks, the approval panel and the gross-
@@ -20,9 +20,24 @@ import useSWR from 'swr';
 import { fetchRebalances, type RebalanceRow } from '@/lib/trading';
 import { BlotterSection } from '@/components/trading/Blotter';
 
-// A book only ever reaches the broker from these states, so anything else cannot have orders.
-const MAY_HAVE_ORDERS = new Set(['approved', 'submitted', 'closed', 'cancelled']);
 const IN_FLIGHT = new Set(['approved', 'submitted']);
+
+// A TRADING SESSION is a rebalance that actually reached the broker — `submitted_at` set. Status is
+// the wrong test: a book can be cancelled AFTER submitting, and far more often is cancelled BEFORE
+// ever trading. Listing every freeze put six cancelled books in the picker beside the one that
+// traded (2026-08-07: #6-#12 cancelled, #13 traded), which is noise on a page whose subject is what
+// happened, not what was proposed.
+const traded = (r: RebalanceRow) => !!r.submitted_at;
+
+// Sessions are identified by their TRADE DATE, not by an internal id. The id is provenance and
+// stays visible, but "7 Aug 2026" is what someone asks about a fill by, and at a monthly cadence
+// the month is the natural unit.
+const sessionLabel = (r: RebalanceRow) => {
+  const d = r.submitted_at ? new Date(r.submitted_at) : null;
+  return d
+    ? d.toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric', timeZone: 'UTC' })
+    : `signal ${r.signal_date}`;
+};
 
 export default function BlotterPage({ params }: { params: Promise<{ env: string }> }) {
   const { env } = use(params);
@@ -34,7 +49,7 @@ export default function BlotterPage({ params }: { params: Promise<{ env: string 
     { refreshInterval: 30_000, revalidateOnFocus: true });
 
   const candidates: RebalanceRow[] = useMemo(
-    () => (data?.rebalances ?? []).filter((r) => MAY_HAVE_ORDERS.has(r.status)),
+    () => (data?.rebalances ?? []).filter(traded),
     [data]);
   const current = picked != null
     ? candidates.find((r) => r.rebalance_id === picked) ?? null
@@ -44,7 +59,7 @@ export default function BlotterPage({ params }: { params: Promise<{ env: string 
     <div className="animate-in flex flex-col min-h-0">
       <div className="flex items-baseline justify-between flex-wrap gap-2 mb-3">
         <h1 className="text-lg font-bold tracking-tight" style={{ color: 'var(--tx)' }}>
-          Order blotter
+          Trade blotter
           <span className="ml-2 font-normal text-[11px]" style={{ color: 'var(--tx-dim)' }}>
             what we meant to trade, beside what happened
           </span>
@@ -66,8 +81,8 @@ export default function BlotterPage({ params }: { params: Promise<{ env: string 
 
       {data && candidates.length === 0 && (
         <div className="panel p-6 text-[12px]" style={{ color: 'var(--tx-mut)' }}>
-          No rebalance has reached the broker yet. The blotter appears once a book is approved and
-          orders are submitted.
+          No rebalance has reached the broker yet. A trading session appears here once a book is
+          approved and its orders are submitted; sessions are kept permanently.
         </div>
       )}
 
@@ -77,7 +92,7 @@ export default function BlotterPage({ params }: { params: Promise<{ env: string 
               and past books are read constantly (a fill question is usually about last month). */}
           <div className="flex items-center gap-2 flex-wrap mb-3">
             <span className="text-[10px] font-bold tracking-[1.5px]" style={{ color: 'var(--tx-dim)' }}>
-              REBALANCE
+              SESSION
             </span>
             {candidates.slice(0, 8).map((r) => {
               const active = current?.rebalance_id === r.rebalance_id;
@@ -91,8 +106,8 @@ export default function BlotterPage({ params }: { params: Promise<{ env: string 
                     : { background: 'var(--panel2)', color: 'var(--tx-mut)' }}
                   title={`${r.strategy} · signal ${r.signal_date} · ${r.status}`}
                 >
-                  #{r.rebalance_id}
-                  <span className="ml-1.5 font-normal opacity-80">{r.status}</span>
+                  {sessionLabel(r)}
+                  <span className="ml-1.5 font-normal opacity-70 text-[10px]">#{r.rebalance_id}</span>
                   {IN_FLIGHT.has(r.status) && (
                     <span className="ml-1.5" style={{ color: active ? '#fffdf9' : 'var(--cyan)' }}>●</span>
                   )}

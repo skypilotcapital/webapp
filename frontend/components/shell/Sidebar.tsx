@@ -14,7 +14,7 @@ const NAV = [
 // when live exists this becomes env-aware rather than a second copy of the list.
 const TRADING_SUB = [
   { label: 'Rebalance', href: '/trading/paper/rebalance', match: ['/trading/paper/rebalance'] },
-  { label: 'Order blotter', href: '/trading/paper/blotter', match: ['/trading/paper/blotter'] },
+  { label: 'Trade blotter', href: '/trading/paper/blotter', match: ['/trading/paper/blotter'] },
 ];
 
 const RESEARCH_SUB = [

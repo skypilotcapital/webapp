@@ -107,7 +107,7 @@ export function BlotterSection({ env, id, status, emptyMessage }: {
     <div className="panel p-4">
       <div className="flex items-baseline justify-between flex-wrap gap-2 mb-2">
         <h2 className="text-sm font-semibold">
-          Order blotter <span className="font-normal text-[10px] text-[var(--tx-dim)]">
+          Trade blotter <span className="font-normal text-[10px] text-[var(--tx-dim)]">
             — plan vs actual
           </span>
         </h2>
