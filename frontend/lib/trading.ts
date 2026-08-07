@@ -153,6 +153,21 @@ export interface Blotter {
   unexplained_fills: { coid: string; status: string; conid: number }[];
 }
 
+export interface SessionRow {
+  rebalance_id: number; strategy: string; signal_date: string; status: string;
+  sized_equity: number | null; submitted_at: string | null; closed_at: string | null;
+  approved_by: string | null; planned: number; filled: number; unfilled: number;
+  gross_traded: number; commission: number; avg_slip_bps: number | null;
+}
+
+export const fetchSessions = (env: string, limit = 24) =>
+  get<{ sessions: SessionRow[] }>(`/api/v1/trading/${env}/sessions?limit=${limit}`);
+
+// A plain link, not a fetch: the browser should stream the download and honour the filename the
+// server sets, rather than us buffering a file in memory and re-inventing Content-Disposition.
+export const blotterCsvHref = (env: string, id: number) =>
+  `/api/v1/trading/${env}/rebalances/${id}/blotter.csv`;
+
 export const fetchBlotter = (env: string, id: number) =>
   get<Blotter>(`/api/v1/trading/${env}/rebalances/${id}/blotter`);
 

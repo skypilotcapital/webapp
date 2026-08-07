@@ -22,9 +22,11 @@ TWO BOUNDARIES THIS ROUTER DOES NOT CROSS, both deliberate:
 route cannot be reached by guessing the URL (Q3).
 """
 
+import csv
+import io
 import json
 
-from fastapi import APIRouter, HTTPException, Query
+from fastapi import APIRouter, HTTPException, Query, Response
 from pydantic import BaseModel, Field
 from sqlalchemy import text
 
@@ -868,6 +870,96 @@ def blotter(env: str, rebalance_id: int):
                             if filled_rows else None)
     return {"env": env, "rebalance_id": rebalance_id, "rows": out, "rollup": roll,
             "unexplained_fills": [dict(u) for u in unexplained]}
+
+
+# CSV column order = the screen's column order. The export is the same rows the blotter renders,
+# not a second query — a download that can disagree with the page it was downloaded from is worse
+# than no download.
+_CSV_COLS = ["ticker", "conid", "side", "planned", "filled", "residual", "plan_price",
+             "avg_price", "slip_bps", "commission", "n_fills", "est_notional",
+             "status", "coid", "ibkr_order_id", "submitted_at", "first_fill", "last_fill"]
+
+
+@router.get("/{env}/rebalances/{rebalance_id}/blotter.csv")
+def blotter_csv(env: str, rebalance_id: int):
+    """The session's blotter as CSV — the audit extract.
+
+    Generated on demand from the same immutable rows the screen reads, and deliberately NOT written
+    to disk anywhere. `trading.target_positions` is immutable by trigger, `ibkr.executions` is keyed
+    on IBKR's execution_id, and the database is backed up nightly — a stored file would be a second
+    copy of an already-durable record, with its own retention, its own backup and its own ability to
+    drift from the source. Regenerating is free and always agrees.
+
+    Also the dataset [06-T7] wants for calibrating the cost model against real fills: arrival price
+    (`plan_price`, the reference the share count was derived from) beside `avg_price` and size.
+    """
+    data = blotter(env, rebalance_id)
+    buf = io.StringIO()
+    w = csv.DictWriter(buf, fieldnames=_CSV_COLS, extrasaction="ignore")
+    w.writeheader()
+    for r in data["rows"]:
+        w.writerow({k: r.get(k) for k in _CSV_COLS})
+    stamp = None
+    with get_db() as conn:
+        stamp = conn.execute(text(
+            "SELECT COALESCE(submitted_at, proposed_at)::date FROM trading.rebalances "
+            "WHERE rebalance_id = :r"), {"r": rebalance_id}).scalar()
+    name = f"blotter_{stamp or 'unknown'}_rebalance{rebalance_id}.csv"
+    return Response(content=buf.getvalue(), media_type="text/csv",
+                    headers={"Content-Disposition": f'attachment; filename="{name}"'})
+
+
+@router.get("/{env}/sessions")
+def sessions(env: str, limit: int = Query(24, ge=1, le=120)):
+    """One row per TRADING SESSION — a rebalance that reached the broker — newest first.
+
+    The monthly record at a glance. `submitted_at` is the test, not status: a book can be cancelled
+    after submitting, and is far more often cancelled before ever trading, so status would both
+    admit books that never traded and risk excluding one that did.
+
+    Everything here is aggregate; the per-name detail is the blotter. Slippage is notional-weighted
+    rather than a plain mean, because a 400bp slip on a $1.6k odd lot should not read the same as
+    400bp on a $90k trade.
+    """
+    _env(env)
+    with get_db() as conn:
+        rows = conn.execute(text("""
+            SELECT r.rebalance_id, r.strategy, r.signal_date, r.status, r.sized_equity,
+                   r.submitted_at, r.closed_at, r.approved_by,
+                   COUNT(*) FILTER (WHERE p.side IS NOT NULL AND NOT p.dust_filtered) AS planned,
+                   COUNT(*) FILTER (WHERE f.filled IS NOT NULL AND f.filled <> 0)     AS filled,
+                   COALESCE(SUM(ABS(f.filled) * f.avg_price), 0)                      AS gross_traded,
+                   COALESCE(SUM(f.commission), 0)                                     AS commission,
+                   SUM(CASE WHEN f.filled IS NOT NULL AND p.price > 0 AND f.avg_price IS NOT NULL
+                            THEN (f.avg_price - p.price) / p.price * 10000
+                                 * (CASE WHEN p.delta > 0 THEN 1 ELSE -1 END)
+                                 * ABS(f.filled) * f.avg_price END)                   AS slip_num,
+                   SUM(CASE WHEN f.filled IS NOT NULL AND p.price > 0 AND f.avg_price IS NOT NULL
+                            THEN ABS(f.filled) * f.avg_price END)                     AS slip_den
+            FROM trading.rebalances r
+            JOIN trading.trade_plans p
+              ON p.rebalance_id = r.rebalance_id AND p.plan_kind = 'final'
+             AND p.side IS NOT NULL AND NOT p.dust_filtered
+            LEFT JOIN ibkr.orders o ON o.rebalance_id = p.rebalance_id AND o.conid = p.conid
+            LEFT JOIN (SELECT internal_order_id, SUM(qty) AS filled,
+                              SUM(ABS(qty) * price) / NULLIF(SUM(ABS(qty)), 0) AS avg_price,
+                              SUM(commission) AS commission
+                       FROM ibkr.executions GROUP BY 1) f
+                   ON f.internal_order_id = o.internal_order_id
+            WHERE r.submitted_at IS NOT NULL
+            GROUP BY r.rebalance_id
+            ORDER BY r.submitted_at DESC
+            LIMIT :n"""), {"n": limit}).mappings().all()
+
+    out = []
+    for r in rows:
+        d = dict(r)
+        den = float(d.pop("slip_den") or 0)
+        num = float(d.pop("slip_num") or 0)
+        d["avg_slip_bps"] = (num / den) if den else None
+        d["unfilled"] = int(d["planned"]) - int(d["filled"])
+        out.append(d)
+    return {"env": env, "sessions": out}
 
 
 # =================================================================================================
