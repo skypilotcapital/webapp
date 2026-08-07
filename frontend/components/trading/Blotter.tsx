@@ -5,8 +5,14 @@ import { fetchBlotter, type Blotter, type BlotterRow } from '@/lib/trading';
 
 // Polling, not streaming (IA §3.3 + Part 7: streaming quotes and live P&L are explicit non-goals —
 // IBKR does that better and it costs market-data entitlements we do not need for a one-month
-// horizon). ~10s while a rebalance is in flight; static once it is not.
-const POLL_MS = 10_000;
+// horizon). Fast while a rebalance is in flight; STATIC once it is not — the interval is only ever
+// armed for an IN_FLIGHT status, so a settled rebalance costs nothing no matter how low this goes.
+//
+// 3s, down from 10s (2026-08-07, watching the first real paper submission). A 460-name wave submits
+// in well under a minute, so at 10s an operator saw three or four frames of a live execution. The
+// endpoint is one indexed join over the rebalance's own rows and the page is single-operator, so
+// the cost is negligible against being able to actually watch the thing you are responsible for.
+const POLL_MS = 3_000;
 const IN_FLIGHT = new Set(['approved', 'submitted']);
 
 const fmt = (n: number | null | undefined, dp = 2) =>
@@ -54,7 +60,9 @@ export function BlotterSection({ env, id, status }: { env: string; id: number; s
           </span>
         </h2>
         {IN_FLIGHT.has(status) && (
-          <span className="text-[10px] text-[var(--cyan)]">refreshing every 10s</span>
+          <span className="text-[10px] text-[var(--cyan)]">
+            refreshing every {POLL_MS / 1000}s
+          </span>
         )}
       </div>
 
