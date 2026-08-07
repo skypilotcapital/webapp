@@ -135,6 +135,99 @@ def rebalance_review(env: str, rebalance_id: int):
             "can_approve": approve_writes_enabled()}
 
 
+# --- [10-TACT] position-state semantics --------------------------------------------------------
+# ⚠️ MIRROR OF `Code_Repo/trading/rebalance.py::action_of`. THE SOURCE OF TRUTH IS THERE — it is
+# where the console review, the executor and the unit test (`tests/test_action_semantics.py`) read
+# it from. This copy exists only because the webapp cannot import the trading repo, and any change
+# to the vocabulary or the transition rules has to be made in BOTH places or the screen and the
+# terminal will describe the same order differently.
+#
+# It is deliberately NOT the same thing as the submission wave (`rebalance.wave_of`): a wave says
+# WHEN an order may be sent and classifies a zero-crossing by what it does first; an action says
+# what the order DOES and never files a flip under a trim. See rebalance.py for the full argument.
+#
+# Not stored: it is a pure function of two columns that are (`current_qty`, `target_qty`), and
+# persisting a derived value is how two copies of it get to disagree.
+_ACTIONS = ["open_long", "add", "trim", "close_long", "flip_short",
+            "open_short", "add_short", "cover", "close_short", "flip_long", "hold", "dust"]
+
+
+def _action_of(current_qty, target_qty, dust: bool = False):
+    if target_qty is None:
+        return None                    # unresolved: we do not know what it would do
+    cur, tgt = int(current_qty or 0), int(target_qty or 0)
+    if tgt == cur:
+        return "hold"
+    if dust:
+        return "dust"
+    if cur == 0:
+        return "open_long" if tgt > 0 else "open_short"
+    if cur > 0:
+        if tgt > cur:
+            return "add"
+        if tgt > 0:
+            return "trim"
+        return "close_long" if tgt == 0 else "flip_short"
+    if tgt < cur:
+        return "add_short"
+    if tgt < 0:
+        return "cover"
+    return "close_short" if tgt == 0 else "flip_long"
+
+
+def _in_sleeve(row: dict, tag: str) -> bool:
+    """Does this row belong in the `tag` tab?
+
+    A `composite` name belongs in BOTH — it is genuinely in both mandates, and hiding it from each
+    tab because it is in the other is the worst of the three options. It still renders as ONE row
+    carrying the netted delta, badged `composite`, so the tab totals deliberately double-count it;
+    `summary.n_composite` is published so that arithmetic can be reconciled rather than puzzled at.
+    """
+    if row["sleeve"] == tag:
+        return True
+    return row["sleeve"] == "composite" and tag in (row.get("mandate_wt") or {})
+
+
+def _mandate_weights(conn, reb) -> dict:
+    """{isin: {'core': wt, 'sleeve': wt}} for one rebalance's frozen book.
+
+    TWO SOURCES, in order of authority:
+
+    1. `trading.target_positions` rows with mandate <> 'composite'. This is the frozen record of
+       the split, written by `freeze.py` as part of [10-LEDG]. Preferred whenever it exists.
+    2. `portfolio.weights` on the frozen provenance's component labels, for rebalances frozen
+       before (1) existed. ⚠️ This is a RECONSTRUCTION, not a record: `portfolio.weights` is
+       delete-and-rewritten wholesale by every `--persist` run, so a re-run of the model can
+       change — or empty — the mandate attribution shown against an old rebalance. That is the
+       reason (1) exists and why it wins.
+
+    ⚠️ NOTE FOR ANY OTHER READER OF `target_positions`: once the mandate rows are written the table
+    holds ~3 rows per name, so a query that does not name a mandate counts the book twice. The
+    quiet version of that bug is a dict keyed by isin where the last row wins and one mandate's
+    slice silently replaces the whole position. The trade-plan join above stays pinned to
+    `mandate = 'composite'` — the tradable row — for exactly this reason.
+    """
+    out: dict[str, dict[str, float]] = {}
+    if not reb:
+        return out
+    for r in conn.execute(text("""
+        SELECT mandate, isin, target_wt FROM trading.target_positions
+        WHERE rebalance_id = :r AND mandate <> 'composite'"""),
+            {"r": reb["rebalance_id"]}).mappings():
+        out.setdefault(r["isin"], {})[r["mandate"]] = float(r["target_wt"] or 0)
+    if out:
+        return out
+
+    for lbl in ((reb["source"] or {}).get("component_labels") or []):
+        tag = "sleeve" if "_ls_" in lbl else "core"
+        for w in conn.execute(text(
+            "SELECT isin, weight FROM portfolio.weights "
+            "WHERE model_label = :l AND date = :d AND ABS(weight) > 1e-9"),
+                {"l": lbl, "d": reb["signal_date"]}).mappings():
+            out.setdefault(w["isin"], {})[tag] = float(w["weight"])
+    return out
+
+
 @router.get("/{env}/rebalances/{rebalance_id}/plan")
 def rebalance_plan(env: str, rebalance_id: int,
                    kind: str = Query("preview", pattern="^(preview|final)$")):
@@ -155,35 +248,81 @@ def rebalance_plan(env: str, rebalance_id: int,
         # nets them per conid and the netting is not invertible from broker data
         # (`live_target_and_sleeve_ledger.md`) — attribution would then have to come from our own
         # records, not from a join like this one.
-        src = conn.execute(text("SELECT source, signal_date FROM trading.rebalances "
-                                "WHERE rebalance_id = :r"), {"r": rebalance_id}).mappings().first()
-        sleeve_of: dict[str, str] = {}
-        if src and src["source"]:
-            labels = (src["source"] or {}).get("component_labels") or []
-            for lbl in labels:
-                tag = "sleeve" if "_ls_" in lbl else "core"
-                for w in conn.execute(text(
-                    "SELECT isin, weight FROM portfolio.weights "
-                    "WHERE model_label = :l AND date = :d AND ABS(weight) > 1e-9"),
-                        {"l": lbl, "d": src["signal_date"]}).mappings():
-                    sleeve_of[w["isin"]] = tag
+        src = conn.execute(text(
+            "SELECT rebalance_id, strategy, source, signal_date FROM trading.rebalances "
+            "WHERE rebalance_id = :r"), {"r": rebalance_id}).mappings().first()
+        mandate_wt = _mandate_weights(conn, src)
+
+        # ⚠️ ONE ROW PER ORDER ([10-TACT] gap 3, decided 2026-08-07). A name can be reachable from
+        # BOTH mandates — an S&P 500 member that has fallen below rank 500 is in the core because
+        # it is in the index and in the sleeve because of where it ranks, potentially long in one
+        # and short in the other. The account nets it to one position and `trade_plans` is keyed
+        # (rebalance_id, conid), so there is exactly one order; the table must not invent a second
+        # row for it. It gets ONE row tagged `composite`, carrying the netted delta, with the
+        # per-mandate split alongside so the reader can see where it came from.
+        #
+        # This used to be a silent last-write-wins overwrite of a single-valued dict, which is the
+        # bad failure: the name would simply have been filed under whichever component label was
+        # read last, with nothing on screen to say a choice had been made.
+        sleeve_of = {isin: (next(iter(m)) if len(m) == 1 else "composite")
+                     for isin, m in mandate_wt.items()}
+
+        # What we INTENDED to hold at the last rebalance. This is the only mandate attribution
+        # available for a name we are exiting (it is not in today's book, so today's weights say
+        # nothing about it) — and it is the one number here that must never be read as a holding.
+        # The broker nets both mandates into one quantity per conid and THE NETTING IS NOT
+        # INVERTIBLE from broker data (`live_target_and_sleeve_ledger.md`), so what we actually
+        # hold per mandate comes from our own ledger ([10-LEDG], unbuilt). The gap between intent
+        # and holding is precisely what [10-SHFL] measures; conflating them here would corrupt
+        # that number at its source. `current_qty` below is the position; this is intent.
+        # ⚠️ EVERY STATUS FROM `approved` ONWARDS, spelled out against the table's own CHECK
+        # constraint (draft/proposed/approved/submitted/filled/reconciled/closed/cancelled). A
+        # guessed vocabulary here fails the worst way available: the query returns no prior
+        # rebalance, every prior column renders '—', and nothing anywhere says the lookup missed.
+        # `draft`/`proposed` never became a book; `cancelled` was abandoned.
+        prior = conn.execute(text("""
+            SELECT rebalance_id, strategy, source, signal_date FROM trading.rebalances
+            WHERE strategy = :s AND rebalance_id < :r
+              AND status IN ('approved','submitted','filled','reconciled','closed')
+            ORDER BY rebalance_id DESC LIMIT 1"""),
+            {"s": (src or {}).get("strategy"), "r": rebalance_id}).mappings().first()
+        prior_mandate_wt = _mandate_weights(conn, prior)
+        prior_wt = {isin: sum(m.values()) for isin, m in prior_mandate_wt.items()}
+        prior_sleeve = {isin: (next(iter(m)) if len(m) == 1 else "composite")
+                        for isin, m in prior_mandate_wt.items()}
 
         rows = conn.execute(text("""
             SELECT p.ticker, p.conid, COALESCE(t.target_wt, 0) AS weight, p.current_qty,
                    p.target_qty, p.delta, p.side, p.planned_qty, p.ref_price, p.price,
                    p.price_src, p.est_notional, p.dust_filtered, p.note, p.planned_at,
-                   t.isin, s.name AS company, s.sector, s.industry
+                   COALESCE(t.isin, ic.isin) AS isin,
+                   s.name AS company, s.sector, s.industry
             FROM trading.trade_plans p
             LEFT JOIN trading.target_positions t
                    ON t.rebalance_id = p.rebalance_id AND t.conid = p.conid
                   AND t.mandate = 'composite'
-            LEFT JOIN secmaster.securities s ON s.isin = t.isin
+            -- ⚠️ An EXIT has no target row ([10-TACT] gap 1), so `t.isin` is NULL for it and the
+            -- securities join used to fall through: no company, no sector, and therefore no way
+            -- to place it in a sleeve tab. The conid bridge resolves it independently of today's
+            -- book, which is the point — an exit is defined by NOT being in today's book.
+            LEFT JOIN secmaster.ibkr_contracts ic ON ic.conid = p.conid
+            LEFT JOIN secmaster.securities s ON s.isin = COALESCE(t.isin, ic.isin)
             WHERE p.rebalance_id = :r AND p.plan_kind = :k
             ORDER BY ABS(COALESCE(p.est_notional, 0)) DESC"""),
             {"r": rebalance_id, "k": kind}).mappings().all()
     plan = [dict(r) for r in rows]
     for r in plan:
-        r["sleeve"] = sleeve_of.get(r.get("isin") or "", "unknown")
+        isin = r.get("isin") or ""
+        r["action"] = _action_of(r["current_qty"], r["target_qty"], bool(r["dust_filtered"]))
+        r["mandate_wt"] = mandate_wt.get(isin) or None
+        # An exit is in no sleeve TODAY — that is what makes it an exit. Fall back to the sleeve it
+        # was in last month so it lands in a tab instead of in 'unknown', and flag which of the two
+        # we used: `prior` is intent, not holding, and the column header has to say so.
+        r["sleeve"] = sleeve_of.get(isin) or prior_sleeve.get(isin) or "unknown"
+        r["sleeve_src"] = ("target" if isin in sleeve_of
+                           else "prior_intent" if isin in prior_sleeve else None)
+        r["prior_wt"] = prior_wt.get(isin)
+        r["prior_mandate"] = prior_sleeve.get(isin)
     traded = [r for r in plan if r["side"] and not r["dust_filtered"]]
     return {"env": env, "rebalance_id": rebalance_id, "kind": kind, "plan": plan,
             "summary": {
@@ -192,13 +331,27 @@ def rebalance_plan(env: str, rebalance_id: int,
                 "n_sell": sum(1 for r in traded if r["side"] == "SELL"),
                 "n_dust": sum(1 for r in plan if r["dust_filtered"]),
                 "gross_notional": float(sum(float(r["est_notional"] or 0) for r in traded)),
+                # Held at target, deliberately untouched. At ~30% turnover on ~460 names this is
+                # most of the book, and it is a decision — counting it keeps "we chose not to
+                # trade this" from rendering as "this is not in the book" ([10-CAREP]).
+                "n_hold": sum(1 for r in plan if r["action"] == "hold"),
+                "n_exit": sum(1 for r in plan if r["action"] in ("close_long", "close_short")),
+                "n_flip": sum(1 for r in plan if r["action"] in ("flip_short", "flip_long")),
+                "n_composite": sum(1 for r in plan if r["sleeve"] == "composite"),
+                "by_action": {
+                    a: {
+                        "n": sum(1 for r in plan if r["action"] == a),
+                        "gross_notional": float(sum(float(r["est_notional"] or 0)
+                                                    for r in plan if r["action"] == a)),
+                    } for a in _ACTIONS if any(r["action"] == a for r in plan)
+                },
                 "by_sleeve": {
                     tag: {
-                        "n": sum(1 for r in traded if r["sleeve"] == tag),
+                        "n": sum(1 for r in traded if _in_sleeve(r, tag)),
                         "gross_notional": float(sum(float(r["est_notional"] or 0)
-                                                    for r in traded if r["sleeve"] == tag)),
+                                                    for r in traded if _in_sleeve(r, tag))),
                     } for tag in ("core", "sleeve", "unknown")
-                    if any(r["sleeve"] == tag for r in traded)
+                    if any(_in_sleeve(r, tag) for r in traded)
                 },
             }}
 

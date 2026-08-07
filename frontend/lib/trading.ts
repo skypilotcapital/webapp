@@ -100,9 +100,27 @@ export interface PlanRow {
   price_src: string | null; est_notional: number | null; dust_filtered: boolean;
   note: string | null; planned_at: string;
   isin: string | null; company: string | null; sector: string | null; industry: string | null;
-  /** 'core' (S&P 500 long-only) | 'sleeve' (R2500 L/S) | 'unknown'. Read from the frozen
-   *  provenance, not inferred — see the endpoint for why it is only safe here. */
-  sleeve: 'core' | 'sleeve' | 'unknown';
+  /** 'core' (S&P 500 long-only) | 'sleeve' (R2500 L/S) | 'composite' (reachable from BOTH) |
+   *  'unknown'. Read from the frozen provenance, not inferred — see the endpoint. */
+  sleeve: 'core' | 'sleeve' | 'composite' | 'unknown';
+  /** WHAT THE TRADE DOES, not just its side ([10-TACT]). From cash, `side` is a complete
+   *  description; from an existing book it is not — the same SELL can trim a long, close it, or
+   *  sell THROUGH ZERO into a short. Distinct from the submission wave on purpose: a wave says
+   *  when an order may be sent, an action says what it does. Derived server-side, never stored. */
+  action: | 'open_long' | 'add' | 'trim' | 'close_long' | 'flip_short'
+          | 'open_short' | 'add_short' | 'cover' | 'close_short' | 'flip_long'
+          | 'hold' | 'dust' | null;
+  /** Per-mandate target weights when a name is reachable from both. One row per order still —
+   *  this is the split behind the `composite` badge, not a second row. */
+  mandate_wt: Record<string, number> | null;
+  /** Where `sleeve` came from. 'prior_intent' means the name is NOT in today's book (an exit) and
+   *  we are showing last month's mandate — INTENT, not a holding. The broker nets the two
+   *  mandates per conid and the netting is not invertible, so true per-mandate holdings wait on
+   *  the ledger ([10-LEDG]); the intent/holding gap is what [10-SHFL] measures. */
+  sleeve_src: 'target' | 'prior_intent' | null;
+  /** Last rebalance's target weight for this name. INTENT, not a holding — see `sleeve_src`. */
+  prior_wt: number | null;
+  prior_mandate: string | null;
 }
 
 export interface PlanResponse {
@@ -110,6 +128,12 @@ export interface PlanResponse {
   plan: PlanRow[];
   summary: { n_rows: number; n_trades: number; n_buy: number; n_sell: number;
              n_dust: number; gross_notional: number;
+             /** Held at target, deliberately untouched. Most of the book at ~30% turnover. */
+             n_hold: number; n_exit: number; n_flip: number;
+             /** Names reachable from both mandates. `by_sleeve` counts them in BOTH tabs (they
+              *  are in both), so this is what reconciles the tab totals to `n_trades`. */
+             n_composite: number;
+             by_action: Record<string, { n: number; gross_notional: number }>;
              by_sleeve: Record<string, { n: number; gross_notional: number }> };
 }
 
