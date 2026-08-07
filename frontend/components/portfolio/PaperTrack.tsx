@@ -67,8 +67,9 @@ export function PaperTrack({ strategy, topSlot }: { strategy?: string; topSlot?:
       <BookBand data={bk} />
       <Fidelity data={fid} />
       <Performance nav={nav} />
+      <ByEngine pos={pos} />
       <Contribution pos={pos} />
-      <Unavailable />
+      <Unavailable hasSplit={!!pos?.mandate_split} />
     </div>
   );
 }
@@ -261,6 +262,95 @@ function Performance({ nav }: { nav: Awaited<ReturnType<typeof fetchPaperNav>> |
   );
 }
 
+/* -------------------------------------------------------------------- by engine ---- */
+function ByEngine({ pos }: { pos: Awaited<ReturnType<typeof fetchPaperPositions>> | undefined }) {
+  if (!pos) return null;
+  const ms = pos.mandate_split;
+  if (!ms) {
+    return (
+      <Panel title="By Engine — core vs sleeve">
+        <Muted>{pos.mandate_split_note}</Muted>
+      </Panel>
+    );
+  }
+  const total = ms.by_mandate.reduce((a, m) => a + (m.contrib_bps ?? 0), 0);
+  const anyFallback = ms.by_mandate.some((m) => m.n_fallback_rule > 0);
+  return (
+    <div className="panel p-4 mb-3">
+      <div className="flex items-baseline gap-3 flex-wrap">
+        <h2 className="text-base font-bold tracking-tight" style={{ color: 'var(--tx)' }}>By Engine</h2>
+        <span className="text-[11px]" style={{ color: 'var(--tx-mut)' }}>
+          the netted account, split back to its two mandates · {pos.date}
+        </span>
+      </div>
+
+      <div className="mt-3 overflow-x-auto">
+        <table className="w-full text-[11.5px]" style={{ borderCollapse: 'collapse' }}>
+          <thead>
+            <tr style={{ color: 'var(--tx-dim)' }}>
+              {['Engine', 'Names', 'Net wt', 'Gross wt', 'Market value', 'Day P&L', 'Contribution'].map((h, i) => (
+                <th key={h} className="text-[9px] font-bold tracking-[1.2px] py-1"
+                  style={{ textAlign: i === 0 ? 'left' : 'right' }}>{h.toUpperCase()}</th>
+              ))}
+            </tr>
+          </thead>
+          <tbody>
+            {ms.by_mandate.map((m) => (
+              <tr key={m.mandate} style={{ borderTop: '1px solid var(--border-soft)' }}>
+                <td className="py-1.5 font-semibold" style={{ color: 'var(--tx)' }}>
+                  {m.mandate}
+                  {m.n_fallback_rule > 0 && (
+                    <span className="ml-2 text-[9px] font-bold px-1.5 py-px rounded"
+                      style={{ background: 'var(--panel2)', color: 'var(--tx-dim)' }}>
+                      {m.n_fallback_rule} by fallback
+                    </span>
+                  )}
+                </td>
+                <td className="text-right tabular-nums">{m.n_names}</td>
+                <td className="text-right tabular-nums">{pct(m.net_weight)}</td>
+                <td className="text-right tabular-nums">{pct(m.gross_weight)}</td>
+                <td className="text-right tabular-nums">{usd(m.mkt_value)}</td>
+                <td className="text-right tabular-nums"
+                  style={{ color: (m.pnl_d ?? 0) >= 0 ? 'var(--pos)' : 'var(--neg)' }}>{usd(m.pnl_d)}</td>
+                <td className="text-right tabular-nums font-semibold"
+                  style={{ color: (m.contrib_bps ?? 0) >= 0 ? 'var(--pos)' : 'var(--neg)' }}>
+                  {bps(m.contrib_bps)}
+                </td>
+              </tr>
+            ))}
+            <tr style={{ borderTop: '1px solid var(--border)' }}>
+              <td className="py-1.5 font-bold" style={{ color: 'var(--tx)' }}>total</td>
+              <td colSpan={5} />
+              <td className="text-right tabular-nums font-bold" style={{ color: 'var(--tx)' }}>
+                {bps(total)}
+              </td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+
+      {/* Reported, never absorbed — the ledger doc's rule, made visible. */}
+      <div className="mt-3 pt-2 text-[10.5px]" style={{ borderTop: '1px solid var(--border-soft)' }}>
+        <span style={{ color: ms.residual.n_names ? 'var(--neg)' : 'var(--tx-dim)' }}>
+          <b>Residual:</b>{' '}
+          {ms.residual.n_names
+            ? `${ms.residual.n_names} position(s), ${usd(ms.residual.mkt_value)} — held but not
+               attributable to a mandate. Shown rather than absorbed into one.`
+            : 'none — every position attributed.'}
+        </span>
+        <div className="mt-1" style={{ color: 'var(--tx-dim)' }}>{ms.basis}</div>
+        {anyFallback && (
+          <div className="mt-1" style={{ color: 'var(--tx-dim)' }}>
+            A name marked <i>by fallback</i> was not in the governing target, so it was placed by
+            prior book or universe membership rather than by intended weight — judgement, not
+            arithmetic.
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
 /* ----------------------------------------------------------------- contribution ---- */
 function Contribution({ pos }: { pos: Awaited<ReturnType<typeof fetchPaperPositions>> | undefined }) {
   if (!pos) return null;
@@ -306,12 +396,12 @@ function Contribution({ pos }: { pos: Awaited<ReturnType<typeof fetchPaperPositi
 }
 
 /* ------------------------------------------------------- not buildable yet ---- */
-function Unavailable() {
+function Unavailable({ hasSplit }: { hasSplit: boolean }) {
   // Named owners, not silence. A section that is absent looks identical to one with nothing to
   // report, and that ambiguity is how every silent degradation in this project survived.
   const rows = [
-    ['Core vs sleeve contribution', '[08-PTRK]',
-      'the sleeve ledger is stateless by design and persists no attribution table, so nothing the website can read holds the split of ACTUAL holdings'],
+    ...(hasSplit ? [] : [['Core vs sleeve contribution', '[08-PTRK]',
+      'no attribution snapshot for this date — it rides the daily book build, so a date whose book has not been built has none'] as string[]]),
     ['Implementation shortfall', '[10-SHFL]',
       'single-period Track B − Track C; structurally needs the September rebalance to close the first interval'],
     ['Modeled vs actual overlay', '[10-WPREV]',

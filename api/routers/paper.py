@@ -400,11 +400,20 @@ def positions(env: str, date: str | None = None, top: int = Query(10, ge=1, le=5
     a 0.1% position is noise the reader should not have to deflate by hand, and dollars force a
     mental division by NAV on every row.
 
-    **No core/sleeve split here.** The sleeve ledger is stateless by design
-    (`live_target_and_sleeve_ledger.md` §8) and writes no table, so nothing the website can read
-    holds the attribution of ACTUAL holdings — and reimplementing `ledger.attribute()` in SQL
-    would be the second implementation the ledger doc §11 warns will drift. `mandate_split` is
-    therefore returned as `null` with its owner named, rather than approximated. See `[08-PTRK]`.
+    **The core/sleeve split is READ, never recomputed.** `trading.position_attribution` is a
+    derived snapshot written by `ledger.attribute()` on the trading side; this endpoint joins it to
+    the marked book and does no attribution of its own. Reimplementing the rules here would be the
+    second implementation `live_target_and_sleeve_ledger.md` §11 warns will drift, and it would
+    drift silently because both versions would look plausible.
+
+    A mandate's contribution is `pnl_d × (its share of the position)`, where the share comes from
+    the snapshot's `attr_mkt_value / mkt_value`. `attr_weight` is the BLEND weight — the mandate's
+    contribution to the book we hold — and is the right one for reporting; `w_native` (÷ k) is the
+    mandate's own weight and belongs to the optimizer, not to a page. Publishing the wrong one
+    would overstate the sleeve by 2×.
+
+    `mandate_split` is null when no snapshot exists for the date, with its owner named — the
+    attribution rides the daily book build, so a date whose book has not been built has none.
     """
     _env(env)
     with get_db() as conn:
@@ -432,6 +441,36 @@ def positions(env: str, date: str | None = None, top: int = Query(10, ge=1, le=5
             WHERE date = :d AND COALESCE(qty, 0) <> 0
             ORDER BY abs(mkt_value) DESC"""), {"d": d}).mappings().all()
 
+        # Core vs sleeve, read from the ledger's snapshot. The share is taken on MARKET VALUE
+        # rather than on quantity so a name split across mandates contributes its P&L in the same
+        # proportion the money is split — and `attr_qty` is fractional, which would make a
+        # quantity-based share look like a rounding artefact.
+        split = conn.execute(text("""
+            SELECT a.mandate,
+                   count(*)                                              AS n_names,
+                   sum(a.attr_weight)                                    AS net_weight,
+                   sum(abs(a.attr_weight))                               AS gross_weight,
+                   sum(a.attr_mkt_value)                                 AS mkt_value,
+                   sum(p.pnl_d * a.attr_mkt_value
+                       / NULLIF(p.mkt_value, 0))                         AS pnl_d,
+                   count(*) FILTER (WHERE a.method <> 'prior_target')    AS n_fallback
+            FROM trading.position_attribution a
+            JOIN trading.book_daily_positions p
+              ON p.date = a.date AND p.conid = a.conid
+            WHERE a.date = :d
+            GROUP BY a.mandate ORDER BY a.mandate"""), {"d": d}).mappings().all()
+
+        # The residual is REPORTED, never absorbed — the ledger doc is explicit that silent
+        # absorption is what makes a ledger untrustworthy. It is the market value the snapshot
+        # could not place, which shows up here as book positions with no attribution row.
+        resid = conn.execute(text("""
+            SELECT count(*) AS n, sum(abs(p.mkt_value)) AS mkt_value
+            FROM trading.book_daily_positions p
+            LEFT JOIN trading.position_attribution a
+                   ON a.date = p.date AND a.conid = p.conid
+            WHERE p.date = :d AND COALESCE(p.qty, 0) <> 0 AND a.conid IS NULL"""),
+            {"d": d}).mappings().first()
+
     out = []
     for r in rows:
         mv = _f(r["mkt_value"]) or 0.0
@@ -449,6 +488,31 @@ def positions(env: str, date: str | None = None, top: int = Query(10, ge=1, le=5
     ranked = [p for p in out if p["contrib_bps"] is not None]
     ranked.sort(key=lambda p: p["contrib_bps"], reverse=True)
 
+    mandate_split = None
+    if split:
+        mandate_split = {
+            "by_mandate": [{
+                "mandate": s["mandate"],
+                "n_names": int(s["n_names"]),
+                "net_weight": _f(s["net_weight"]),
+                "gross_weight": _f(s["gross_weight"]),
+                "mkt_value": _f(s["mkt_value"]),
+                "pnl_d": _f(s["pnl_d"]),
+                "contrib_bps": (_f(s["pnl_d"]) / nav * 1e4) if (nav and s["pnl_d"] is not None) else None,
+                # How many names needed a fallback rule. prior_target is a 100% assignment and
+                # exact by inspection; the fallbacks are judgement, and a page that does not
+                # distinguish them presents both at the same confidence.
+                "n_fallback_rule": int(s["n_fallback"] or 0),
+            } for s in split],
+            "residual": {
+                "n_names": int(resid["n"] or 0) if resid else 0,
+                "mkt_value": _f(resid["mkt_value"]) if resid else None,
+            },
+            "basis": "attr_weight — the mandate's BLEND contribution to the book we hold, not its "
+                     "own (native) weight. The sleeve enters the blend at 0.5x, so the two differ "
+                     "by 2x and only the blend basis sums back to the portfolio.",
+        }
+
     return {
         "env": env,
         "date": d.isoformat(),
@@ -457,7 +521,9 @@ def positions(env: str, date: str | None = None, top: int = Query(10, ge=1, le=5
         "positions": out,
         "contributors": ranked[:top],
         "detractors": list(reversed(ranked[-top:])) if ranked else [],
-        "mandate_split": None,
-        "mandate_split_note": "unavailable — owned by [08-PTRK] (the sleeve ledger is stateless "
-                              "and persists no attribution table)",
+        "mandate_split": mandate_split,
+        "mandate_split_note": None if mandate_split else
+                              "no attribution snapshot for this date — it rides the daily book "
+                              "build (jobs/attribute_positions), so a date whose book has not "
+                              "been built has none. [08-PTRK]",
     }

@@ -132,9 +132,29 @@ export interface PaperPositionsResponse {
   positions: PaperPosition[];
   contributors: PaperPosition[];
   detractors: PaperPosition[];
-  /** Always null in Phase A — the sleeve ledger is stateless and persists no attribution. */
-  mandate_split: null;
-  mandate_split_note: string;
+  /** Core vs sleeve, READ from the ledger's snapshot — never recomputed here. Null when the
+   *  date has no snapshot (it rides the daily book build). */
+  mandate_split: PaperMandateSplit | null;
+  mandate_split_note: string | null;
+}
+
+export interface PaperMandateSplit {
+  by_mandate: {
+    mandate: string;
+    n_names: number;
+    /** BLEND weight — the mandate's contribution to the book we hold. NOT its native weight. */
+    net_weight: number | null;
+    gross_weight: number | null;
+    mkt_value: number | null;
+    pnl_d: number | null;
+    contrib_bps: number | null;
+    /** Names placed by a fallback rule rather than by intended target weight — judgement, not
+     *  arithmetic, and shown separately for that reason. */
+    n_fallback_rule: number;
+  }[];
+  /** Positions the ledger could not place. Reported, never absorbed. */
+  residual: { n_names: number; mkt_value: number | null };
+  basis: string;
 }
 
 export const fetchPaperBook = (env = 'paper', strategy?: string) =>
