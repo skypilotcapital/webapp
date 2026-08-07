@@ -91,9 +91,12 @@ function Stat({ label, value, sub, color }: { label: string; value: string; sub?
 }
 
 // ------------------------------------------------------------ net-of-cost bridge (gross → net by cost)
-const AUM_MUSD = 5;   // website headline fund size (impact + commission priced here)
-function CostBridgeSection({ label, isLS }: { label: string; isLS: boolean }) {
-  const { data, error } = useSWR(['pf-cost', label], () => fetchPortfolioCostAttribution(label, AUM_MUSD),
+// Default cost-accounting lens for the research grid, whose labels are all `_rc5`. The Portfolios
+// tracking pages override it per product (`ProductDef.costAum`) — the two S&P 500 Extensions are
+// accounted at $1M, the paper-account size, and quoting $5M there would contradict the card headline.
+const AUM_MUSD = 5;
+function CostBridgeSection({ label, isLS, aum = AUM_MUSD }: { label: string; isLS: boolean; aum?: number }) {
+  const { data, error } = useSWR(['pf-cost', label, aum], () => fetchPortfolioCostAttribution(label, aum),
     { revalidateOnFocus: false });
   if (error) return null;                                   // not computed for this label → hide
   if (!data) return <div className="panel p-6 muted text-sm mt-5">Loading net-of-cost bridge…</div>;
@@ -124,11 +127,11 @@ function CostBridgeSection({ label, isLS }: { label: string; isLS: boolean }) {
     <div className="mt-5">
       <div className="flex items-center gap-3 flex-wrap mb-2">
         <h2 className="text-base font-bold tracking-tight" style={{ color: 'var(--tx)' }}>Net-of-Cost Bridge</h2>
-        <span className="pill pill-cyan">${AUM_MUSD}M AUM</span>
+        <span className="pill pill-cyan">${aum}M AUM</span>
         <span className="text-[11px] muted">how realistic trading costs turn gross {isLS ? 'book P&L' : 'active return'} into net — spread + market impact + commission{isLS ? ' + borrow' : ''}</span>
       </div>
       <div className="takeaway mb-3 text-[12px]">
-        <b>At ${AUM_MUSD}M, costs take gross {pctSign(gross)}/yr down to {isLS ? 'excess-over-cash' : 'net'} {pctSign(net)}/yr</b>
+        <b>At ${aum}M, costs take gross {pctSign(gross)}/yr down to {isLS ? 'excess-over-cash' : 'net'} {pctSign(net)}/yr</b>
         {isLS && <> — then cash earned on collateral (+{pct(collateral)}/yr) lifts it to <b>total return {pctSign(total)}/yr</b></>}
         {!isLS && gross > 0 && s.pct_gross_kept != null && <> — you keep {pct(s.pct_gross_kept, 0)} of the gross edge</>}
         {' '}(<b>{num(s.avg_eff_bps, 1)} bps</b> per traded dollar over {pct(s.avg_turnover, 0)}/mo turnover).
@@ -139,7 +142,7 @@ function CostBridgeSection({ label, isLS }: { label: string; isLS: boolean }) {
         {/* waterfall */}
         <div className="panel p-4 xl:col-span-2">
           <div className="panel-head">Gross → {isLS ? 'Total' : 'Net'} Waterfall <span className="muted" style={{ fontWeight: 400 }}>· annualized</span></div>
-          <div className="panel-sub mb-3">each cost is charged per name on every traded dollar (‖Δw‖₁), priced at ${AUM_MUSD}M</div>
+          <div className="panel-sub mb-3">each cost is charged per name on every traded dollar (‖Δw‖₁), priced at ${aum}M</div>
           <div className="space-y-2">
             {/* gross */}
             <div className="flex items-center gap-2 text-[12px]">
@@ -730,8 +733,9 @@ function ExtComponentPositioning({ coreLabel, sleeveLabel, coreName, sleeveName 
 }
 
 export function BacktestReport({ label, backHref = '/research/portfolios', backLabel = '← Back to Portfolios',
-  periodLabel = 'Out-of-sample 2005–2023', boundaryDate, topSlot }:
-  { label: string; backHref?: string; backLabel?: string; periodLabel?: string; boundaryDate?: string; topSlot?: React.ReactNode }) {
+  periodLabel = 'Out-of-sample 2005–2023', boundaryDate, topSlot, costAum = AUM_MUSD }:
+  { label: string; backHref?: string; backLabel?: string; periodLabel?: string; boundaryDate?: string;
+    topSlot?: React.ReactNode; costAum?: number }) {
   const { data, error } = useSWR(['pf-detail', label], () => fetchPortfolioDetail(label), { revalidateOnFocus: false });
   const { data: holdings } = useSWR(['pf-hold', label], () => fetchPortfolioHoldings(label, undefined), { revalidateOnFocus: false });
   const { data: sectors } = useSWR(['pf-sec', label], () => fetchPortfolioSectorAllocation(label), { revalidateOnFocus: false });
@@ -793,7 +797,7 @@ export function BacktestReport({ label, backHref = '/research/portfolios', backL
         <span className="pill pill-cyan">{isLS ? 'Long-short' : 'Long-only'}</span>
         <span className="pill pill-ok">{pct(m.opt_pct, 0)} optimal</span>
         <span className="pill pill-warn">{periodLabel}{liveTo ? ` · live to ${liveTo}` : ''}</span>
-        <span className="pill pill-cyan">Net of realistic cost · $5M</span>
+        <span className="pill pill-cyan">Net of realistic cost · ${costAum}M</span>
         <span className="mono text-[11px] muted">{cons}</span>
         <span className="ml-auto text-[11px] muted">Drill ▸ <Link href={modelsHref} className="teal font-semibold">{m.signal_model_id} (P02)</Link> ▸ <Link href={factorsHref} className="teal font-semibold">Factors (P01)</Link></span>
       </div>
@@ -881,7 +885,7 @@ export function BacktestReport({ label, backHref = '/research/portfolios', backL
       {isExt && <ExtBetaDeployment label={label} benchName={benchName} />}
 
       {/* net-of-cost bridge */}
-      <CostBridgeSection label={label} isLS={isLS} />
+      <CostBridgeSection label={label} isLS={isLS} aum={costAum} />
 
       {/* L/S only: collateral-credited investor return (T9) + market-neutrality (F2) */}
       {isLS && <NeutralitySection label={label} />}
@@ -974,7 +978,7 @@ export function BacktestReport({ label, backHref = '/research/portfolios', backL
       )}
 
       <div className="text-[10px] dim mt-4" style={{ borderTop: '1px solid var(--border-soft)', paddingTop: 10 }}>
-        {periodLabel}. {isLS ? 'Market-neutral: benchmark = cash, so a position’s weight IS its active bet.' : 'Active weight = portfolio − cap-weighted benchmark, per name and per sector.'} Net returns are charged the realistic per-name trading cost model (Corwin–Schultz half-spread + √-law market impact + IBKR Pro Fixed commission{isLS ? ' + flat borrow on shorts' : ''}) at <b>$5M AUM</b> — see the Net-of-Cost Bridge. {isExt ? 'Returns split into index beta + core selection + the L/S sleeve overlay (see the Two-Engine Decomposition above); each engine is shown against its own benchmark.' : <>Factor attribution decomposes the gross {isLS ? 'book P&L' : 'active return'} against the Phase-3 risk model (24 factors + specific); factor + specific reconciles to the realized {isLS ? 'P&L' : 'active return'} to machine precision each month.</>} Config label: <span className="mono">{label}</span>
+        {periodLabel}. {isLS ? 'Market-neutral: benchmark = cash, so a position’s weight IS its active bet.' : 'Active weight = portfolio − cap-weighted benchmark, per name and per sector.'} Net returns are charged the realistic per-name trading cost model (Corwin–Schultz half-spread + √-law market impact + IBKR Pro Fixed commission{isLS ? ' + flat borrow on shorts' : ''}) at <b>${costAum}M AUM</b> — see the Net-of-Cost Bridge. {isExt ? 'Returns split into index beta + core selection + the L/S sleeve overlay (see the Two-Engine Decomposition above); each engine is shown against its own benchmark.' : <>Factor attribution decomposes the gross {isLS ? 'book P&L' : 'active return'} against the Phase-3 risk model (24 factors + specific); factor + specific reconciles to the realized {isLS ? 'P&L' : 'active return'} to machine precision each month.</>} Config label: <span className="mono">{label}</span>
       </div>
     </Back>
   );

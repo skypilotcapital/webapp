@@ -24,9 +24,12 @@ export default function PortfoliosLanding() {
       </div>
       <h1 className="text-2xl font-bold tracking-tight mb-1" style={{ color: 'var(--tx)' }}>Live / Paper Portfolios</h1>
       <p className="text-[13px] mb-5 max-w-3xl" style={{ color: 'var(--tx-mut)' }}>
-        Strategies tracked forward as <b>modeled paper portfolios</b> — our optimizer + $5M cost model
-        continued past the in-sample window to latest data; IBKR paper and live tracks follow on the same
-        pages. <b>★ Production</b> marks the one book we actually hold: the <b>S&amp;P 500 Extension
+        Strategies tracked forward as <b>modeled paper portfolios</b> — our optimizer + the realistic
+        per-name cost model, continued past the in-sample window to latest data; IBKR paper and live
+        tracks follow on the same pages. Costs are accounted at the fund size each track is run for:
+        <b>$1M</b> for the S&amp;P 500 Extensions (the paper-account size), <b>$5M</b> for the research
+        lens on everything else — each report states its own. <b>★ Production</b> marks the one book we
+        actually hold: the <b>S&amp;P 500 Extension
         150/50 (te6 sleeve)</b>, traded in the IBKR paper account. <b>◆ Production Candidates</b> are
         config-locked and rebuilt every month but not held — including the equity core and the L/S sleeve
         that the traded extension is built from. Below them, exploratory <b>research / paper</b> tracks.

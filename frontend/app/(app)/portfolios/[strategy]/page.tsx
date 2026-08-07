@@ -30,6 +30,7 @@ export default function StrategyPage() {
           ? 'Full track 2005–2026 · production candidate (config-locked and tracked, not held)'
           : 'Full track 2005–2026 · research (OOS descriptive)'}
         boundaryDate={INSAMPLE_END}
+        costAum={product.costAum}
         topSlot={<TrackSelector product={product} />}
       />
     );
@@ -55,7 +56,8 @@ export default function StrategyPage() {
 
 function TrackSelector({ product }: { product: ProductDef }) {
   const tracks = [
-    { key: 'modeled', label: 'Modeled paper', active: true, note: 'our optimizer + $5M cost model, continued to latest' },
+    { key: 'modeled', label: 'Modeled paper', active: true,
+      note: `our optimizer + the realistic per-name cost model at $${product.costAum ?? 5}M, continued to latest` },
     { key: 'ibkr', label: 'IBKR paper', active: false, note: 'coming soon — same strategy in IBKR paper (real margin/fees/borrow)' },
     { key: 'live', label: 'Live', active: false, note: 'coming soon — real capital' },
   ];
