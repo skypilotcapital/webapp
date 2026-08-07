@@ -408,17 +408,136 @@ function Contribution({ pos }: { pos: Awaited<ReturnType<typeof fetchPaperPositi
   );
 }
 
+/* ------------------------------------------------------------------- shortfall ---- */
+function Shortfall({ data }: { data: Awaited<ReturnType<typeof fetchPaperShortfall>> | undefined }) {
+  if (!data) return null;
+  const w = data.window;
+  if (!w) return <Panel title="Implementation Shortfall"><Muted>{data.note}</Muted></Panel>;
+
+  const maxAbs = Math.max(1e-9, ...data.chain.map((c) => Math.abs(c.bps ?? 0)));
+
+  return (
+    <div className="panel p-4 mb-3">
+      <div className="flex items-baseline gap-3 flex-wrap">
+        <h2 className="text-base font-bold tracking-tight" style={{ color: 'var(--tx)' }}>
+          Implementation Shortfall
+        </h2>
+        <span className="text-[11px]" style={{ color: 'var(--tx-mut)' }}>
+          what the trade cost against the book we intended · rebalance #{w.rebalance_id}
+        </span>
+      </div>
+
+      {/* The framing comes FIRST. This window is not a monthly shortfall and the number is not
+          comparable to the ones that follow it; leading with 36 bps and qualifying underneath
+          would invite exactly the reading the qualification exists to prevent. */}
+      {(w.is_establishment || w.is_open || w.window_days === 0) && (
+        <div className="mt-2 p-2.5 rounded text-[11px]"
+          style={{ background: 'rgba(180,83,9,0.10)', color: 'var(--tx)' }}>
+          <b>This is the establishment trade, not a monthly shortfall.</b>{' '}
+          {w.is_establishment && 'The account started flat, so the whole book was built in one go — there was no turnover constraint and nothing to hold onto. '}
+          {w.window_days === 0 && 'The window spans zero days (it opened and is measured on the trade date itself), so this is the cost of building the book, not of running it for a month. '}
+          {w.is_open && 'The window is still OPEN and will be restated when the next rebalance closes it. '}
+          It should be excluded from ongoing shortfall reporting rather than averaged in.
+        </div>
+      )}
+
+      <div className="flex gap-6 flex-wrap mt-3 mb-1">
+        <Stat label="Total" value={bps(w.total_bps)} sub={usd(w.total_usd)}
+          color={(w.total_bps ?? 0) > 0 ? 'var(--neg)' : 'var(--pos)'} />
+        <Stat label="Window" value={w.window_days === 0 ? 'trade date' : `${w.window_days}d`}
+          sub={`${w.window_start} → ${w.window_end}`} />
+        <Stat label="Names" value={String(w.n_names)}
+          sub={w.n_unfilled ? `${w.n_unfilled} unfilled` : 'all filled'} />
+        <Stat label="On AUM" value={usd(w.aum)} sub={w.method ?? undefined} />
+      </div>
+
+      {/* The chain. Five books each one effect apart, so the terms sum to the total by
+          construction rather than by an attribution formula. */}
+      <div className="mt-3">
+        <div className="text-[10px] font-bold tracking-[1.5px] mb-2" style={{ color: 'var(--tx-dim)' }}>
+          B0 → B4 CHAIN
+        </div>
+        {data.chain.map((c) => {
+          const v = c.bps ?? 0;
+          const pctW = (Math.abs(v) / maxAbs) * 100;
+          return (
+            <div key={c.term} className="flex items-center gap-2 py-1"
+              style={{ borderTop: '1px solid var(--border-soft)' }}>
+              <div className="w-[86px] text-[11.5px] font-semibold" style={{ color: 'var(--tx)' }}>
+                {c.term}
+              </div>
+              <div className="flex-1 h-[9px] rounded-sm" style={{ background: 'var(--panel2)' }}>
+                <div className="h-full rounded-sm"
+                  style={{ width: `${pctW}%`, background: v > 0 ? 'var(--neg)' : 'var(--pos)' }} />
+              </div>
+              <div className="w-[62px] text-right text-[11.5px] tabular-nums font-semibold"
+                style={{ color: v > 0 ? 'var(--neg)' : 'var(--pos)' }}>{bps(v)}</div>
+              <div className="w-[230px] text-[10px]" style={{ color: 'var(--tx-dim)' }}>{c.step}</div>
+            </div>
+          );
+        })}
+      </div>
+
+      <div className="text-[10.5px] mt-2" style={{ color: 'var(--tx-dim)' }}>
+        <b>Delay is the largest term and it is the market, not execution quality</b> — the book moved
+        between the price the share counts were sized on and the mid at submission. It is counted
+        here because not trading instantly is a real cost, and deliberately excluded from the cost
+        calibration above, because fitting an impact coefficient to market drift would fit direction.
+        Same dollars, two questions. The terms sum to the total by construction, so{' '}
+        <b>the total is the robust number and the split is interpretive</b>.
+      </div>
+
+      {!!data.names.length && (
+        <div className="mt-3">
+          <div className="text-[10px] font-bold tracking-[1.5px] mb-1" style={{ color: 'var(--tx-dim)' }}>
+            LARGEST CONTRIBUTORS
+          </div>
+          <div className="overflow-x-auto">
+            <table className="w-full text-[11.5px]" style={{ borderCollapse: 'collapse' }}>
+              <thead><tr style={{ color: 'var(--tx-dim)' }}>
+                {['Name', 'Engine', 'Delay', 'Fill', 'Total'].map((h, i) => (
+                  <th key={h} className="text-[9px] font-bold tracking-[1.2px] py-1"
+                    style={{ textAlign: i < 2 ? 'left' : 'right' }}>{h.toUpperCase()}</th>
+                ))}
+              </tr></thead>
+              <tbody>
+                {data.names.map((n) => (
+                  <tr key={n.ticker} style={{ borderTop: '1px solid var(--border-soft)' }}>
+                    <td className="py-1 font-semibold" style={{ color: 'var(--tx)' }}>{n.ticker}</td>
+                    <td style={{ color: 'var(--tx-dim)' }}>{n.mandate}</td>
+                    <td className="text-right tabular-nums">{usd(n.delay_usd)}</td>
+                    <td className="text-right tabular-nums">{usd(n.fill_usd)}</td>
+                    <td className="text-right tabular-nums font-semibold"
+                      style={{ color: (n.total_usd ?? 0) > 0 ? 'var(--neg)' : 'var(--pos)' }}>
+                      {usd(n.total_usd)}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
+
+      <div className="text-[10.5px] mt-3 pt-2" style={{ borderTop: '1px solid var(--border-soft)', color: 'var(--tx-dim)' }}>
+        This is also the <b>Track B vs Track C</b> comparison — the live target book against what the
+        broker actually holds. They are one measurement, not two.{' '}
+        {w.shape_source === 'reconstructed' && <>Book shape <b>reconstructed</b> rather than read from a stored snapshot. </>}
+        A <b>series</b> begins once the September rebalance closes this window.
+      </div>
+    </div>
+  );
+}
+
 /* ------------------------------------------------------- not buildable yet ---- */
-function Unavailable({ hasSplit }: { hasSplit: boolean }) {
+function Unavailable({ hasSplit, hasShortfall }: { hasSplit: boolean; hasShortfall: boolean }) {
   // Named owners, not silence. A section that is absent looks identical to one with nothing to
   // report, and that ambiguity is how every silent degradation in this project survived.
   const rows = [
     ...(hasSplit ? [] : [['Core vs sleeve contribution', '[08-PTRK]',
       'no attribution snapshot for this date — it rides the daily book build, so a date whose book has not been built has none'] as string[]]),
-    ['Implementation shortfall', '[10-SHFL]',
-      'single-period Track B − Track C; structurally needs the September rebalance to close the first interval'],
-    ['Modeled vs actual overlay', '[10-WPREV]',
-      'Track B (the live target optimized from actual holdings) does not exist yet'],
+    ...(hasShortfall ? [] : [['Implementation shortfall', '[10-SHFL]',
+      'no window computed yet'] as string[]]),
     ['Reconciliation breaks', '[10-P4]',
       'the recon writer is unbuilt; the tie-out marker above comes from book_daily_status'],
     ['Corporate actions', '[10-CAREP] / [10-CAACC]',
