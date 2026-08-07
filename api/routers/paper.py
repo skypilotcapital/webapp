@@ -299,13 +299,29 @@ def fidelity(env: str, rebalance_id: int | None = None):
             WHERE o.rebalance_id = :r AND p.ref_price IS NOT NULL"""),
             {"r": rid}).mappings().first()
 
-        # What the cost model PREDICTED for this book, so the two sit side by side. Absent on a
-        # book whose plan rows predate `est_cost_bps`, which is a real state and returns NULL.
+        # What the cost model PREDICTED for this book, so the two sit side by side.
+        #
+        # TWO SOURCES, plan-first. `trade_plans.est_cost_bps` is written at INSERT time from the
+        # inputs the trade was sized on — the number we want. `plan_cost_estimates` carries LATE
+        # predictions for plans frozen before that code existed (the plan itself is immutable, so
+        # they cannot be written into it). A DB trigger allows a late row only where the plan's own
+        # column is NULL, so the COALESCE cannot pick between two live copies of one number.
+        # `source` is returned so the page can say which it showed.
         pred = conn.execute(text("""
-            SELECT sum(est_cost_bps * abs(est_notional)) / NULLIF(sum(abs(est_notional)), 0)
-            FROM trading.trade_plans
-            WHERE rebalance_id = :r AND plan_kind = 'final' AND est_cost_bps IS NOT NULL"""),
-            {"r": rid}).scalar()
+            SELECT sum(COALESCE(p.est_cost_bps, e.est_cost_bps) * abs(p.est_notional))
+                     / NULLIF(sum(abs(p.est_notional)) FILTER (
+                         WHERE COALESCE(p.est_cost_bps, e.est_cost_bps) IS NOT NULL), 0)  AS bps,
+                   count(*) FILTER (WHERE p.est_cost_bps IS NOT NULL)                     AS n_plan,
+                   count(*) FILTER (WHERE p.est_cost_bps IS NULL
+                                      AND e.est_cost_bps IS NOT NULL)                     AS n_late,
+                   max(e.panel_date)                                                      AS panel_date,
+                   max(e.panel_lag_days)                                                  AS panel_lag
+            FROM trading.trade_plans p
+            LEFT JOIN trading.plan_cost_estimates e
+                   ON e.rebalance_id = p.rebalance_id AND e.conid = p.conid
+                  AND e.plan_kind = p.plan_kind
+            WHERE p.rebalance_id = :r AND p.plan_kind = 'final'"""),
+            {"r": rid}).mappings().first()
 
     traded = _f(fills["notional"]) or 0.0
     comm = _f(fills["commission"]) or 0.0
@@ -348,11 +364,20 @@ def fidelity(env: str, rebalance_id: int | None = None):
             "slippage_usd": slip_usd,
             "slippage_bps": _bps(slip_usd),
             "realized_bps": _bps((comm or 0) + (slip_usd or 0)),
-            "model_predicted_bps": _f(pred),
+            "model_predicted_bps": _f(pred["bps"]) if pred else None,
             # [06-T7]. Named rather than left to the page to subtract, because the sign convention
             # (positive = we spent more than the model said) is the whole content of the number.
-            "vs_model_bps": (_bps((comm or 0) + (slip_usd or 0)) - _f(pred))
-                            if (pred is not None and traded) else None,
+            "vs_model_bps": (_bps((comm or 0) + (slip_usd or 0)) - _f(pred["bps"]))
+                            if (pred and pred["bps"] is not None and traded) else None,
+            # Provenance, because a prediction written at plan time and one computed afterwards are
+            # different claims and the page must not present them as the same one.
+            "prediction_source": (None if not pred or pred["bps"] is None
+                                  else "plan" if not pred["n_late"]
+                                  else "backfill" if not pred["n_plan"] else "mixed"),
+            "prediction_panel_date": (str(pred["panel_date"])
+                                      if pred and pred["panel_date"] else None),
+            "prediction_panel_lag_days": (int(pred["panel_lag"])
+                                          if pred and pred["panel_lag"] is not None else None),
         },
         "plan_drift": {
             "preview_notional": _f(prev["notional"]) if prev else None,
