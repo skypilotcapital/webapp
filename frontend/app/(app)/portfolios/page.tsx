@@ -6,6 +6,7 @@ import { fetchPortfolioBacktests, fetchPortfolioDetail } from '@/lib/api';
 import { PRODUCTS, INSAMPLE_END, type ProductDef } from '@/lib/products';
 import { pct, pctSign, num, realizedMonth } from '@/lib/portfolio';
 import { CumulativeChart } from '@/components/portfolio/charts';
+import { fetchPaperBook, fetchPaperNav } from '@/lib/paper';
 
 const TIER_ORDER: Record<string, number> = { production: 0, candidate: 1, research: 2 };
 
@@ -25,8 +26,10 @@ export default function PortfoliosLanding() {
       <h1 className="text-2xl font-bold tracking-tight mb-1" style={{ color: 'var(--tx)' }}>Live / Paper Portfolios</h1>
       <p className="text-[13px] mb-5 max-w-3xl" style={{ color: 'var(--tx-mut)' }}>
         Strategies tracked forward as <b>modeled paper portfolios</b> — our optimizer + the realistic
-        per-name cost model, continued past the in-sample window to latest data; IBKR paper and live
-        tracks follow on the same pages. Costs are accounted at the fund size each track is run for:
+        per-name cost model, continued past the in-sample window to latest data. The production book
+        is now also traded in an <b>IBKR paper account</b>, and its card leads with that real book;
+        the modeled track sits below it as the record, since a book days old is not a track record.
+        Costs are accounted at the fund size each track is run for:
         <b>$1M</b> for the S&amp;P 500 Extensions (the paper-account size), <b>$5M</b> for the research
         lens on everything else — each report states its own. <b>★ Production</b> marks the one book we
         actually hold: the <b>S&amp;P 500 Extension
@@ -83,7 +86,7 @@ function ResearchCard({ product, prodLabels }: { product: ProductDef; prodLabels
     <Link href={`/portfolios/${product.slug}`} className="panel group block p-5 transition-all duration-300 hover:shadow-md">
       <div className="flex items-center gap-2 flex-wrap mb-2">
         {isProd
-          ? <><span className="pill pill-ok">★ Production</span><span className="pill" style={{ background: 'rgba(14,124,111,0.12)', color: 'var(--teal)' }}>Paper · Modeled</span></>
+          ? <><span className="pill pill-ok">★ Production</span><span className="pill" style={{ background: 'rgba(14,124,111,0.12)', color: 'var(--teal)' }}>{product.paperStrategy ? 'Paper · IBKR' : 'Paper · Modeled'}</span></>
           : product.track === 'research'
           ? <span className="pill" style={{ background: 'rgba(180,83,9,0.13)', color: 'var(--amber)' }}>🔬 Research · Paper</span>
           : <span className="pill" style={{ background: 'rgba(30,64,175,0.13)', color: 'var(--cyan)' }}>◆ Production Candidate</span>}
@@ -94,8 +97,17 @@ function ResearchCard({ product, prodLabels }: { product: ProductDef; prodLabels
       <h2 className="text-lg font-bold tracking-tight mb-0.5" style={{ color: 'var(--tx)' }}>{product.name}</h2>
       <p className="text-[11.5px] mb-3" style={{ color: 'var(--tx-mut)' }}>{product.blurb}</p>
 
+      {/* THE BOOK WE OWN LEADS. Only a product with an account behind it renders this; everything
+          else is unchanged. Below it the modeled track continues as the record — demoted in
+          position, not removed, because a week of paper is not a track record and the 21-year
+          series is still the thing that says whether the strategy is any good. */}
+      {product.paperStrategy && <PaperBand strategy={product.paperStrategy} />}
+
       {/* full-period headline (incl. OOS) — the honest all-in number */}
-      <div className="text-[10px] font-bold tracking-wider mb-1" style={{ color: 'var(--tx-dim)' }}>FULL TRACK 2005–2026 (incl. live)</div>
+      <div className="text-[10px] font-bold tracking-wider mb-1" style={{ color: 'var(--tx-dim)' }}>
+        {product.paperStrategy ? 'MODELED TRACK 2005–2026 (the same strategy, simulated)'
+                               : 'FULL TRACK 2005–2026 (incl. live)'}
+      </div>
       <div className="grid grid-cols-3 sm:grid-cols-5 gap-2 mb-3">
         <MiniStat label="Ann Return" value={pctSign(annTotal)} color={(annTotal ?? 0) >= 0 ? 'var(--pos)' : 'var(--neg)'} sub={isLS ? 'incl. cash' : 'total'} />
         <MiniStat label={isLS ? 'Ann Excess' : 'Ann Active'} value={pctSign(annActive)} color={(annActive ?? 0) >= 0 ? 'var(--pos)' : 'var(--neg)'} sub={isLS ? 'vs cash' : 'vs bench'} />
@@ -126,6 +138,93 @@ function ResearchCard({ product, prodLabels }: { product: ProductDef; prodLabels
         <span>Open report</span><span className="transition-transform group-hover:translate-x-1">→</span>
       </div>
     </Link>
+  );
+}
+
+/** The live IBKR paper account, at the top of the card for the one product that has one.
+ *
+ *  WHAT IT DELIBERATELY DOES NOT SHOW. No annualized return, no IR, no drawdown: the account is
+ *  days old and the API withholds ratio statistics below 60 observations for exactly this reason
+ *  (a one-week paper IR gets screenshotted and quoted back). This band shows STATE plus a
+ *  since-inception total — what is actually knowable — and sends the reader to the track page for
+ *  the rest.
+ *
+ *  THE CASH DAYS ARE MARKED, NOT RESTATED. The account was funded before it traded, so a
+ *  since-inception number reaches back through days the book held nothing. Re-basing to the first
+ *  fill would flatter the track on precisely the days it is most fragile; the house rule
+ *  (`performance_reporting_plan.md`, "Two presentation rules") is to label it and move on.
+ *
+ *  It renders nothing at all if the account has no book yet — an empty band on the production card
+ *  would read as "the strategy is flat", which is a different claim from "we have not traded".
+ */
+function PaperBand({ strategy }: { strategy: string }) {
+  const { data: bk } = useSWR(['pf-paper-book', strategy], () => fetchPaperBook('paper', strategy),
+    { revalidateOnFocus: false });
+  const { data: nav } = useSWR(['pf-paper-nav', strategy], () => fetchPaperNav('paper', strategy),
+    { revalidateOnFocus: false });
+
+  if (!bk?.book) return null;
+  const b = bk.book;
+  const last = nav?.series?.[nav.series.length - 1];
+  const benchLast = nav?.series ? [...nav.series].reverse().find((p) => p.bench_idx != null)?.bench_idx ?? null : null;
+  const sinceIncept = last?.nav_idx != null ? last.nav_idx / 100 - 1 : null;
+  const benchSince = benchLast != null ? benchLast / 100 - 1 : null;
+  const names = (b.n_long ?? 0) + (b.n_short ?? 0);
+  // "Has this account ever held a position?" — not "does it right now". A book that traded and was
+  // later flattened still has a relative track worth showing; one that has never traded does not.
+  const invested = !!nav?.first_invested;
+
+  return (
+    <div className="mb-3 p-3 rounded-lg" style={{ background: 'rgba(14,124,111,0.06)', border: '1px solid rgba(14,124,111,0.18)' }}>
+      <div className="flex items-baseline justify-between gap-2 flex-wrap mb-1.5">
+        <div className="text-[10px] font-bold tracking-wider" style={{ color: 'var(--teal)' }}>
+          IBKR PAPER · {b.account_id} · {b.date}
+        </div>
+        <div className="flex items-center gap-2">
+          {nav?.incl_cash_days && (
+            <span className="text-[9px] font-semibold px-1.5 py-px rounded"
+              style={{ background: 'var(--panel2)', color: 'var(--tx-dim)' }}>incl. cash days</span>
+          )}
+          <span className="text-[9px] font-bold px-1.5 py-px rounded"
+            style={b.tied_out
+              ? { background: 'rgba(21,128,61,0.12)', color: 'var(--pos)' }
+              : { background: 'rgba(185,28,28,0.12)', color: 'var(--neg)' }}>
+            {b.tied_out ? '✓ tied' : '✗ not tied'}
+          </span>
+        </div>
+      </div>
+
+      <div className="grid grid-cols-3 sm:grid-cols-5 gap-2">
+        <MiniStat label="NAV" value={b.nav == null ? '—' : `$${Math.round(b.nav).toLocaleString()}`} />
+        <MiniStat label="Since inception" value={pctSign(sinceIncept, 2)}
+          color={(sinceIncept ?? 0) >= 0 ? 'var(--pos)' : 'var(--neg)'}
+          sub={nav?.inception ? `from ${nav.inception}` : undefined} />
+        {/* RELATIVE PERFORMANCE IS SUPPRESSED WHILE THE ACCOUNT IS CASH — the reports' first
+            presentation rule, and it earns its keep here. A funded-but-untraded account sitting
+            through a benchmark rally shows a real opportunity cost, but rendering it beside the
+            book's own return reads as the STRATEGY having lost to the index, on precisely the days
+            a track record is most fragile. Once invested, the marking takes over instead. */}
+        {invested
+          ? <MiniStat label="S&P 500 TR" value={pctSign(benchSince, 2)} sub="same window" />
+          : <MiniStat label="S&P 500 TR" value="—" sub="held while in cash" />}
+        <MiniStat label="Names" value={names ? String(names) : '—'}
+          sub={names ? `${b.n_long ?? 0}L / ${b.n_short ?? 0}S` : 'not invested'} />
+        <MiniStat label="Gross" value={pct(b.gross_pct, 0)} sub={`net ${pct(b.net_pct, 0)}`} />
+      </div>
+
+      {/* No ratio statistics, and the reason — rather than a blank the reader has to interpret. */}
+      {nav?.stats_suppressed && (
+        <div className="text-[9.5px] mt-1.5" style={{ color: 'var(--tx-dim)' }}>
+          {nav.n_obs} trading day{nav.n_obs === 1 ? '' : 's'} — no annualized return, IR or drawdown
+          yet; they appear once the track can carry them.
+        </div>
+      )}
+      {!!bk.degradations?.length && (
+        <div className="text-[9.5px] mt-1" style={{ color: 'var(--neg)' }}>
+          ⚠ {bk.degradations.join(' · ')}
+        </div>
+      )}
+    </div>
   );
 }
 
