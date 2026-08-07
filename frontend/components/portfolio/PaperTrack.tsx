@@ -24,7 +24,7 @@
 import useSWR from 'swr';
 import Link from 'next/link';
 import {
-  fetchPaperBook, fetchPaperNav, fetchPaperFidelity, fetchPaperPositions,
+  fetchPaperBook, fetchPaperNav, fetchPaperFidelity, fetchPaperPositions, fetchPaperShortfall,
   type PaperPosition,
 } from '@/lib/paper';
 import { CumulativeChart, HBarChart } from '@/components/portfolio/charts';
@@ -46,6 +46,8 @@ export function PaperTrack({ strategy, topSlot }: { strategy?: string; topSlot?:
   const { data: fid } = useSWR(['paper-fid'], () => fetchPaperFidelity('paper'),
     { revalidateOnFocus: false });
   const { data: pos } = useSWR(['paper-pos'], () => fetchPaperPositions('paper', 10),
+    { revalidateOnFocus: false });
+  const { data: sf } = useSWR(['paper-sf'], () => fetchPaperShortfall('paper', 8),
     { revalidateOnFocus: false });
 
   return (
@@ -69,7 +71,8 @@ export function PaperTrack({ strategy, topSlot }: { strategy?: string; topSlot?:
       <Performance nav={nav} />
       <ByEngine pos={pos} />
       <Contribution pos={pos} />
-      <Unavailable hasSplit={!!pos?.mandate_split} />
+      <Shortfall data={sf} />
+      <Unavailable hasSplit={!!pos?.mandate_split} hasShortfall={!!sf?.window} />
     </div>
   );
 }

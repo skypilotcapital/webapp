@@ -104,6 +104,15 @@ export function TrackSelector({ product, active }: { product: ProductDef; active
             {product.name}
           </div>
           <div className="text-[11px]" style={{ color: 'var(--tx-mut)' }}>{product.blurb}</div>
+          {/* Deliberately NOT a track chip. The archive is a record of what we published, not a
+              fourth kind of book, and sitting it among the tracks would say otherwise. Only shown
+              where an account exists, because reports are written against a real book. */}
+          {product.paperStrategy && (
+            <Link href={`/portfolios/${product.slug}/reports`}
+                  className="text-[11px] teal font-semibold inline-block mt-1">
+              Report archive →
+            </Link>
+          )}
         </div>
         <div className="ml-auto flex items-center gap-1.5">
           <span className="text-[9px] font-bold tracking-[1.5px] mr-1" style={{ color: 'var(--tx-dim)' }}>

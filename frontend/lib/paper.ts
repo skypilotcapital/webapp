@@ -167,6 +167,31 @@ export interface PaperMandateSplit {
   basis: string;
 }
 
+export interface PaperShortfall {
+  env: string;
+  window: {
+    rebalance_id: number; strategy: string;
+    window_start: string | null; window_end: string | null; window_days: number;
+    /** These three govern how the number may be read at all — not footnotes. */
+    is_open: boolean; is_establishment: boolean;
+    aum: number; total_usd: number | null; total_bps: number | null;
+    n_names: number; n_unfilled: number;
+    method: string | null; terminal_src: string | null; shape_source: string | null;
+    tied_out_days: number;
+  } | null;
+  note?: string;
+  chain: { term: string; usd: number | null; bps: number | null; step: string }[];
+  names: {
+    ticker: string | null; mandate: string | null;
+    delay_usd: number | null; fill_usd: number | null;
+    total_usd: number | null; total_bps: number | null;
+  }[];
+  caveats: Record<string, string>;
+}
+
+export const fetchPaperShortfall = (env = 'paper', top = 8) =>
+  get<PaperShortfall>(`/api/v1/paper/${env}/shortfall?top=${top}`);
+
 export const fetchPaperBook = (env = 'paper', strategy?: string) =>
   get<PaperBookResponse>(`/api/v1/paper/${env}/book${strategy ? `?strategy=${strategy}` : ''}`);
 
