@@ -42,7 +42,36 @@ export interface ProductDef {
   // extension builds its sleeves at $1M and its cost-aware core at $5M — see the banner in
   // build_blend_portfolio.BLENDS and the 2026-08-06 decisions_log entry).
   costAum?: number;
+  // The `trading.book_daily.strategy` key for this product's IBKR account book, when one exists.
+  // Its PRESENCE is what makes the IBKR track real: a product without it has no account behind it
+  // and the track renders as `soon`. Exactly one product carries it today — the traded extension.
+  paperStrategy?: string;
 }
+
+// The implementation tracks a strategy moves through, in order of increasing realism
+// (`website_research_hub_IA.md` §III). A TRACK IS A ROUTE SEGMENT, not component state (§X.1):
+// a URL is shareable, screenshottable and bookmarkable, and "which book is this?" must be
+// answerable from the address bar and from any screenshot pasted into Slack.
+export type TrackKey = 'modeled' | 'ibkr' | 'live';
+
+export const TRACKS: { key: TrackKey; label: string; note: string }[] = [
+  { key: 'modeled', label: 'Modeled paper',
+    note: 'our optimizer + the realistic per-name cost model, continued to latest' },
+  { key: 'ibkr', label: 'IBKR paper',
+    note: 'the same strategy in the IBKR paper account — real margin, fees, borrow and fills' },
+  { key: 'live', label: 'Live', note: 'real capital' },
+];
+
+/** Which tracks actually exist for a product. `live` is never available yet. */
+export const trackAvailable = (p: ProductDef, t: TrackKey) =>
+  t === 'modeled' ? true : t === 'ibkr' ? !!p.paperStrategy : false;
+
+/** The track a bare `/portfolios/[strategy]` should land on.
+ *
+ *  We default to the book we OWN wherever one exists (§X.2). When the IA was written all three
+ *  tracks were hypothetical and symmetric; once one of them is the real portfolio, leading with a
+ *  simulation is a false equivalence. */
+export const defaultTrack = (p: ProductDef): TrackKey => (p.paperStrategy ? 'ibkr' : 'modeled');
 
 export const PRODUCTS: ProductDef[] = [
   {
@@ -113,6 +142,8 @@ export const PRODUCTS: ProductDef[] = [
     slug: 'sp500-ext-te6', name: 'S&P 500 · Extension 150/50 (te6 sleeve)', short: 'S&P 500 Ext · te6',
     universe: 'sp500', strategy: 'ext', track: 'production',
     fullLabel: 'ext_sp500_n014_te6_150_50_v3_full_rc1', costAum: 1,
+    // The only product with an account behind it. First executed 2026-08-07 (rebalance 13).
+    paperStrategy: 'sp500_ext_150_50_te6',
     blurb: 'The book we trade · 150/50 extension: S&P 500 core (N014) + 50% R2500 L/S sleeve at the te6 (6% vol, drawdown-managed) target as a portable-alpha overlay · benchmarked to S&P 500 TR · net of realistic cost @ $1M (the paper-account size). Enhanced-equity: full equity drawdowns, alpha layered on top.',
   },
   {

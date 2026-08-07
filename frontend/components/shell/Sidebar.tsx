@@ -17,6 +17,18 @@ const TRADING_SUB = [
   { label: 'Trade blotter', href: '/trading/paper/blotter', match: ['/trading/paper/blotter'] },
 ];
 
+// Portfolios gains sub-items for the same reason Trading has them, and for one more: since
+// 2026-08-07 one of the tracked strategies is a book we actually own, and burying it as a pill on
+// a strategy page reads as "the real portfolio is the greyed-out middle option" ([08-PTRK] §X.3).
+// This is a SECOND DOOR onto the same route, not a second surface — deep-linking the track keeps
+// the modeled-vs-actual comparison on one page, which is why IBKR was made a track and not a
+// section in the first place.
+const PORTFOLIO_SUB = [
+  { label: 'All portfolios', href: '/portfolios', match: ['/portfolios'], exact: true },
+  { label: 'Paper book', href: '/portfolios/sp500-ext-te6/ibkr',
+    match: ['/portfolios/sp500-ext-te6/ibkr'] },
+];
+
 const RESEARCH_SUB = [
   { label: 'Factors · P01', href: '/research/factors', match: ['/research/factors', '/research/r2500-factors'] },
   { label: 'Alpha Models · P02', href: '/research/models', match: ['/research/models', '/research/r2500-models'] },
@@ -95,6 +107,25 @@ export function Sidebar() {
         </div>
         <NavLink href="/portfolios" label="Portfolios" icon="◈"
           active={pathname === '/portfolios' || pathname.startsWith('/portfolios/')} />
+        <div className="ml-3 pl-3 flex flex-col gap-px my-1" style={{ borderLeft: '1px solid var(--border-soft)' }}>
+          {PORTFOLIO_SUB.map((s) => {
+            const active = s.exact
+              ? pathname === s.href
+              : s.match.some((m) => pathname === m || pathname.startsWith(m + '/'));
+            return (
+              <Link
+                key={s.href}
+                href={s.href}
+                className="px-2.5 py-1.5 rounded-md text-[11.5px] font-semibold transition-colors"
+                style={active
+                  ? { color: 'var(--teal)', background: 'rgba(14,124,111,0.10)' }
+                  : { color: 'var(--tx-mut)' }}
+              >
+                {s.label}
+              </Link>
+            );
+          })}
+        </div>
         <DisabledLink label="Settings" icon="⚙" />
       </nav>
     </aside>

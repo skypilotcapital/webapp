@@ -1,0 +1,360 @@
+'use client';
+
+// The IBKR paper track ([08-PTRK] Phase A).
+//
+// Design: `08_website_and_tooling/website_research_hub_IA.md` §IX–§XV.
+//
+// THIS IS NOT A COPY OF `BacktestReport`, and the difference is the whole reason the page exists:
+//
+//   the modeled report answers "is the strategy any good?" — 258 months, IR, drawdown, factor
+//   attribution; a statistical claim.
+//   this answers "are we running the strategy we said we'd run, and what is it doing?" — a real
+//   account roughly a week old, where NO statistical claim is available. Its job is FIDELITY and
+//   DECOMPOSITION, not track record.
+//
+// Two rules follow from that and are enforced here rather than left to editorial care:
+//
+//  1. **Ratio statistics are not rendered below the API's observation threshold.** The API returns
+//     `stats_suppressed` and the reason; this component prints the reason where the number would
+//     have been. It never computes its own IR from the series to fill the gap.
+//  2. **A section that cannot be built yet says so, and names its owner.** An absent section is
+//     indistinguishable from a section with nothing to report — which is how a silent degradation
+//     survives for weeks (F-006 → F-008). Same convention the reports use.
+
+import useSWR from 'swr';
+import Link from 'next/link';
+import {
+  fetchPaperBook, fetchPaperNav, fetchPaperFidelity, fetchPaperPositions,
+  type PaperPosition,
+} from '@/lib/paper';
+import { CumulativeChart, HBarChart } from '@/components/portfolio/charts';
+
+const pct = (v: number | null | undefined, d = 1) =>
+  v == null ? '—' : `${(v * 100).toFixed(d)}%`;
+const usd = (v: number | null | undefined) =>
+  v == null ? '—' : `$${Math.round(v).toLocaleString()}`;
+const bps = (v: number | null | undefined, d = 1) =>
+  v == null ? '—' : `${v.toFixed(d)} bp`;
+const num = (v: number | null | undefined) =>
+  v == null ? '—' : Math.round(v).toLocaleString();
+
+export function PaperTrack({ strategy, topSlot }: { strategy?: string; topSlot?: React.ReactNode }) {
+  const { data: bk } = useSWR(['paper-book', strategy], () => fetchPaperBook('paper', strategy),
+    { revalidateOnFocus: false });
+  const { data: nav } = useSWR(['paper-nav', strategy], () => fetchPaperNav('paper', strategy),
+    { revalidateOnFocus: false });
+  const { data: fid } = useSWR(['paper-fid'], () => fetchPaperFidelity('paper'),
+    { revalidateOnFocus: false });
+  const { data: pos } = useSWR(['paper-pos'], () => fetchPaperPositions('paper', 10),
+    { revalidateOnFocus: false });
+
+  return (
+    <div className="animate-in">
+      {topSlot}
+
+      {/* Degradations lead. Published and labelled, never withheld — the reports' rule. */}
+      {!!bk?.degradations?.length && (
+        <div className="panel p-3 mb-3" style={{ borderLeft: '3px solid var(--neg)' }}>
+          <div className="text-[10px] font-bold tracking-[1.5px] mb-1" style={{ color: 'var(--neg)' }}>
+            DEGRADED
+          </div>
+          {bk.degradations.map((d) => (
+            <div key={d} className="text-[11.5px]" style={{ color: 'var(--tx)' }}>· {d}</div>
+          ))}
+        </div>
+      )}
+
+      <BookBand data={bk} />
+      <Fidelity data={fid} />
+      <Performance nav={nav} />
+      <Contribution pos={pos} />
+      <Unavailable />
+    </div>
+  );
+}
+
+/* ------------------------------------------------------------------ the book band ---- */
+function BookBand({ data }: { data: Awaited<ReturnType<typeof fetchPaperBook>> | undefined }) {
+  if (!data) return <div className="panel p-8 text-center muted text-sm">Loading the book…</div>;
+  const b = data.book;
+  if (!b) {
+    return (
+      <div className="panel p-8 text-center text-sm" style={{ color: 'var(--tx-mut)' }}>
+        No book has been built yet. The daily build marks date D at 02:00 UTC on D+1.
+      </div>
+    );
+  }
+  return (
+    <div className="panel p-4 mb-3">
+      <div className="flex items-baseline gap-3 flex-wrap mb-3">
+        <h2 className="text-base font-bold tracking-tight" style={{ color: 'var(--tx)' }}>The Book</h2>
+        <span className="text-[11px] font-mono" style={{ color: 'var(--tx-mut)' }}>
+          {b.account_id} · {b.date}
+        </span>
+        {/* `[10-P4]`: no performance number is reported that has not tied out. The marker is the
+            precondition made visible — we do not hide the numbers when it is false. */}
+        <span className="text-[10px] font-bold px-2 py-0.5 rounded"
+          style={b.tied_out
+            ? { background: 'rgba(21,128,61,0.12)', color: 'var(--pos)' }
+            : { background: 'rgba(185,28,28,0.12)', color: 'var(--neg)' }}>
+          {b.tied_out ? '✓ tied to broker' : '✗ NOT tied out'}
+        </span>
+      </div>
+
+      <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-7 gap-3">
+        <Stat label="NAV" value={usd(b.nav)} sub={`broker ${usd(b.broker_nlv)}`} />
+        <Stat label="Day P&L" value={usd(b.pnl_d)}
+          color={(b.pnl_d ?? 0) >= 0 ? 'var(--pos)' : 'var(--neg)'} />
+        <Stat label="Gross" value={pct(b.gross_pct, 0)}
+          sub={`${pct(b.gross_long_pct, 0)} L · ${pct(b.gross_short_pct, 0)} S`} />
+        <Stat label="Net" value={pct(b.net_pct, 0)} sub="of NAV" />
+        <Stat label="Names" value={num((b.n_long ?? 0) + (b.n_short ?? 0))}
+          sub={`${b.n_long ?? 0}L / ${b.n_short ?? 0}S`} />
+        <Stat label="Margin util" value={pct(b.margin_util, 0)} />
+        <Stat label="Cash" value={usd(b.cash)} sub={`accrued ${usd(b.accrued_cash)}`} />
+      </div>
+
+      <div className="text-[10.5px] mt-3" style={{ color: 'var(--tx-dim)' }}>
+        Marked on our own closes (quality <b>{b.mark_quality ?? '—'}</b>), not the broker's — the
+        broker NLV beside NAV is the tie-out, not the source. Built {b.built_at?.slice(0, 16)?.replace('T', ' ')} UTC
+        from the {b.snap_ts?.slice(11, 16)} UTC snapshot.
+      </div>
+    </div>
+  );
+}
+
+/* --------------------------------------------------------------------- fidelity ---- */
+function Fidelity({ data }: { data: Awaited<ReturnType<typeof fetchPaperFidelity>> | undefined }) {
+  if (!data) return null;
+  if (!data.rebalance) {
+    return <Panel title="Fidelity"><Muted>{data.note ?? 'no rebalance has been executed yet'}</Muted></Panel>;
+  }
+  const { coverage: c, execution: e, cost, plan_drift: pd, rebalance: r } = data;
+  const unfilled = c.n_planned - c.n_filled_names;
+  return (
+    <div className="panel p-4 mb-3">
+      <div className="flex items-baseline gap-3 flex-wrap">
+        <h2 className="text-base font-bold tracking-tight" style={{ color: 'var(--tx)' }}>Fidelity</h2>
+        <span className="text-[11px]" style={{ color: 'var(--tx-mut)' }}>
+          did we build the book we approved?
+        </span>
+        <Link href={`/trading/paper/rebalance/${r.rebalance_id}`}
+          className="ml-auto text-[11px] teal font-semibold">
+          rebalance #{r.rebalance_id} · signal {r.signal_date} →
+        </Link>
+      </div>
+
+      <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3 mt-3">
+        <Stat label="Target names" value={num(c.n_target)} sub="frozen book" />
+        <Stat label="Filled" value={num(c.n_filled_names)}
+          sub={unfilled > 0 ? `${unfilled} unfilled` : 'all names'}
+          color={unfilled > 0 ? 'var(--neg)' : undefined} />
+        <Stat label="Dust-filtered" value={num(c.n_dust_filtered)} sub="below min trade" />
+        <Stat label="Traded" value={usd(e.filled_notional)} sub={`${e.n_fills} fills`} />
+        <Stat label="Commission" value={bps(cost.commission_bps)} sub={usd(cost.commission_usd)} />
+        <Stat label="Slippage vs ref" value={bps(cost.slippage_bps)} sub={usd(cost.slippage_usd)} />
+      </div>
+
+      {/* The T7 line. Realized and predicted sit side by side or the comparison is not made. */}
+      <div className="mt-4 pt-3" style={{ borderTop: '1px solid var(--border-soft)' }}>
+        <div className="text-[10px] font-bold tracking-[1.5px] mb-2" style={{ color: 'var(--tx-dim)' }}>
+          REALIZED COST vs THE MODEL · [06-T7]
+        </div>
+        <div className="flex gap-6 flex-wrap items-baseline">
+          <Stat label="Realized" value={bps(cost.realized_bps)} sub="per traded dollar" />
+          <Stat label="Model predicted" value={bps(cost.model_predicted_bps)}
+            sub={cost.model_predicted_bps == null ? 'not stored on the plan' : 'per traded dollar'} />
+          <Stat label="Difference" value={bps(cost.vs_model_bps)}
+            sub={cost.vs_model_bps == null ? 'unavailable' : 'positive = we spent more'} />
+        </div>
+        {cost.model_predicted_bps == null && (
+          <div className="text-[10.5px] mt-2" style={{ color: 'var(--neg)' }}>
+            The trade plan stores no per-name cost prediction (<code>est_cost_bps</code> is NULL on
+            every row of this book), so the calibration cannot be made at name level. Realized cost
+            is measured; the model's own number for <i>this</i> book is not recoverable. → [06-T7]
+          </div>
+        )}
+        <div className="text-[10.5px] mt-2" style={{ color: 'var(--tx-dim)' }}>
+          ⓘ {data.impact_note}
+        </div>
+      </div>
+
+      <div className="mt-3 pt-3 text-[10.5px]" style={{ borderTop: '1px solid var(--border-soft)', color: 'var(--tx-dim)' }}>
+        <b>Plan drift</b> — preview {usd(pd.preview_notional)} → final {usd(pd.final_notional)}.{' '}
+        {pd.note}
+      </div>
+    </div>
+  );
+}
+
+/* ------------------------------------------------------------------ performance ---- */
+function Performance({ nav }: { nav: Awaited<ReturnType<typeof fetchPaperNav>> | undefined }) {
+  if (!nav) return null;
+  if (!nav.series.length) return <Panel title="Return"><Muted>no book yet</Muted></Panel>;
+
+  const dates = nav.series.map((p) => p.date);
+  const last = nav.series[nav.series.length - 1];
+  const benchLast = [...nav.series].reverse().find((p) => p.bench_idx != null)?.bench_idx ?? null;
+
+  return (
+    <div className="panel p-4 mb-3">
+      <div className="flex items-baseline gap-3 flex-wrap">
+        <h2 className="text-base font-bold tracking-tight" style={{ color: 'var(--tx)' }}>Return</h2>
+        <span className="text-[11px]" style={{ color: 'var(--tx-mut)' }}>
+          growth of 100 · net · vs S&amp;P 500 TR
+        </span>
+        {nav.incl_cash_days && (
+          <span className="text-[10px] font-semibold px-2 py-0.5 rounded"
+            style={{ background: 'var(--panel2)', color: 'var(--tx-dim)' }}>
+            incl. cash days
+          </span>
+        )}
+      </div>
+
+      <div className="flex gap-6 flex-wrap mt-3 mb-2">
+        <Stat label="Since inception" value={pct((last.nav_idx ?? 100) / 100 - 1, 2)}
+          sub={`from ${nav.inception}`} />
+        <Stat label="S&P 500 TR" value={benchLast == null ? '—' : pct(benchLast / 100 - 1, 2)}
+          sub="same window" />
+        <Stat label="Observations" value={String(nav.n_obs)} sub="trading days" />
+      </div>
+
+      <CumulativeChart
+        dates={dates}
+        series={[
+          { label: 'Paper book', color: 'var(--teal)', values: nav.series.map((p) => p.nav_idx) },
+          { label: 'S&P 500 TR', color: 'var(--tx-dim)', dash: true, values: nav.series.map((p) => p.bench_idx) },
+        ]}
+        height={220}
+        boundaryDate={nav.first_invested ?? undefined}
+      />
+
+      {nav.stats_suppressed && (
+        <div className="text-[10.5px] mt-2 p-2 rounded"
+          style={{ background: 'var(--panel2)', color: 'var(--tx-mut)' }}>
+          <b>No ratio statistics.</b> {nav.reason}. Sharpe, information ratio and drawdown
+          statistics appear once the track is long enough to carry them — this page is a fidelity
+          record first and a track record later.
+        </div>
+      )}
+      {nav.first_invested && (
+        <div className="text-[10.5px] mt-2" style={{ color: 'var(--tx-dim)' }}>
+          The marker is the first invested day ({nav.first_invested}); days before it are the funded
+          cash period. They are labelled, not restated away — holding cash through a benchmark rally
+          is a real opportunity cost.
+        </div>
+      )}
+    </div>
+  );
+}
+
+/* ----------------------------------------------------------------- contribution ---- */
+function Contribution({ pos }: { pos: Awaited<ReturnType<typeof fetchPaperPositions>> | undefined }) {
+  if (!pos) return null;
+  if (!pos.n_positions) {
+    return (
+      <Panel title="Contribution">
+        <Muted>
+          The marked book for {pos.date ?? 'the latest date'} holds no positions yet — the daily
+          build marks date D at 02:00 UTC on D+1, so a book traded today appears tomorrow.
+        </Muted>
+      </Panel>
+    );
+  }
+  const bar = (p: PaperPosition) => ({ label: p.ticker ?? String(p.conid), value: p.contrib_bps ?? 0 });
+  return (
+    <div className="panel p-4 mb-3">
+      <div className="flex items-baseline gap-3 flex-wrap">
+        <h2 className="text-base font-bold tracking-tight" style={{ color: 'var(--tx)' }}>Contribution</h2>
+        <span className="text-[11px]" style={{ color: 'var(--tx-mut)' }}>
+          basis points of NAV · {pos.date} · {pos.n_positions} positions
+        </span>
+      </div>
+      <div className="grid md:grid-cols-2 gap-6 mt-3">
+        <div>
+          <div className="text-[10px] font-bold tracking-[1.5px] mb-2" style={{ color: 'var(--tx-dim)' }}>
+            TOP CONTRIBUTORS
+          </div>
+          <HBarChart bars={pos.contributors.map(bar)} valFmt={(v) => v.toFixed(1)} diverging={false} />
+        </div>
+        <div>
+          <div className="text-[10px] font-bold tracking-[1.5px] mb-2" style={{ color: 'var(--tx-dim)' }}>
+            TOP DETRACTORS
+          </div>
+          <HBarChart bars={pos.detractors.map(bar)} valFmt={(v) => v.toFixed(1)} diverging={false} />
+        </div>
+      </div>
+      <div className="text-[10.5px] mt-3" style={{ color: 'var(--tx-dim)' }}>
+        Contribution is in basis points <b>of NAV</b>, not position return — a 40% move on a 0.1%
+        position is noise, and showing it as a return invites the reader to deflate it by hand.
+      </div>
+    </div>
+  );
+}
+
+/* ------------------------------------------------------- not buildable yet ---- */
+function Unavailable() {
+  // Named owners, not silence. A section that is absent looks identical to one with nothing to
+  // report, and that ambiguity is how every silent degradation in this project survived.
+  const rows = [
+    ['Core vs sleeve contribution', '[08-PTRK]',
+      'the sleeve ledger is stateless by design and persists no attribution table, so nothing the website can read holds the split of ACTUAL holdings'],
+    ['Implementation shortfall', '[10-SHFL]',
+      'single-period Track B − Track C; structurally needs the September rebalance to close the first interval'],
+    ['Modeled vs actual overlay', '[10-WPREV]',
+      'Track B (the live target optimized from actual holdings) does not exist yet'],
+    ['Reconciliation breaks', '[10-P4]',
+      'the recon writer is unbuilt; the tie-out marker above comes from book_daily_status'],
+    ['Corporate actions', '[10-CAREP] / [10-CAACC]',
+      'an unaccounted dividend or split shows up as either a fake break or a fake return'],
+  ];
+  return (
+    <div className="panel p-4 mb-3">
+      <h2 className="text-base font-bold tracking-tight mb-1" style={{ color: 'var(--tx)' }}>
+        Not yet available
+      </h2>
+      <div className="text-[11px] mb-3" style={{ color: 'var(--tx-mut)' }}>
+        Listed rather than omitted: an absent section is indistinguishable from one with nothing to
+        report.
+      </div>
+      {rows.map(([what, owner, why]) => (
+        <div key={what} className="py-1.5 text-[11.5px]"
+          style={{ borderTop: '1px solid var(--border-soft)' }}>
+          <span style={{ color: 'var(--tx)' }}>{what}</span>
+          <span className="ml-2 font-mono text-[10.5px]" style={{ color: 'var(--teal)' }}>{owner}</span>
+          <div className="text-[10.5px]" style={{ color: 'var(--tx-dim)' }}>{why}</div>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+/* ------------------------------------------------------------------- primitives ---- */
+function Stat({ label, value, sub, color }: {
+  label: string; value: string; sub?: string; color?: string;
+}) {
+  return (
+    <div>
+      <div className="text-[9px] font-bold tracking-[1.2px]" style={{ color: 'var(--tx-dim)' }}>
+        {label.toUpperCase()}
+      </div>
+      <div className="text-[17px] font-bold tabular-nums" style={{ color: color ?? 'var(--tx)' }}>
+        {value}
+      </div>
+      {sub && <div className="text-[10px]" style={{ color: 'var(--tx-dim)' }}>{sub}</div>}
+    </div>
+  );
+}
+
+function Panel({ title, children }: { title: string; children: React.ReactNode }) {
+  return (
+    <div className="panel p-4 mb-3">
+      <h2 className="text-base font-bold tracking-tight mb-2" style={{ color: 'var(--tx)' }}>{title}</h2>
+      {children}
+    </div>
+  );
+}
+
+const Muted = ({ children }: { children: React.ReactNode }) => (
+  <div className="text-[11.5px]" style={{ color: 'var(--tx-mut)' }}>{children}</div>
+);
