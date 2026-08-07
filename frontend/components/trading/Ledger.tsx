@@ -179,14 +179,43 @@ export function LedgerTable({ env }: { env: string }) {
                           {live.status}…
                         </span>;
                       }
+                      // EXECUTION IS NOT IN `triggerable` AND NEVER WILL BE — it does not use the
+                      // generic run-request endpoint. It has its own, with a typed confirmation
+                      // and its own env allow-list (§3.10 auth boundary). So it cannot be a chip
+                      // here; it is a POINTER to the control, which lives on the review screen
+                      // where you can see the book you are arming.
+                      //
+                      // This row said "terminal only" until 2026-08-06, which was true when it
+                      // was written and false the moment ExecuteControl shipped. A stale label on
+                      // a control path is worse than no label: it sends the operator to a
+                      // terminal for something the page in front of them can already do.
+                      if (s.step === 'execution' && data.rebalance) {
+                        const approved = data.rebalance.status === 'approved';
+                        // Before approval the control renders nothing, so linking there would be
+                        // a dead end. Say which gate is actually shut instead.
+                        return approved ? (
+                          <Link href={`/trading/${env}/rebalance/${data.rebalance.rebalance_id}`}
+                                className="text-[10px] text-[var(--cyan)] underline
+                                           decoration-dotted underline-offset-2"
+                                title="opens the frozen book — type your name and 'execute' there">
+                            execute →
+                          </Link>
+                        ) : (
+                          <span className="text-[10px] text-[var(--tx-dim)]"
+                                title={`the book is '${data.rebalance.status}' — it must be `
+                                       + `approved before execution can be armed`}>
+                            needs approval
+                          </span>
+                        );
+                      }
                       if (!triggerable.includes(s.step)) {
                         // No button, by design. So say WHY and give the command — an unexplained
-                        // dash on the execution row is the least helpful thing this page could do.
+                        // dash on a row is the least helpful thing this page could do.
                         return <span className="text-[10px] text-[var(--tx-dim)]"
                                      title={s.manual_only
                                        ? 'the human gate — it has its own control'
                                        : 'runs from the terminal by design'}>
-                          {s.step === 'execution' ? 'terminal only' : '—'}
+                          —
                         </span>;
                       }
                       return (
@@ -208,12 +237,13 @@ export function LedgerTable({ env }: { env: string }) {
 
       {runErr && <p className="text-[11px] text-[var(--neg)] mt-2">{runErr}</p>}
 
-      {/* THE COMMANDS, IN CYCLE ORDER. §3.10 requires every step keep a documented CLI equivalent;
-          a runbook you have to go and find is one you will not have open at 11:30 with the market
-          open. Execution has no button on purpose — this is how you run it. */}
+      {/* THE COMMANDS, IN CYCLE ORDER. §3.10 requires every step keep a documented CLI equivalent
+          FOREVER, including the ones with buttons: the more the site becomes the control plane,
+          the more the droplet API becomes a single point of failure for operations rather than
+          merely for viewing. If the website is down you must still be able to trade. */}
       <details className="mt-3">
         <summary className="text-[11px] text-[var(--tx-mut)] cursor-pointer">
-          Run any step from the terminal — including <b>execution</b>, which has no button by design
+          Run any step from the terminal — every button here has a CLI equivalent, and keeps it
         </summary>
         <div className="mt-2 text-[10px] font-mono space-y-1">
           <div className="text-[var(--tx-dim)]">ssh -i ~/.ssh/id_personal root@165.22.47.36</div>
