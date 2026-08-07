@@ -262,6 +262,7 @@ class SourceAttrPoint(BaseModel):
     long_sel: Optional[float]; short_sel: Optional[float]; market: Optional[float]  # SELECTION view
     collateral: Optional[float]; cost: Optional[float]           # shared
     gross_long: Optional[float]; gross_short: Optional[float]    # exposure per side
+    net_rc: Optional[float] = None                               # book net under the realistic cost model
     credited_tot: Optional[float]
 
 
@@ -271,6 +272,7 @@ class SourceAttrSummary(BaseModel):
     long_leg: Optional[float]; short_leg: Optional[float]
     long_sel: Optional[float]; short_sel: Optional[float]; market: Optional[float]
     collateral: Optional[float]; cost: Optional[float]; credited_tot: Optional[float]
+    net_rc: Optional[float] = None
     gross_long_avg: Optional[float]; gross_short_avg: Optional[float]
 
 
@@ -717,7 +719,7 @@ def get_source_attribution(label: str):
     both views reconcile to the credited total return. `cost` is a positive drag (subtract it).
     Reads portfolio.source_attribution; 404 for labels without it (long-only books)."""
     keys = ("long_leg", "short_leg", "long_sel", "short_sel", "market", "collateral", "cost",
-            "gross_long", "gross_short", "credited_tot")
+            "gross_long", "gross_short", "net_rc", "credited_tot")
     with get_db() as conn:
         rows = conn.execute(text(f"""
             SELECT date, {', '.join(keys)} FROM portfolio.source_attribution
@@ -736,6 +738,7 @@ def get_source_attribution(label: str):
         n_months=n, long_leg=ann("long_leg"), short_leg=ann("short_leg"),
         long_sel=ann("long_sel"), short_sel=ann("short_sel"), market=ann("market"),
         collateral=ann("collateral"), cost=ann("cost"), credited_tot=ann("credited_tot"),
+        net_rc=ann("net_rc"),
         gross_long_avg=avg("gross_long"), gross_short_avg=avg("gross_short"))
     return SourceAttributionResponse(summary=summary, monthly=monthly)
 
@@ -999,3 +1002,165 @@ def get_deployment(label: str):
         k=k, core_long=last.core_long, sleeve_long=last.sleeve_long, sleeve_short=last.sleeve_short,
         net=last.net, gross=last.gross, cash=round(max(0.0, 1.0 - (last.core_long or 0.0)), 5))
     return DeploymentResponse(summary=summary, monthly=monthly)
+
+
+# ---------------------------------------------------------------------------
+# Monthly attribution — the fund month-by-month, by component
+# ---------------------------------------------------------------------------
+
+class ComponentAttrPoint(BaseModel):
+    """One month. `formation_date` is the rebalance the weights were formed at; `realized_month`
+    ('YYYY-MM') is the calendar month the return was EARNED (formation + 1) — see the formation-vs-
+    realization note in lib/portfolio.ts. All values are monthly decimal returns (0.0284 = +2.84%)."""
+    formation_date: str
+    realized_month: str
+    # -- group 1: the fund. EXACT identity every month: active = core_alpha + sleeve_alpha.
+    #    (Extension blends only; null in 'ls' mode, which has no core/sleeve split.)
+    total_net: Optional[float] = None
+    index_ret: Optional[float] = None
+    active: Optional[float] = None
+    core_alpha: Optional[float] = None
+    sleeve_alpha: Optional[float] = None
+    k: Optional[float] = None                       # the sleeve's weight in the blend (0.5 for 150/50)
+    core_label: Optional[str] = None
+    sleeve_label: Optional[str] = None
+    # -- group 2: the L/S book on its OWN standalone cost basis. In 'ext' mode this describes the
+    #    sleeve book at FULL weight — it does NOT sum to `sleeve_alpha` (a different cost lens; the
+    #    gap is `sleeve_lens_delta` = sleeve_alpha − k·sleeve_net). In 'ls' mode it IS the book.
+    #    `*_sel` are beta-adjusted vs the equal-weight R2500 universe: short_sel > 0 = shorts
+    #    underperformed = good. `sleeve_cost` is a POSITIVE drag (subtract it).
+    sleeve_net: Optional[float] = None
+    sleeve_long_sel: Optional[float] = None
+    sleeve_short_sel: Optional[float] = None
+    sleeve_market: Optional[float] = None
+    sleeve_collateral: Optional[float] = None
+    sleeve_cost: Optional[float] = None
+    sleeve_long_leg: Optional[float] = None
+    sleeve_short_leg: Optional[float] = None
+    sleeve_gross_long: Optional[float] = None
+    sleeve_gross_short: Optional[float] = None
+    sleeve_lens_delta: Optional[float] = None       # published for completeness; small (~14bp/mo avg)
+
+
+class ComponentAttrYear(BaseModel):
+    """One REALIZATION year. Every figure is an ARITHMETIC sum of that year's monthly returns — see
+    the endpoint docstring for why compounding is not used here."""
+    year: int
+    n_months: int
+    total_net: Optional[float] = None
+    index_ret: Optional[float] = None
+    active: Optional[float] = None
+    core_alpha: Optional[float] = None
+    sleeve_alpha: Optional[float] = None
+    sleeve_net: Optional[float] = None
+    sleeve_long_sel: Optional[float] = None
+    sleeve_short_sel: Optional[float] = None
+    sleeve_collateral: Optional[float] = None
+    sleeve_cost: Optional[float] = None
+
+
+class ComponentAttributionResponse(BaseModel):
+    mode: str                                       # 'ext' (blend) | 'ls' (standalone long-short)
+    monthly: List[ComponentAttrPoint]               # oldest → newest, trimmed to the last `months`
+    annual: List[ComponentAttrYear]                 # ascending year, over the FULL history
+
+
+# Columns read straight off portfolio.component_attribution_monthly (the view's own names are the
+# response field names, so the rows map 1:1 through _clean).
+_COMP_ATTR_COLS = (
+    "total_net", "index_ret", "active", "core_alpha", "sleeve_alpha", "k", "core_label",
+    "sleeve_label", "sleeve_net", "sleeve_long_sel", "sleeve_short_sel", "sleeve_market",
+    "sleeve_collateral", "sleeve_cost", "sleeve_long_leg", "sleeve_short_leg",
+    "sleeve_gross_long", "sleeve_gross_short", "sleeve_lens_delta",
+)
+
+# The subset that gets rolled up per year (labels and `k` are not summable; the gross-exposure and
+# raw-leg columns are levels/beta-dominated and would mislead as an annual total).
+_COMP_ATTR_ANNUAL_COLS = (
+    "total_net", "index_ret", "active", "core_alpha", "sleeve_alpha",
+    "sleeve_net", "sleeve_long_sel", "sleeve_short_sel", "sleeve_collateral", "sleeve_cost",
+)
+
+
+def _sum_or_none(vals: list) -> Optional[float]:
+    """Arithmetic sum over the non-null values; None if the year has no value at all (so a column
+    the view LEFT JOINed away stays null and renders 'n/a' rather than a misleading 0)."""
+    present = [v for v in vals if v is not None]
+    return round(sum(present), 10) if present else None      # 10dp = float dust gone, identity intact
+
+
+@router.get("/backtests/{label}/component-attribution", response_model=ComponentAttributionResponse)
+def get_component_attribution(
+    label: str,
+    months: int = Query(24, description="most recent N months of the monthly series; 0 or negative = all"),
+):
+    """Month-by-month return decomposition for one book — the 'Monthly attribution' report section.
+
+    mode='ext' (an extension blend, strategy='ext') reads portfolio.component_attribution_monthly and
+    returns TWO groups. Group 1 is the fund and holds the exact identity
+    `active = core_alpha + sleeve_alpha` every month. Group 2 describes the L/S sleeve book on its OWN
+    STANDALONE cost basis, at full weight — it is context for the Sleeve column, NOT a decomposition
+    of it, and does not sum to `sleeve_alpha` (the gap is `sleeve_lens_delta`, ~14 bps/mo).
+
+    mode='ls' (a standalone long-short book, no extension row) falls back to portfolio.source_attribution
+    and returns the group-2 columns only, with `net_rc` as the headline (`sleeve_net`). Group 1 is null.
+
+    `annual` rolls up by REALIZATION year using ARITHMETIC sums, not compounding — deliberately. The
+    identity `active = core_alpha + sleeve_alpha` is additive per month, so it survives summation only
+    if the roll-up is arithmetic; compounded yearly figures would not reconcile. `months` trims the
+    MONTHLY series only (it is a display window); `annual` always covers the full history.
+    404 if the label appears in neither source."""
+    with get_db() as conn:
+        rows = conn.execute(text(f"""
+            SELECT formation_date::text AS formation_date, realized_month, {', '.join(_COMP_ATTR_COLS)}
+            FROM portfolio.component_attribution_monthly
+            WHERE model_label = :l
+            ORDER BY formation_date
+        """), {"l": label}).fetchall()  # noqa: S608 — _COMP_ATTR_COLS is a fixed literal tuple
+        mode = "ext"
+        if not rows:
+            # Standalone L/S book: no blend row exists, so report its own source attribution. The
+            # column aliases match the group-2 field names so both modes share one response model.
+            mode = "ls"
+            rows = conn.execute(text("""
+                SELECT date::text                                    AS formation_date,
+                       to_char(date + interval '1 month', 'YYYY-MM') AS realized_month,
+                       net_rc      AS sleeve_net,
+                       long_sel    AS sleeve_long_sel,
+                       short_sel   AS sleeve_short_sel,
+                       market      AS sleeve_market,
+                       collateral  AS sleeve_collateral,
+                       cost        AS sleeve_cost,
+                       long_leg    AS sleeve_long_leg,
+                       short_leg   AS sleeve_short_leg,
+                       gross_long  AS sleeve_gross_long,
+                       gross_short AS sleeve_gross_short
+                FROM portfolio.source_attribution
+                WHERE model_label = :l
+                ORDER BY date
+            """), {"l": label}).fetchall()
+        if not rows:
+            raise HTTPException(
+                status_code=404,
+                detail=f"No component attribution for '{label}' (not an extension blend or L/S book).")
+
+    dicts = [_clean(r) for r in rows]
+
+    # Annual roll-up over the FULL history, bucketed by realization year (the month the return was
+    # earned), so calendar-year rows are true — same convention as the report's Annual Returns table.
+    by_year: dict = {}
+    for d in dicts:
+        y = int(str(d["realized_month"])[:4])
+        by_year.setdefault(y, []).append(d)
+    annual = [
+        ComponentAttrYear(year=y, n_months=len(ds),
+                          **{c: _sum_or_none([d.get(c) for d in ds]) for c in _COMP_ATTR_ANNUAL_COLS})
+        for y, ds in sorted(by_year.items())
+    ]
+
+    monthly = dicts[-months:] if months and months > 0 else dicts
+    return ComponentAttributionResponse(
+        mode=mode,
+        monthly=[ComponentAttrPoint(**d) for d in monthly],
+        annual=annual,
+    )

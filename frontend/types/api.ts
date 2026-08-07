@@ -491,6 +491,7 @@ export interface SourceAttrPoint {
   long_sel: number | null; short_sel: number | null; market: number | null;
   collateral: number | null; cost: number | null;
   gross_long: number | null; gross_short: number | null;
+  net_rc: number | null;                 // book net under the realistic cost model
   credited_tot: number | null;
 }
 export interface SourceAttrSummary {
@@ -498,11 +499,49 @@ export interface SourceAttrSummary {
   long_leg: number | null; short_leg: number | null;
   long_sel: number | null; short_sel: number | null; market: number | null;
   collateral: number | null; cost: number | null; credited_tot: number | null;
+  net_rc: number | null;
   gross_long_avg: number | null; gross_short_avg: number | null;
 }
 export interface SourceAttribution {
   summary: SourceAttrSummary;
   monthly: SourceAttrPoint[];
+}
+
+// Monthly attribution — the fund month-by-month, by component. Two shapes behind one model:
+//   mode 'ext' — an extension blend. Group 1 (total_net / index_ret / active / core_alpha /
+//                sleeve_alpha) is the FUND and holds the exact identity active = core_alpha +
+//                sleeve_alpha every month. Group 2 (sleeve_*) describes the L/S sleeve book on its
+//                OWN standalone cost basis at full weight — context for the Sleeve column, NOT a
+//                decomposition of it (the gap is sleeve_lens_delta).
+//   mode 'ls'  — a standalone long-short book: group 2 only (sleeve_net = the book's net_rc),
+//                group 1 null.
+// All values are monthly decimal returns; sleeve_cost is a POSITIVE drag. `realized_month` is the
+// calendar month the return was EARNED (formation + 1).
+export interface ComponentAttrPoint {
+  formation_date: string;
+  realized_month: string;                // 'YYYY-MM'
+  total_net: number | null; index_ret: number | null; active: number | null;
+  core_alpha: number | null; sleeve_alpha: number | null; k: number | null;
+  core_label: string | null; sleeve_label: string | null;
+  sleeve_net: number | null;
+  sleeve_long_sel: number | null; sleeve_short_sel: number | null; sleeve_market: number | null;
+  sleeve_collateral: number | null; sleeve_cost: number | null;
+  sleeve_long_leg: number | null; sleeve_short_leg: number | null;
+  sleeve_gross_long: number | null; sleeve_gross_short: number | null;
+  sleeve_lens_delta: number | null;
+}
+export interface ComponentAttrYear {
+  year: number;
+  n_months: number;
+  total_net: number | null; index_ret: number | null; active: number | null;
+  core_alpha: number | null; sleeve_alpha: number | null;
+  sleeve_net: number | null; sleeve_long_sel: number | null; sleeve_short_sel: number | null;
+  sleeve_collateral: number | null; sleeve_cost: number | null;
+}
+export interface ComponentAttribution {
+  mode: 'ext' | 'ls';
+  monthly: ComponentAttrPoint[];         // oldest → newest
+  annual: ComponentAttrYear[];           // ascending year, full history
 }
 
 // F2 — long-short neutrality (net dollar & net beta over time).

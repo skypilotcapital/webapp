@@ -31,6 +31,7 @@ import type {
   AttrCumPoint,
   CostAttribution,
   SourceAttribution,
+  ComponentAttribution,
   PortfolioNeutrality,
   PortfolioCreditedReturn,
   PortfolioDecomposition,
@@ -152,6 +153,11 @@ export const fetchPortfolioCostAttribution = (label: string, aum = 5) =>
 export const fetchPortfolioSourceAttribution = (label: string) =>
   apiFetch<SourceAttribution>(
     `/api/v1/portfolio/backtests/${encodeURIComponent(label)}/source-attribution`);
+// Monthly attribution. `months` trims the MONTHLY series only (a display window) — the annual
+// roll-up always covers the full history, so one call feeds both tables.
+export const fetchPortfolioComponentAttribution = (label: string, months = 24) =>
+  apiFetch<ComponentAttribution>(
+    `/api/v1/portfolio/backtests/${encodeURIComponent(label)}/component-attribution?months=${months}`);
 export const fetchPortfolioNeutrality = (label: string) =>
   apiFetch<PortfolioNeutrality>(
     `/api/v1/portfolio/backtests/${encodeURIComponent(label)}/neutrality`);

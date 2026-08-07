@@ -7,7 +7,7 @@ import {
   fetchPortfolioDetail, fetchPortfolioHoldings, fetchPortfolioSectorAllocation,
   fetchPortfolioAttribution, fetchPortfolioAttributionTimeseries, fetchPortfolioCostAttribution,
   fetchPortfolioNeutrality, fetchPortfolioSourceAttribution, fetchPortfolioDecomposition,
-  fetchPortfolioDeployment,
+  fetchPortfolioDeployment, fetchPortfolioComponentAttribution,
 } from '@/lib/api';
 import {
   pct, pctSign, num, fmtSector, fmtTurn,
@@ -15,7 +15,7 @@ import {
   COLLATERAL_HAIRCUT_ANN, realizedMonth,
 } from '@/lib/portfolio';
 import { CumulativeChart, DrawdownChart, MultiLineChart, Histogram, HBarChart, StackedAreaChart } from '@/components/portfolio/charts';
-import type { PortfolioHolding, SourceAttrPoint } from '@/types/api';
+import type { PortfolioHolding, SourceAttrPoint, ComponentAttrPoint } from '@/types/api';
 
 const STYLE_ORDER = ['beta', 'size', 'resid_vol', 'momentum', 'value', 'earnings_yield', 'growth',
   'profitability', 'earnings_qual', 'leverage', 'liquidity', 'dividend_yield'];
@@ -569,6 +569,151 @@ function SourceAttributionSection({ label }: { label: string }) {
   );
 }
 
+// ------------------------------------------------------------ monthly attribution (the fund, by component)
+// Two shapes behind one table. mode 'ext': group 1 is the FUND (and holds Core α + Sleeve = Active
+// exactly), group 2 is the L/S sleeve as a STANDALONE book on its own cost basis — context for the
+// Sleeve column, not a breakdown of it. mode 'ls': group 2 only, for a standalone long-short book.
+// ComponentAttrYear satisfies this shape too, so the monthly and annual tables share one renderer.
+type CAVals = Pick<ComponentAttrPoint,
+  'total_net' | 'index_ret' | 'active' | 'core_alpha' | 'sleeve_alpha' |
+  'sleeve_net' | 'sleeve_long_sel' | 'sleeve_short_sel' | 'sleeve_collateral' | 'sleeve_cost'>;
+interface CACol {
+  key: keyof CAVals;
+  label: string;
+  cost?: boolean;      // a positive DRAG — render neutral, never green
+  div?: boolean;       // draw the group divider on this column's left edge
+}
+const CA_EXT_COLS: CACol[] = [
+  { key: 'total_net', label: 'Fund net' },
+  { key: 'index_ret', label: 'Index' },
+  { key: 'active', label: 'Active' },
+  { key: 'core_alpha', label: 'Core α' },
+  { key: 'sleeve_alpha', label: 'Sleeve' },
+  { key: 'sleeve_net', label: 'Sleeve net', div: true },
+  { key: 'sleeve_long_sel', label: 'Long sel' },
+  { key: 'sleeve_short_sel', label: 'Short sel' },
+  { key: 'sleeve_cost', label: 'Cost (drag)', cost: true },
+];
+const CA_LS_COLS: CACol[] = [
+  { key: 'sleeve_net', label: 'Net (xs cash)' },
+  { key: 'sleeve_long_sel', label: 'Long sel' },
+  { key: 'sleeve_short_sel', label: 'Short sel' },
+  { key: 'sleeve_collateral', label: 'Collateral' },
+  { key: 'sleeve_cost', label: 'Cost (drag)', cost: true },
+];
+
+// Below 0.005% a return rounds to +0.00% at 2dp — colouring that green would read as a win that
+// isn't there, so anything that small (and anything missing) stays neutral.
+const CA_NEAR_ZERO = 5e-5;
+const caColor = (v: number | null | undefined) =>
+  v == null || !Number.isFinite(v) || Math.abs(v) < CA_NEAR_ZERO
+    ? 'var(--tx-dim)' : (v > 0 ? 'var(--pos)' : 'var(--neg)');
+
+function CACell({ v, col }: { v: number | null | undefined; col: CACol }) {
+  const div = col.div ? { borderLeft: '2px solid var(--border)' } : undefined;
+  if (v == null) return <td className="dim" style={div}>n/a</td>;
+  if (col.cost) return <td style={{ ...div, color: 'var(--tx-mut)' }}>{pct(v, 2)}</td>;
+  return <td style={{ ...div, color: caColor(v) }}>{pctSign(v, 2)}</td>;
+}
+
+function CATable({ cols, groups, firstHeader, rows }: {
+  cols: CACol[];
+  groups: { label: string; span: number }[];
+  firstHeader: string;
+  rows: { key: string; label: string; sub?: string; vals: CAVals }[];
+}) {
+  return (
+    <div className="overflow-x-auto">
+      <table className="dtable" style={{ fontSize: 11 }}>
+        <thead>
+          {/* group header — `position: static` so only the column row sticks (they'd overlap otherwise) */}
+          <tr>
+            <th style={{ position: 'static' }} />
+            {groups.map((g, i) => (
+              <th key={g.label} colSpan={g.span} style={{
+                position: 'static', textAlign: 'center', color: 'var(--tx-mut)',
+                borderLeft: i > 0 ? '2px solid var(--border)' : undefined,
+              }}>{g.label}</th>
+            ))}
+          </tr>
+          <tr>
+            <th>{firstHeader}</th>
+            {cols.map((c) => (
+              <th key={c.key} style={c.div ? { borderLeft: '2px solid var(--border)' } : undefined}>{c.label}</th>
+            ))}
+          </tr>
+        </thead>
+        <tbody>
+          {rows.map((r) => (
+            <tr key={r.key}>
+              <td>{r.label}{r.sub && <span className="dim" style={{ fontWeight: 400 }}> {r.sub}</span>}</td>
+              {cols.map((c) => <CACell key={c.key} v={r.vals[c.key]} col={c} />)}
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
+function ComponentAttributionSection({ label }: { label: string }) {
+  const { data, error } = useSWR(['pf-compattr', label],
+    () => fetchPortfolioComponentAttribution(label), { revalidateOnFocus: false });
+  if (error) return null;                                   // not a blend or L/S book → hide the section
+  if (!data) return <div className="panel p-6 muted text-sm mt-5">Loading monthly attribution…</div>;
+
+  const isExtMode = data.mode === 'ext';
+  const cols = isExtMode ? CA_EXT_COLS : CA_LS_COLS;
+  const kPct = Math.round((data.monthly[0]?.k ?? 0.5) * 100);
+  const groups = isExtMode
+    ? [{ label: 'The fund · Core α + Sleeve = Active', span: 5 },
+       { label: `Sleeve book, standalone · full weight, own cost basis (enters the blend at ${kPct}%)`, span: 4 }]
+    : [{ label: 'The long/short book · own cost basis', span: 5 }];
+  // most recent first, in both tables
+  const monthly = [...data.monthly].reverse();
+  const annual = [...data.annual].reverse();
+
+  return (
+    <div className="mt-5">
+      <div className="flex items-center gap-3 flex-wrap mb-2">
+        <h2 className="text-base font-bold tracking-tight" style={{ color: 'var(--tx)' }}>Monthly Attribution</h2>
+        <span className="pill pill-cyan">last {monthly.length} months</span>
+        <span className="text-[11px] muted">
+          {isExtMode ? 'month by month, where the fund’s return came from — and what the sleeve book did on its own'
+            : 'month by month, where the book’s return came from'}
+        </span>
+      </div>
+      <div className="takeaway mb-3 text-[12px]">
+        Months are labelled by the month the return was <b>earned</b> (the book is formed the month before).
+        {isExtMode && <> <b>Core α + Sleeve = Active</b>, exactly, every month. The right-hand group is the
+          L/S sleeve as a <b>standalone book at full weight on its own cost basis</b> — context for the
+          Sleeve column, not a breakdown of it, so it does not add up to it.</>}
+        {' '}Long sel and Short sel are beta-adjusted against the equal-weight Russell 2500 universe, so
+        <b> Short sel is positive when the shorts underperform</b> — on both, positive is good. Cost is shown
+        as a positive drag (subtract it).
+      </div>
+
+      <div className="panel p-4">
+        <div className="panel-head">Monthly <span className="muted" style={{ fontWeight: 400 }}>· most recent first</span></div>
+        <div className="panel-sub mb-2">monthly returns, % · n/a = not reported for that month</div>
+        <CATable cols={cols} groups={groups} firstHeader="Month"
+          rows={monthly.map((p) => ({ key: p.formation_date, label: p.realized_month, vals: p }))} />
+      </div>
+
+      <div className="panel p-4 mt-4">
+        <div className="panel-head">Annual <span className="muted" style={{ fontWeight: 400 }}>· by the year the return was earned</span></div>
+        <div className="panel-sub mb-2">arithmetic sums of the months, % · summing this way is what keeps
+          {isExtMode ? ' Core α + Sleeve = Active' : ' the columns'} true at the year level · full history, most recent first</div>
+        <CATable cols={cols} groups={groups} firstHeader="Year"
+          rows={annual.map((y) => ({
+            key: String(y.year), label: String(y.year),
+            sub: y.n_months < 12 ? `· ${y.n_months} mo` : undefined, vals: y,
+          }))} />
+      </div>
+    </div>
+  );
+}
+
 // ------------------------------------------------------------ style tilts (theme rollup of factor exposures)
 const STYLE_THEMES: { name: string; factors: string[] }[] = [
   { name: 'Size', factors: ['size'] },
@@ -890,6 +1035,9 @@ export function BacktestReport({ label, backHref = '/research/portfolios', backL
       {/* L/S only: collateral-credited investor return (T9) + market-neutrality (F2) */}
       {isLS && <NeutralitySection label={label} />}
       {isLS && <SourceAttributionSection label={label} />}
+
+      {/* month-by-month component attribution — ext blends (fund + sleeve book) and standalone L/S books */}
+      {(isExt || isLS) && <ComponentAttributionSection label={label} />}
 
       {/* annual returns table */}
       <div className="panel p-4 mt-4">
