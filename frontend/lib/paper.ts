@@ -97,9 +97,14 @@ export interface PaperFidelity {
     commission_usd: number | null; commission_bps: number | null;
     slippage_usd: number | null; slippage_bps: number | null;
     realized_bps: number | null;
-    /** NULL today: the trade plan does not store the cost model's per-name prediction. [06-T7]. */
     model_predicted_bps: number | null;
     vs_model_bps: number | null;
+    /** 'plan' = written at INSERT from the inputs the trade was sized on. 'backfill' = computed
+     *  after the fact for a plan frozen before that code existed — a weaker claim, and the page
+     *  must say so rather than render the two identically. */
+    prediction_source: 'plan' | 'backfill' | 'mixed' | null;
+    prediction_panel_date: string | null;
+    prediction_panel_lag_days: number | null;
   };
   plan_drift: {
     preview_notional: number | null; final_notional: number | null; note: string;

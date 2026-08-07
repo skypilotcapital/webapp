@@ -174,6 +174,19 @@ function Fidelity({ data }: { data: Awaited<ReturnType<typeof fetchPaperFidelity
             is measured; the model's own number for <i>this</i> book is not recoverable. → [06-T7]
           </div>
         )}
+        {/* A prediction written at plan time and one computed afterwards are different claims. */}
+        {cost.prediction_source && cost.prediction_source !== 'plan' && (
+          <div className="text-[10.5px] mt-2" style={{ color: 'var(--tx-mut)' }}>
+            ⓘ This prediction was <b>computed after the trade</b>
+            {cost.prediction_source === 'mixed' && ' for part of the book'} — the plan was frozen
+            before the planner recorded one. Priced from the cost panel dated{' '}
+            <b>{cost.prediction_panel_date}</b>
+            {cost.prediction_panel_lag_days != null && `, ${cost.prediction_panel_lag_days} days before the trade`}.
+            Panel inputs are trailing windows, so this is a fair estimate of what the model would
+            have said, not a record that it said it. Plans from here on carry the prediction written
+            at plan time.
+          </div>
+        )}
         <div className="text-[10.5px] mt-2" style={{ color: 'var(--tx-dim)' }}>
           ⓘ {data.impact_note}
         </div>
