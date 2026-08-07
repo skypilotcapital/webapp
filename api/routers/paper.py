@@ -285,50 +285,39 @@ def fidelity(env: str, rebalance_id: int | None = None):
             JOIN ibkr.orders o ON o.internal_order_id = e.internal_order_id
             WHERE o.rebalance_id = :r"""), {"r": rid}).mappings().first()
 
-        # Fill vs the plan's reference price, per traded dollar. Signed so that positive = we paid
-        # away (bought higher / sold lower than reference) — the direction a cost should read in.
-        slip = conn.execute(text("""
-            SELECT sum(CASE WHEN o.side = 'BUY'  THEN (e.price - p.ref_price) * abs(e.qty)
-                            WHEN o.side = 'SELL' THEN (p.ref_price - e.price) * abs(e.qty)
-                       END)                                    AS slip_usd,
-                   sum(abs(e.qty * e.price))                    AS notional
-            FROM ibkr.executions e
-            JOIN ibkr.orders o      ON o.internal_order_id = e.internal_order_id
-            JOIN trading.trade_plans p ON p.rebalance_id = o.rebalance_id
-                                      AND p.conid = o.conid AND p.plan_kind = 'final'
-            WHERE o.rebalance_id = :r AND p.ref_price IS NOT NULL"""),
+        # ⚠️ COST IS READ FROM `trading.cost_calibration`, NOT COMPUTED HERE ([10-SHFL]).
+        #
+        # This endpoint originally measured fill-vs-`ref_price` itself and reported ~20.2 bps
+        # against a ~20.0 prediction — an apparently excellent model. It is not: `ref_price` is the
+        # DECISION price (the panel close the share count was sized on), so that number is mostly
+        # the overnight market. NVDA alone moved 149 bp between decision and arrival, about five
+        # times the entire predicted cost of its trade.
+        #
+        # The honest measurement is from the ARRIVAL mid (`trade_plans.price`, the mid at
+        # submission), which separates delay — a real implementation cost, but not the cost model's
+        # quantity — from execution. `[10-SHFL]`'s engine does that per name and stores it. Reading
+        # it keeps ONE definition of realized cost on the site; recomputing it here would have kept
+        # the flattering one alive next to the true one.
+        cal = conn.execute(text("""
+            SELECT sum(exec_bps        * notional) / NULLIF(sum(notional), 0) AS exec_bps,
+                   sum(commission_bps  * notional) / NULLIF(sum(notional), 0) AS commission_bps,
+                   sum(realized_bps    * notional) / NULLIF(sum(notional), 0) AS realized_bps,
+                   sum(delay_bps       * notional) / NULLIF(sum(notional), 0) AS delay_bps,
+                   sum(pred_bps        * notional) / NULLIF(sum(notional), 0) AS pred_bps,
+                   sum(residual_bps    * notional) / NULLIF(sum(notional), 0) AS residual_bps,
+                   sum(notional)                                              AS notional,
+                   count(*)                                                   AS n_names,
+                   count(*) FILTER (WHERE pred_source = 'late')               AS n_late
+            FROM trading.cost_calibration WHERE rebalance_id = :r"""),
             {"r": rid}).mappings().first()
 
-        # What the cost model PREDICTED for this book, so the two sit side by side.
-        #
-        # TWO SOURCES, plan-first. `trade_plans.est_cost_bps` is written at INSERT time from the
-        # inputs the trade was sized on — the number we want. `plan_cost_estimates` carries LATE
-        # predictions for plans frozen before that code existed (the plan itself is immutable, so
-        # they cannot be written into it). A DB trigger allows a late row only where the plan's own
-        # column is NULL, so the COALESCE cannot pick between two live copies of one number.
-        # `source` is returned so the page can say which it showed.
-        pred = conn.execute(text("""
-            SELECT sum(COALESCE(p.est_cost_bps, e.est_cost_bps) * abs(p.est_notional))
-                     / NULLIF(sum(abs(p.est_notional)) FILTER (
-                         WHERE COALESCE(p.est_cost_bps, e.est_cost_bps) IS NOT NULL), 0)  AS bps,
-                   count(*) FILTER (WHERE p.est_cost_bps IS NOT NULL)                     AS n_plan,
-                   count(*) FILTER (WHERE p.est_cost_bps IS NULL
-                                      AND e.est_cost_bps IS NOT NULL)                     AS n_late,
-                   max(e.panel_date)                                                      AS panel_date,
-                   max(e.panel_lag_days)                                                  AS panel_lag
-            FROM trading.trade_plans p
-            LEFT JOIN trading.plan_cost_estimates e
-                   ON e.rebalance_id = p.rebalance_id AND e.conid = p.conid
-                  AND e.plan_kind = p.plan_kind
-            WHERE p.rebalance_id = :r AND p.plan_kind = 'final'"""),
+        panel = conn.execute(text("""
+            SELECT max(panel_date) AS panel_date, max(panel_lag_days) AS panel_lag
+            FROM trading.plan_cost_estimates WHERE rebalance_id = :r"""),
             {"r": rid}).mappings().first()
 
     traded = _f(fills["notional"]) or 0.0
     comm = _f(fills["commission"]) or 0.0
-    slip_usd = _f(slip["slip_usd"]) if slip else None
-
-    def _bps(usd):
-        return (usd / traded * 1e4) if (usd is not None and traded) else None
 
     return {
         "env": env,
@@ -358,26 +347,32 @@ def fidelity(env: str, rebalance_id: int | None = None):
             "filled_qty": _f(fills["qty"]),
             "n_fills": int(fills["n_fills"] or 0),
         },
+        # Every bps figure below is notional-weighted and measured from the ARRIVAL mid. `delay` is
+        # reported and NOT charged into `realized`: not trading instantly is a real implementation
+        # cost, but it is not the cost model's quantity and folding it in is what produced the
+        # false confirmation this section used to show.
         "cost": {
             "commission_usd": comm,
-            "commission_bps": _bps(comm),
-            "slippage_usd": slip_usd,
-            "slippage_bps": _bps(slip_usd),
-            "realized_bps": _bps((comm or 0) + (slip_usd or 0)),
-            "model_predicted_bps": _f(pred["bps"]) if pred else None,
-            # [06-T7]. Named rather than left to the page to subtract, because the sign convention
-            # (positive = we spent more than the model said) is the whole content of the number.
-            "vs_model_bps": (_bps((comm or 0) + (slip_usd or 0)) - _f(pred["bps"]))
-                            if (pred and pred["bps"] is not None and traded) else None,
-            # Provenance, because a prediction written at plan time and one computed afterwards are
-            # different claims and the page must not present them as the same one.
-            "prediction_source": (None if not pred or pred["bps"] is None
-                                  else "plan" if not pred["n_late"]
-                                  else "backfill" if not pred["n_plan"] else "mixed"),
-            "prediction_panel_date": (str(pred["panel_date"])
-                                      if pred and pred["panel_date"] else None),
-            "prediction_panel_lag_days": (int(pred["panel_lag"])
-                                          if pred and pred["panel_lag"] is not None else None),
+            "measured_from": "arrival",
+            "exec_bps": _f(cal["exec_bps"]) if cal else None,
+            "commission_bps": _f(cal["commission_bps"]) if cal else None,
+            "realized_bps": _f(cal["realized_bps"]) if cal else None,
+            "delay_bps": _f(cal["delay_bps"]) if cal else None,
+            "model_predicted_bps": _f(cal["pred_bps"]) if cal else None,
+            # Signed so that NEGATIVE = the model over-predicted (we spent less than it said).
+            "residual_bps": _f(cal["residual_bps"]) if cal else None,
+            "n_names": int(cal["n_names"]) if cal and cal["n_names"] else 0,
+            "prediction_source": (None if not cal or not cal["n_names"]
+                                  else "backfill" if cal["n_late"] == cal["n_names"]
+                                  else "plan" if not cal["n_late"] else "mixed"),
+            "prediction_panel_date": (str(panel["panel_date"])
+                                      if panel and panel["panel_date"] else None),
+            "prediction_panel_lag_days": (int(panel["panel_lag"])
+                                          if panel and panel["panel_lag"] is not None else None),
+            # Paper fills cross the spread and do nothing else — there is no queue and no impact to
+            # measure — so this calibrates spread and commission ONLY. Stated here rather than left
+            # to the page, because it is the difference between a calibration and a coincidence.
+            "calibrates": "spread + commission only — paper fills carry no impact ([10-SHFL])",
         },
         "plan_drift": {
             "preview_notional": _f(prev["notional"]) if prev else None,
