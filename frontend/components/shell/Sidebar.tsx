@@ -14,7 +14,9 @@ const NAV = [
 // when live exists this becomes env-aware rather than a second copy of the list.
 const TRADING_SUB = [
   { label: 'Rebalance', href: '/trading/paper/rebalance', match: ['/trading/paper/rebalance'] },
-  { label: 'Trade blotter', href: '/trading/paper/blotter', match: ['/trading/paper/blotter'] },
+  // Route is `orders/` because trading_ui_IA.md §2.2 says so (S4). The LABEL stays "Trade
+  // blotter" — that is the domain word and what the screen calls itself; the IA governs the URL.
+  { label: 'Trade blotter', href: '/trading/paper/orders', match: ['/trading/paper/orders'] },
 ];
 
 // Portfolios gains sub-items for the same reason Trading has them, and for one more: since
