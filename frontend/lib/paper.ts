@@ -93,12 +93,22 @@ export interface PaperFidelity {
     planned_notional: number | null; filled_notional: number | null;
     planned_qty: number | null; filled_qty: number | null; n_fills: number;
   };
+  /** Every bps figure is notional-weighted and measured from the ARRIVAL mid, read from
+   *  `trading.cost_calibration` ([10-SHFL]) rather than recomputed. `delay_bps` is reported and
+   *  NOT inside `realized_bps`: not trading instantly is a real implementation cost but it is not
+   *  the cost model's quantity, and folding it in is what made this panel flatter the model. */
   cost: {
-    commission_usd: number | null; commission_bps: number | null;
-    slippage_usd: number | null; slippage_bps: number | null;
+    commission_usd: number | null;
+    measured_from: string;
+    exec_bps: number | null;
+    commission_bps: number | null;
     realized_bps: number | null;
+    delay_bps: number | null;
     model_predicted_bps: number | null;
-    vs_model_bps: number | null;
+    /** NEGATIVE = the model over-predicted (we spent less than it said). */
+    residual_bps: number | null;
+    n_names: number;
+    calibrates: string;
     /** 'plan' = written at INSERT from the inputs the trade was sized on. 'backfill' = computed
      *  after the fact for a plan frozen before that code existed — a weaker claim, and the page
      *  must say so rather than render the two identically. */

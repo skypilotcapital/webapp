@@ -152,8 +152,8 @@ function Fidelity({ data }: { data: Awaited<ReturnType<typeof fetchPaperFidelity
           color={unfilled > 0 ? 'var(--neg)' : undefined} />
         <Stat label="Dust-filtered" value={num(c.n_dust_filtered)} sub="below min trade" />
         <Stat label="Traded" value={usd(e.filled_notional)} sub={`${e.n_fills} fills`} />
+        <Stat label="Execution" value={bps(cost.exec_bps)} sub="vs arrival mid" />
         <Stat label="Commission" value={bps(cost.commission_bps)} sub={usd(cost.commission_usd)} />
-        <Stat label="Slippage vs ref" value={bps(cost.slippage_bps)} sub={usd(cost.slippage_usd)} />
       </div>
 
       {/* The T7 line. Realized and predicted sit side by side or the comparison is not made. */}
@@ -162,19 +162,29 @@ function Fidelity({ data }: { data: Awaited<ReturnType<typeof fetchPaperFidelity
           REALIZED COST vs THE MODEL · [06-T7]
         </div>
         <div className="flex gap-6 flex-wrap items-baseline">
-          <Stat label="Realized" value={bps(cost.realized_bps)} sub="per traded dollar" />
+          <Stat label="Realized" value={bps(cost.realized_bps)} sub="execution + commission" />
           <Stat label="Model predicted" value={bps(cost.model_predicted_bps)}
-            sub={cost.model_predicted_bps == null ? 'not stored on the plan' : 'per traded dollar'} />
-          <Stat label="Difference" value={bps(cost.vs_model_bps)}
-            sub={cost.vs_model_bps == null ? 'unavailable' : 'positive = we spent more'} />
+            sub={cost.model_predicted_bps == null ? 'unavailable' : 'per traded dollar'} />
+          <Stat label="Residual" value={bps(cost.residual_bps)}
+            color={(cost.residual_bps ?? 0) < 0 ? 'var(--pos)' : 'var(--neg)'}
+            sub={cost.residual_bps == null ? 'unavailable'
+                 : (cost.residual_bps < 0 ? 'model over-predicted' : 'model under-predicted')} />
+          <Stat label="Delay" value={bps(cost.delay_bps)} sub="reported, not charged" />
         </div>
-        {cost.model_predicted_bps == null && (
-          <div className="text-[10.5px] mt-2" style={{ color: 'var(--neg)' }}>
-            The trade plan stores no per-name cost prediction (<code>est_cost_bps</code> is NULL on
-            every row of this book), so the calibration cannot be made at name level. Realized cost
-            is measured; the model's own number for <i>this</i> book is not recoverable. → [06-T7]
-          </div>
-        )}
+        {/* The correction that matters most on this panel, stated rather than implied. */}
+        <div className="text-[10.5px] mt-2" style={{ color: 'var(--tx-dim)' }}>
+          Measured from the <b>arrival mid</b> (the mid at submission), not the decision price the
+          share count was sized on. Measured the naive way this book reads ~20 bps against a ~20 bp
+          prediction — an apparently perfect model that is mostly the overnight market. <b>Delay is
+          reported separately and not charged here</b>: not trading instantly is a real
+          implementation cost, but it is not the cost model's quantity. Full chain decomposition
+          lives in the shortfall report → [10-SHFL].
+        </div>
+        <div className="text-[10.5px] mt-1" style={{ color: 'var(--neg)' }}>
+          ⚠ This calibrates <b>{cost.calibrates}</b>. The paper simulator crosses the spread and
+          does nothing else — there is no queue and no impact to measure, so a conservative residual
+          here is not evidence the impact model is wrong.
+        </div>
         {/* A prediction written at plan time and one computed afterwards are different claims. */}
         {cost.prediction_source && cost.prediction_source !== 'plan' && (
           <div className="text-[10.5px] mt-2" style={{ color: 'var(--tx-mut)' }}>
