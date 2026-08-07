@@ -316,9 +316,16 @@ def fidelity(env: str, rebalance_id: int | None = None):
 
     return {
         "env": env,
-        "rebalance": {k: (v.isoformat() if hasattr(v, "isoformat") else _f(v)
-                          if isinstance(v, (int, float)) else v)
-                      for k, v in dict(reb).items()},
+        # `rebalance_id` must survive as an int — it is a path segment downstream, and 13.0 is not
+        # a rebalance. Only the genuinely decimal fields are floated.
+        "rebalance": {
+            "rebalance_id": int(reb["rebalance_id"]),
+            "strategy": reb["strategy"],
+            "signal_date": reb["signal_date"].isoformat() if reb["signal_date"] else None,
+            "status": reb["status"],
+            "sized_equity": _f(reb["sized_equity"]),
+            "submitted_at": reb["submitted_at"].isoformat() if reb["submitted_at"] else None,
+        },
         "coverage": {
             "n_target": int(n_target),
             "n_planned": int(plan["n"] or 0),
@@ -376,9 +383,12 @@ def positions(env: str, date: str | None = None, top: int = Query(10, ge=1, le=5
     """
     _env(env)
     with get_db() as conn:
+        # CAST(), not `:d::date`. SQLAlchemy's bind-parameter scanner does not reliably separate a
+        # parameter from a following `::` cast, and leaves the second occurrence unsubstituted —
+        # a 500 that only appears once the same parameter is used twice in one statement.
         d = conn.execute(text("""
             SELECT max(date) FROM trading.book_daily_positions
-            WHERE (:d IS NULL OR date = :d::date)"""), {"d": date}).scalar()
+            WHERE (:d IS NULL OR date = CAST(:d AS date))"""), {"d": date}).scalar()
         if d is None:
             return {"env": env, "date": None, "positions": [],
                     "mandate_split": None,
