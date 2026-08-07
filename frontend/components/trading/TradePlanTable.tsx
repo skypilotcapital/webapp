@@ -53,9 +53,11 @@ const ACTION_LABEL: Record<string, string> = {
 };
 const ACTION_ORDER = Object.keys(ACTION_LABEL);
 
-// Colour carries direction; weight and the ring carry RISK. A flip is the one row on this screen
-// that is two economic acts in one order, so it is the one that gets the ring — the reviewer must
-// not have to read two share counts and subtract to notice it.
+// Colour carries direction (green builds/unwinds toward long, red toward short); WEIGHT carries
+// risk. The distinction a reviewer actually reads is the LABEL — "FLIP → SHORT" cannot be mistaken
+// for "TRIM" the way two identical `SELL`s could — and amber + semibold is reinforcement, not the
+// signal itself. That ordering matters: amber (#b45309) and neg (#b91c1c) are close enough at 11px
+// that colour alone would be a weak carrier, and useless to a colour-blind reader.
 const ACTION_CLASS: Record<string, string> = {
   open_long: 'text-[var(--pos)]', add: 'text-[var(--pos)]',
   cover: 'text-[var(--pos)]', close_short: 'text-[var(--pos)]',
