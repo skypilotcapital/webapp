@@ -386,6 +386,101 @@ def fidelity(env: str, rebalance_id: int | None = None):
     }
 
 
+# ------------------------------------------------------------------------------ shortfall ----
+@router.get("/{env}/shortfall")
+def shortfall(env: str, rebalance_id: int | None = None, top: int = Query(8, ge=1, le=40)):
+    """Implementation shortfall for one rebalance window — READ from `[10-SHFL]`, not computed.
+
+    THIS IS ALSO THE TRACK B OVERLAY. The IA (§XII.D) listed "shortfall series" and "Track B vs
+    Track C" as two sections; they are one measurement. Track B is the live target book and Track C
+    is what the broker holds, and their difference over one interval IS the shortfall — the engine's
+    B0→B4 chain is exactly that difference, decomposed. Building both would have put the same number
+    on the page twice under different names.
+
+    THE CHAIN (`implementation_shortfall.md` §2): five books, each one effect apart, so the terms
+    sum to the total by construction rather than by an attribution formula.
+
+        B0 intent (target weights, fractional shares, decision price, no costs)
+        B1 … at the ARRIVAL mid                                    → delay
+        B2 … whole shares, dust filter applied                     → rounding + dust
+        B3 … actual fills, unfilled left unfilled                  → fill price + unfilled
+        B4 … less commission  ( = Track C )                        → commission
+
+    Order-dependence is real and is published rather than hidden: **the total is the robust number,
+    the split is interpretive.**
+
+    ⚠️ DELAY IS IN THIS NUMBER AND OUT OF THE COST CALIBRATION (§3), and the two must never be
+    crossed. Not trading instantly is a real implementation cost, so it belongs here. It is not the
+    cost model's quantity, so it is excluded from `/fidelity` — calibrating an impact coefficient on
+    market drift would fit direction, with a systematically wrong sign whenever the book is net long
+    into a rising tape. Same dollars, two questions, two tables.
+    """
+    _env(env)
+    with get_db() as conn:
+        row = conn.execute(text("""
+            SELECT * FROM trading.shortfall
+            WHERE (:rid IS NULL OR rebalance_id = :rid)
+            ORDER BY rebalance_id DESC LIMIT 1"""), {"rid": rebalance_id}).mappings().first()
+        if row is None:
+            return {"env": env, "window": None,
+                    "note": "no shortfall window computed yet — owned by [10-SHFL]"}
+        rid = row["rebalance_id"]
+        names = conn.execute(text("""
+            SELECT ticker, mandate, delay_usd, rounding_usd, fill_usd, unfilled_usd,
+                   commission_usd, total_usd
+            FROM trading.shortfall_names
+            WHERE rebalance_id = :r AND total_usd IS NOT NULL
+            ORDER BY abs(total_usd) DESC LIMIT :n"""), {"r": rid, "n": top}).mappings().all()
+
+    aum = _f(row["aum"]) or 0.0
+    def _bps(v):
+        v = _f(v)
+        return (v / aum * 1e4) if (v is not None and aum) else None
+
+    terms = [("delay", "delay_usd", "B0→B1 · the market moving between decision and arrival"),
+             ("rounding", "rounding_usd", "B1→B2 · whole shares + the $500 dust filter"),
+             ("fill", "fill_usd", "B2→B3 · fill price vs the arrival mid"),
+             ("unfilled", "unfilled_usd", "B2→B3 · what did not trade"),
+             ("commission", "commission_usd", "B3→B4 · broker commission")]
+
+    return {
+        "env": env,
+        "window": {
+            "rebalance_id": int(rid),
+            "strategy": row["strategy"],
+            "window_start": row["window_start"].isoformat() if row["window_start"] else None,
+            "window_end": row["window_end"].isoformat() if row["window_end"] else None,
+            "window_days": int(row["window_days"] or 0),
+            # These three drive the whole presentation, so they are first-class, not footnotes.
+            "is_open": bool(row["is_open"]),
+            "is_establishment": bool(row["is_establishment"]),
+            "aum": aum,
+            "total_usd": _f(row["total_usd"]),
+            "total_bps": _f(row["total_bps"]),
+            "n_names": int(row["n_names"] or 0),
+            "n_unfilled": int(row["n_unfilled"] or 0),
+            "method": row["method"],
+            "terminal_src": row["terminal_src"],
+            "shape_source": row["shape_source"],
+            "tied_out_days": int(row["tied_out_days"] or 0),
+        },
+        "chain": [{"term": k, "usd": _f(row[col]), "bps": _bps(row[col]), "step": desc}
+                  for k, col, desc in terms],
+        "names": [{"ticker": n["ticker"], "mandate": n["mandate"],
+                   "delay_usd": _f(n["delay_usd"]), "fill_usd": _f(n["fill_usd"]),
+                   "total_usd": _f(n["total_usd"]), "total_bps": _bps(n["total_usd"])}
+                  for n in names],
+        "caveats": {
+            "delay_in_shortfall_not_calibration":
+                "delay is counted here and deliberately excluded from /fidelity — same dollars, "
+                "two questions (implementation_shortfall.md §3)",
+            "order_dependent":
+                "the chain terms sum to the total by construction; the total is the robust number, "
+                "the split is interpretive",
+        },
+    }
+
+
 # ------------------------------------------------------------------------------ positions ----
 @router.get("/{env}/positions")
 def positions(env: str, date: str | None = None, top: int = Query(10, ge=1, le=50)):
