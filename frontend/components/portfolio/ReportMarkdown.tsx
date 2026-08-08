@@ -73,10 +73,21 @@ export function ReportMarkdown({ md }: { md: string }) {
 
   const flushPara = () => {
     if (!para.length) return;
+    // A single newline is kept as a LINE BREAK rather than collapsed, which is a deliberate
+    // departure from strict markdown. The generator never hard-wraps — degradation bullets run
+    // well past 150 characters on one line — so every newline it emits is one it meant, and the
+    // same text delivered to Slack breaks there too. Collapsing them would run the monthly's
+    // period line and its coverage note together into a sentence nobody wrote.
+    const n = out.length;
     out.push(
-      <p key={`p${out.length}`} className="text-[12.5px] leading-[1.65] mb-3"
+      <p key={`p${n}`} className="text-[12.5px] leading-[1.65] mb-3"
          style={{ color: 'var(--tx-mut)' }}>
-        {inline(para.join(' '), `p${out.length}`)}
+        {para.map((ln, k) => (
+          <React.Fragment key={k}>
+            {k > 0 && <br />}
+            {inline(ln, `p${n}-${k}`)}
+          </React.Fragment>
+        ))}
       </p>,
     );
     para = [];
