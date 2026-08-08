@@ -163,8 +163,15 @@ export interface BlotterRow {
   filled: number; avg_price: number | null; commission: number; n_fills: number;
   first_fill: string | null; last_fill: string | null;
   residual: number;
-  /** Signed so POSITIVE always means worse for us. null where nothing filled — an avg price of
-   *  0 is "no data", and running it through the formula prints a confident −10,000 bps. */
+  /** Where `plan_price` came from. `ref` = the frozen signal-date close, NOT the arrival mid —
+   *  no live quote survived the deviation guard for this name. */
+  price_src: string | null;
+  /** Is `plan_price` a genuine arrival reference? False on a `ref` row, where measuring slippage
+   *  against it would be fill-vs-DECISION mislabelled as fill-vs-arrival ([10-ARRIVAL]). */
+  has_arrival: boolean;
+  /** Signed so POSITIVE always means worse for us. null in TWO cases: nothing filled (an avg price
+   *  of 0 is "no data", and the formula would print a confident −10,000 bps), or no arrival price
+   *  to measure against — see `has_arrival`. */
   slip_bps: number | null;
 }
 
@@ -172,7 +179,15 @@ export interface Blotter {
   rows: BlotterRow[];
   rollup: {
     planned: number; submitted: number; filled: number; unfilled: number; partial: number;
-    rejected: number; commission: number; est_cost: number; avg_slip_bps: number | null;
+    rejected: number; commission: number; est_cost: number;
+    /** NOTIONAL-weighted on filled notional — same weighting as `shortfall.calibration_summary`,
+     *  so the screen and the calibration authority cannot disagree about one rebalance. */
+    avg_slip_bps: number | null;
+    /** Filled names with no arrival price: excluded from `avg_slip_bps`, and the reason coverage
+     *  can be below 1. */
+    n_no_arrival: number;
+    /** Share of traded DOLLARS the slippage figure actually spans. */
+    slip_coverage: number | null;
   };
   unexplained_fills: { coid: string; status: string; conid: number }[];
 }

@@ -19,6 +19,24 @@ const fmt = (n: number | null | undefined, dp = 2) =>
   n == null ? '—' : Number(n).toLocaleString('en-US',
     { minimumFractionDigits: dp, maximumFractionDigits: dp });
 
+// Tooltip copy lives here rather than inline: a multi-line JSX string attribute keeps its newlines
+// and indentation, and renders them in the tooltip.
+const SLIP_TITLE =
+  'Notional-weighted on filled notional and measured from the arrival price — the same basis as '
+  + 'the cost calibration, so the screen and the authority agree. Names with no arrival price are '
+  + 'excluded.';
+const NO_ARRIVAL_TITLE =
+  'These names were sized off the frozen signal-date close, because no live quote survived the '
+  + 'deviation guard — so there is no arrival price to measure slippage from. Measuring against '
+  + 'the decision price instead would report the overnight market move as execution cost.';
+const PLAN_PX_TITLE =
+  'Frozen signal-date close — no live quote survived the deviation guard, so this is the DECISION '
+  + 'price, not the arrival mid.';
+const NO_FILL_TITLE = 'Nothing filled — there is no slippage on a trade that did not happen.';
+const NO_ANCHOR_TITLE =
+  'No arrival price for this name; measuring against the frozen close would report the overnight '
+  + 'market move as execution cost.';
+
 function rowState(r: BlotterRow): 'rejected' | 'unfilled' | 'partial' | 'done' {
   if (r.status === 'rejected') return 'rejected';
   if (!r.filled) return 'unfilled';
@@ -128,8 +146,16 @@ export function BlotterSection({ env, id, status, emptyMessage }: {
         {R.rejected > 0 && <span className="text-[var(--neg)]"><b>{R.rejected}</b> rejected</span>}
         <span className="text-[var(--tx-mut)]">commission ${fmt(R.commission)}</span>
         {R.avg_slip_bps != null && (
-          <span className="text-[var(--tx-mut)]">
+          <span className="text-[var(--tx-mut)]" title={SLIP_TITLE}>
             avg slippage {R.avg_slip_bps > 0 ? '+' : ''}{fmt(R.avg_slip_bps, 1)} bps
+          </span>
+        )}
+        {/* Coverage is stated whenever it is not total. A slippage headline that silently spans
+            80% of the dollars traded is the shape of the error [10-ARRIVAL] was opened for. */}
+        {R.n_no_arrival > 0 && (
+          <span className="text-[var(--amber)]" title={NO_ARRIVAL_TITLE}>
+            <b>{R.n_no_arrival}</b> filled without an arrival price — excluded
+            {R.slip_coverage != null && ` (slippage spans ${fmt(R.slip_coverage * 100, 0)}% of traded $)`}
           </span>
         )}
       </div>
@@ -178,12 +204,20 @@ export function BlotterSection({ env, id, status, emptyMessage }: {
                   <td className="text-right">{fmt(r.planned, 0)}</td>
                   <td className="text-right">{fmt(r.filled, 0)}</td>
                   <td className="text-right">{r.residual ? fmt(r.residual, 0) : '—'}</td>
-                  <td className="text-right">{fmt(r.plan_price)}</td>
+                  {/* A ref-priced row is marked at the price itself, not only in the blank slip
+                      cell: the number shown is the frozen close, and it looks like any other. */}
+                  <td className={`text-right ${r.has_arrival ? '' : 'text-[var(--amber)]'}`}
+                      title={r.has_arrival ? undefined : PLAN_PX_TITLE}>
+                    {fmt(r.plan_price)}{r.has_arrival ? '' : ' *'}
+                  </td>
                   <td className="text-right">{fmt(r.avg_price)}</td>
-                  {/* Positive is always worse for us, whichever side we were on. Blank where
-                      nothing filled — there is no slippage on a trade that did not happen. */}
+                  {/* Positive is always worse for us, whichever side we were on. Blank in two
+                      cases, and they are different: nothing filled (no slippage on a trade that
+                      did not happen), or no arrival price to measure from. */}
                   <td className={`text-right ${r.slip_bps == null ? 'text-[var(--tx-dim)]'
-                    : r.slip_bps > 0 ? 'text-[var(--neg)]' : 'text-[var(--pos)]'}`}>
+                    : r.slip_bps > 0 ? 'text-[var(--neg)]' : 'text-[var(--pos)]'}`}
+                      title={r.slip_bps != null ? undefined
+                        : !r.filled ? NO_FILL_TITLE : NO_ANCHOR_TITLE}>
                     {r.slip_bps == null ? '—'
                       : `${r.slip_bps > 0 ? '+' : ''}${fmt(r.slip_bps, 1)}`}
                   </td>
@@ -199,8 +233,11 @@ export function BlotterSection({ env, id, status, emptyMessage }: {
 
       <p className="text-[10px] text-[var(--tx-dim)] mt-2">
         Rejected and unfilled sort to the top — they are the rows that need a decision. Slippage is
-        measured against the plan price (the reference the share count was derived from) and signed
-        so <b>positive is always worse for us</b>. Feeds cost-model calibration [06-T7].
+        measured against the <b>arrival</b> price and signed so <b>positive is always worse for
+        us</b>; the roll-up is notional-weighted. A <b>*</b> marks a plan price that is the frozen
+        signal-date close rather than an arrival mid — those names carry no slippage, because the
+        difference would be the overnight market move, not execution cost. Feeds cost-model
+        calibration [06-T7].
       </p>
     </div>
   );

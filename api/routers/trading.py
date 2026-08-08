@@ -939,9 +939,17 @@ def blotter(env: str, rebalance_id: int):
 
       * `filled` is SUM(qty) and sales are stored SIGNED, so a residual is planned − filled.
       * `slip_bps` is signed so POSITIVE ALWAYS MEANS WORSE FOR US, whichever side we were on,
-        measured against the plan price — the arrival reference the share count was derived from.
-      * ⚠️ Slippage is NULL where nothing filled. An avg price of 0 there means "no data", and
-        running it through the formula prints a confident −10,000 bps for every unfilled name.
+        measured against the ARRIVAL price.
+      * ⚠️ Slippage is NULL in two distinct cases. Nothing filled — an avg price of 0 means "no
+        data", and running it through the formula prints a confident −10,000 bps. And no arrival
+        price: `trade_plans.price` falls back to the frozen signal-date close when no live quote
+        survives the deviation guard (`price_src='ref'`), and measuring against THAT is
+        fill-vs-decision mislabelled as fill-vs-arrival — the [10-ARRIVAL] error, which reads
+        flatteringly small. `has_arrival` says which rows carry a real one.
+      * `avg_slip_bps` is NOTIONAL-weighted, matching `shortfall.calibration_summary`, the
+        `/sessions` roll-up and `capture_fills`. It was a plain mean until the [10-ARRIVAL] audit:
+        on a 460-name book with a long small-trade tail, a $600 odd lot moved the headline as much
+        as a $41k trade, in a number whose stated purpose is feeding [06-T7].
       * Dust and side-less rows are excluded: they were never orders.
 
     Feeds open question [06-T7] (cost-model calibration against real fills) — arrival-vs-fill by
@@ -951,6 +959,7 @@ def blotter(env: str, rebalance_id: int):
     with get_db() as conn:
         rows = conn.execute(text("""
             SELECT p.ticker, p.conid, p.side, p.delta AS planned, p.price AS plan_price,
+                   p.price_src,
                    p.est_notional, o.coid, o.status, o.ibkr_order_id, o.qty AS submitted_qty,
                    o.submitted_at, o.last_status_at,
                    COALESCE(f.filled, 0) AS filled, f.avg_price,
@@ -989,10 +998,13 @@ def blotter(env: str, rebalance_id: int):
         filled = float(d["filled"] or 0)
         d["residual"] = planned - filled
         px, avg = d["plan_price"], d["avg_price"]
+        # Mirrors orders.ARRIVAL_PRICE_SRC — an ALLOWLIST, so an unrecognised future price source
+        # reads as missing coverage rather than as a confidently mis-anchored number.
+        d["has_arrival"] = str(d.get("price_src")) in ("mid", "last", "mid_stale", "last_stale")
         # NULL, not zero — see the docstring. A confident wrong number is worse than a blank.
         d["slip_bps"] = (
             (float(avg) - float(px)) / float(px) * 10_000 * (1 if planned > 0 else -1)
-            if filled and px and avg and float(px) != 0 else None)
+            if filled and px and avg and float(px) != 0 and d["has_arrival"] else None)
         out.append(d)
 
         roll["planned"] += 1
@@ -1018,9 +1030,19 @@ def blotter(env: str, rebalance_id: int):
         return (rank.get(s, 3), -abs(float(d["est_notional"] or 0)))
     out.sort(key=_key)
 
-    filled_rows = [d for d in out if d["slip_bps"] is not None]
-    roll["avg_slip_bps"] = (sum(d["slip_bps"] for d in filled_rows) / len(filled_rows)
-                            if filled_rows else None)
+    # NOTIONAL-weighted, on the filled notional — the same weighting and the same denominator as
+    # shortfall.calibration_summary, so the screen and the authority cannot disagree about one
+    # rebalance. Coverage rides along: below 100% the headline describes a subset of the dollars
+    # traded, and a roll-up that hides which subset is how a mixed sample stays invisible.
+    slip_rows = [d for d in out if d["slip_bps"] is not None]
+    slip_den = sum(abs(float(d["filled"] or 0)) * float(d["avg_price"] or 0) for d in slip_rows)
+    traded = sum(abs(float(d["filled"] or 0)) * float(d["avg_price"] or 0)
+                 for d in out if d["avg_price"])
+    roll["avg_slip_bps"] = (
+        sum(d["slip_bps"] * abs(float(d["filled"])) * float(d["avg_price"]) for d in slip_rows)
+        / slip_den) if slip_den else None
+    roll["n_no_arrival"] = sum(1 for d in out if float(d["filled"] or 0) and not d["has_arrival"])
+    roll["slip_coverage"] = (slip_den / traded) if traded else None
     return {"env": env, "rebalance_id": rebalance_id, "rows": out, "rollup": roll,
             "unexplained_fills": [dict(u) for u in unexplained]}
 
@@ -1029,6 +1051,9 @@ def blotter(env: str, rebalance_id: int):
 # not a second query — a download that can disagree with the page it was downloaded from is worse
 # than no download.
 _CSV_COLS = ["ticker", "conid", "side", "planned", "filled", "residual", "plan_price",
+             # `price_src` travels with `plan_price` wherever it goes: [06-T7] calibrates on this
+             # export, and a decision price in an arrival column is invisible once it leaves here.
+             "price_src", "has_arrival",
              "avg_price", "slip_bps", "commission", "n_fills", "est_notional",
              "status", "coid", "ibkr_order_id", "submitted_at", "first_fill", "last_fill"]
 
@@ -1083,11 +1108,17 @@ def sessions(env: str, limit: int = Query(24, ge=1, le=120)):
                    COUNT(*) FILTER (WHERE f.filled IS NOT NULL AND f.filled <> 0)     AS filled,
                    COALESCE(SUM(ABS(f.filled) * f.avg_price), 0)                      AS gross_traded,
                    COALESCE(SUM(f.commission), 0)                                     AS commission,
+                   -- ⚠️ GATED ON price_src: `p.price` is the frozen close, not the arrival mid,
+                   -- wherever no live quote survived the deviation guard, and slippage measured
+                   -- against it is fill-vs-DECISION ([10-ARRIVAL]). Allowlist, so a new price
+                   -- source drops coverage instead of silently entering the average.
                    SUM(CASE WHEN f.filled IS NOT NULL AND p.price > 0 AND f.avg_price IS NOT NULL
+                             AND p.price_src IN ('mid','last','mid_stale','last_stale')
                             THEN (f.avg_price - p.price) / p.price * 10000
                                  * (CASE WHEN p.delta > 0 THEN 1 ELSE -1 END)
                                  * ABS(f.filled) * f.avg_price END)                   AS slip_num,
                    SUM(CASE WHEN f.filled IS NOT NULL AND p.price > 0 AND f.avg_price IS NOT NULL
+                             AND p.price_src IN ('mid','last','mid_stale','last_stale')
                             THEN ABS(f.filled) * f.avg_price END)                     AS slip_den
             FROM trading.rebalances r
             JOIN trading.trade_plans p
