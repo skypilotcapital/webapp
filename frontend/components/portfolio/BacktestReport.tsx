@@ -17,6 +17,25 @@ import {
 import { CumulativeChart, DrawdownChart, MultiLineChart, Histogram, HBarChart, StackedAreaChart } from '@/components/portfolio/charts';
 import type { PortfolioHolding, SourceAttrPoint, ComponentAttrPoint } from '@/types/api';
 
+// ── construction changes inside a single track ([10-BRW]) ────────────────────────────────────
+// A track that spans these dates is NOT one construction measured throughout, and anyone
+// comparing pre- and post-August performance on it needs to be told so rather than left to
+// discover it. Formation months (the books are dated on formation; the charts plot realization,
+// so the effect appears one month later on the x-axis).
+//
+// Only shown on books that actually hold shorts — borrow-awareness cannot touch a long-only
+// book, and a caveat that does not apply is just noise that trains people to skip caveats.
+const CONSTRUCTION_CHANGES = [
+  { from: '2026-07-31', what: 'borrow-aware construction',
+    detail: 'per-name IBKR stock-loan fee entered the objective and reported availability became a '
+          + 'per-name short bound. Before this, no borrow quotes existed — IBKR archives nothing, so '
+          + 'the earlier months cannot be rebuilt on the new basis at any price.' },
+  { from: '2026-08-08', what: 'dropped-out names bounded to zero',
+    detail: 'a name we watched LEAVE the borrow file is now treated as an observation of zero '
+          + 'available rather than as missing data. Names that never appeared are unaffected.' },
+];
+const CONSTRUCTION_FIRST_CHANGE = CONSTRUCTION_CHANGES[0].from;
+
 const STYLE_ORDER = ['beta', 'size', 'resid_vol', 'momentum', 'value', 'earnings_yield', 'growth',
   'profitability', 'earnings_qual', 'leverage', 'liquidity', 'dividend_yield'];
 const FACTOR_LABELS: Record<string, string> = {
@@ -975,6 +994,23 @@ export function BacktestReport({ label, backHref = '/research/portfolios', backL
           ]} />
           <div className="panel-head mt-3">Drawdown</div>
           <DrawdownChart dates={dates} dd={monthly.map((p) => p.drawdown)} boundaryDate={bDate} />
+          {(isLS || isExt) && dates.length > 0
+            && dates[dates.length - 1] >= realizedMonth(CONSTRUCTION_FIRST_CHANGE) && (
+            <div className="mt-3 pt-2 text-[10px] muted" style={{ borderTop: '1px solid var(--border)' }}>
+              <span style={{ color: 'var(--amber)' }}>▲</span>{' '}
+              <strong style={{ fontWeight: 600 }}>Construction changes inside this track.</strong>{' '}
+              The curve above is not one construction measured throughout — the short book is built
+              differently before and after these dates, so a pre- vs post-August comparison is not
+              like-for-like.
+              <ul className="mt-1 space-y-0.5" style={{ listStyle: 'none' }}>
+                {CONSTRUCTION_CHANGES.map((c) => (
+                  <li key={c.from}>
+                    <span className="mono">{c.from}</span> — {c.what}: {c.detail}
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
         </div>
 
         {/* sector allocation + style-tilt rollup (right column) — ext blends show these per-component below */}
