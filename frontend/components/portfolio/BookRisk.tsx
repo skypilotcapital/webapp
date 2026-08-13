@@ -24,22 +24,16 @@
 import useSWR from 'swr';
 import {
   fetchPaperExposures,
-  type BookExposureFactor, type BookExposureLeg, type BookExposureMandate, type ExposureUnit,
+  type BookExposureFactor, type BookExposureLeg, type BookExposureMandate,
 } from '@/lib/paper';
+// ⚠️ THE UNIT COMES FROM THE ROW, NEVER FROM THE FACTOR NAME — and the formatting lives in ONE
+// module, shared with the pre-trade panel. Two renderers of the same quantity is how one of them
+// ends up printing 0.13σ as "13%", which is what the pre-trade panel did until 2026-08-13.
+import {
+  fmtExposure, fmtScale, UNIT_LABEL, unitForKind, type ExposureUnit,
+} from '@/lib/exposureUnits';
 
 /* ------------------------------------------------------------------------ formatting ---- */
-// ⚠️ THE UNIT COMES FROM THE ROW, NEVER FROM THE FACTOR NAME. A sector exposure is an active
-// WEIGHT (the very quantity `sector_tol` bounds); a style exposure is in STANDARD DEVIATIONS of
-// cross-sectional tilt. Printing profitability's +0.13 as "13%" is a unit error that reads
-// perfectly plausibly and overstates the tilt by ~8x. `live_book_exposure.md` §6.3.
-function fmtExposure(v: number | null | undefined, unit: ExposureUnit): string {
-  if (v == null) return '—';
-  const s = v >= 0 ? '+' : '−';
-  const a = Math.abs(v);
-  if (unit === 'sigma') return `${s}${a.toFixed(2)}σ`;
-  if (unit === 'beta') return `${s}${a.toFixed(3)}`;
-  return `${s}${(a * 100).toFixed(2)}%`;
-}
 // Headroom is a DIFFERENCE of two weights, so it is percentage POINTS. Calling it "%" beside an
 // exposure also written "%" invites the reader to treat the gap as a relative one.
 const ppts = (v: number | null | undefined, d = 2) =>
@@ -47,11 +41,6 @@ const ppts = (v: number | null | undefined, d = 2) =>
 const pct0 = (v: number | null | undefined) => (v == null ? '—' : `${(v * 100).toFixed(0)}%`);
 const pct1 = (v: number | null | undefined) => (v == null ? '—' : `${(v * 100).toFixed(1)}%`);
 
-const UNIT_LABEL: Record<string, string> = {
-  style: 'standard deviations of tilt',
-  sector: 'active weight',
-  market: 'beta, active',
-};
 const MANDATE_NAME: Record<string, string> = {
   core: 'LO core', sleeve: 'L/S sleeve',
 };
@@ -111,7 +100,7 @@ function Group({ title, rows, showBand }: {
             what a reader scans and a bare column of numbers acquires whatever unit its neighbour
             has. */}
         <span className="ml-2 normal-case tracking-normal">
-          {UNIT_LABEL[title.toLowerCase()] ?? ''} · scale ±{fmtExposure(max, unit).replace('+', '')}
+          {UNIT_LABEL[unit]} · scale ±{fmtScale(max, unit)}
         </span>
       </div>
       <ul className="space-y-0.5">
@@ -202,7 +191,7 @@ function LegGroup({ title, legs, net }: {
           <span style={{ color: 'var(--tx-mut)' }}>short of</span>
         </span>
         <span className="normal-case tracking-normal ml-auto">
-          net · scale ±{fmtExposure(max, rows[0].unit).replace('+', '')}
+          net · {UNIT_LABEL[rows[0].unit]} · scale ±{fmtScale(max, rows[0].unit)}
         </span>
       </div>
       {/* Proximity is doing real work: 1px inside a pair against 7px between factors, so 24 bars

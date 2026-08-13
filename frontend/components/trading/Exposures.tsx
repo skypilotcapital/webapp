@@ -2,6 +2,10 @@
 
 import { useEffect, useState } from 'react';
 import { fetchExposures, type Exposures, type ExposureLeg } from '@/lib/trading';
+import {
+  fmtExposureByKind, fmtScale, isLargeTilt, unitForKind, UNIT_LABEL,
+  type ExposureKind,
+} from '@/lib/exposureUnits';
 
 // WHAT THE BOOK IS BETTING ON, per sleeve, before you approve it.
 //
@@ -11,10 +15,16 @@ import { fetchExposures, type Exposures, type ExposureLeg } from '@/lib/trading'
 //
 // Bars, not numbers in a table. The question is "is anything unusually large, and in which
 // direction" — a shape question, answered faster by length than by reading two decimal places.
-// PER-GROUP SCALE. Styles run to ~15% and sectors to ~2%, so one shared axis rendered every sector
-// bar as a sliver — the group you most need to scan became the one you could not read. Each group
-// is now scaled to its own largest exposure AND LABELLED with that scale, because bars of equal
-// length meaning different magnitudes is exactly the way a chart lies.
+// PER-GROUP SCALE. Styles run to ~0.15σ and sector weights to ~2%, so one shared axis rendered
+// every sector bar as a sliver — the group you most need to scan became the one you could not
+// read. Each group is now scaled to its own largest exposure AND LABELLED with that scale, because
+// bars of equal length meaning different magnitudes is exactly the way a chart lies.
+//
+// ⚠️ THE TWO GROUPS ARE IN DIFFERENT UNITS, and until 2026-08-13 this file printed both as a
+// percentage — so a style tilt of 0.13σ rendered as "13.0%" on the screen a book is approved
+// from, an ~8x overstatement (the comment above used to say styles "run to ~15%", which is how
+// plausible it looked). Formatting now comes from `lib/exposureUnits`, shared with the held-book
+// panel, because two renderers of the same quantity is how one of them ends up wrong.
 function niceMax(v: number): number {
   const m = Math.max(v, 0.005);
   const pow = Math.pow(10, Math.floor(Math.log10(m)));
@@ -34,15 +44,18 @@ function Bar({ v, max }: { v: number; max: number }) {
   );
 }
 
-function Group({ title, rows }: { title: string; rows: Exposures['sleeves'][0]['factors'] }) {
+function Group({ title, rows, kind }: {
+  title: string; rows: Exposures['sleeves'][0]['factors']; kind: ExposureKind;
+}) {
   if (!rows.length) return null;
+  const unit = unitForKind[kind];
   const max = niceMax(Math.max(...rows.map((r) => Math.abs(r.active_exposure))));
   return (
     <div className="min-w-[248px]">
       <div className="text-[10px] uppercase tracking-wider text-[var(--tx-dim)] mb-1">
         {title}
         <span className="ml-2 normal-case tracking-normal text-[var(--tx-dim)]">
-          scale ±{(max * 100).toFixed(max < 0.02 ? 1 : 0)}%
+          {UNIT_LABEL[unit]} · scale ±{fmtScale(max, unit)}
         </span>
       </div>
       <ul className="space-y-0.5">
@@ -52,9 +65,9 @@ function Group({ title, rows }: { title: string; rows: Exposures['sleeves'][0]['
               {f.factor.replace(/^sec_/, '')}
             </span>
             <Bar v={f.active_exposure} max={max} />
-            <span className={`w-[52px] text-right tabular-nums ${
-              Math.abs(f.active_exposure) > 0.05 ? 'font-semibold' : 'text-[var(--tx-mut)]'}`}>
-              {(f.active_exposure * 100).toFixed(1)}%
+            <span className={`w-[58px] text-right tabular-nums ${
+              isLargeTilt(f.active_exposure, unit) ? 'font-semibold' : 'text-[var(--tx-mut)]'}`}>
+              {fmtExposureByKind(f.active_exposure, f.kind ?? kind)}
             </span>
           </li>
         ))}
@@ -121,9 +134,10 @@ function LegPair({ long, short, max }: { long: number; short: number; max: numbe
   );
 }
 
-function LegGroup({ title, legs, net }: {
-  title: string; legs: ExposureLeg[]; net: Map<string, number>;
+function LegGroup({ title, legs, net, kind }: {
+  title: string; legs: ExposureLeg[]; net: Map<string, number>; kind: ExposureKind;
 }) {
+  const unit = unitForKind[kind];
   const byFactor = new Map<string, { long?: number; short?: number }>();
   for (const l of legs) {
     if (l.leg === 'benchmark') continue;          // stored for the reconciliation, not for reading
@@ -154,7 +168,7 @@ function LegGroup({ title, legs, net }: {
           <span className="text-[var(--tx-mut)]">short of</span>
         </span>
         <span className="normal-case tracking-normal ml-auto">
-          net · scale ±{(max * 100).toFixed(max < 0.02 ? 1 : 0)}%
+          net · {UNIT_LABEL[unit]} · scale ±{fmtScale(max, unit)}
         </span>
       </div>
       {/* PROXIMITY IS DOING REAL WORK HERE: 1px inside a pair (in LegPair) against 7px between
@@ -166,8 +180,8 @@ function LegGroup({ title, legs, net }: {
               {r.factor.replace(/^sec_/, '')}
             </span>
             <LegPair long={r.long} short={r.short} max={max} />
-            <span className="w-[46px] text-right tabular-nums text-[var(--tx-mut)]">
-              {((net.get(r.factor) ?? 0) * 100).toFixed(1)}%
+            <span className="w-[56px] text-right tabular-nums text-[var(--tx-mut)]">
+              {fmtExposureByKind(net.get(r.factor) ?? 0, kind)}
             </span>
           </li>
         ))}
@@ -239,13 +253,17 @@ export function ExposuresSection({ env, id }: { env: string; id: number }) {
                 addition, since the net is carried as a number in each row. */}
             {legs.length > 0 ? (
               <div className="flex flex-wrap gap-x-8 gap-y-3 mt-2">
-                <LegGroup title="Style" legs={legs.filter((l) => l.kind === 'style')} net={net} />
-                <LegGroup title="Sector" legs={legs.filter((l) => l.kind === 'sector')} net={net} />
+                <LegGroup title="Style" kind="style"
+                  legs={legs.filter((l) => l.kind === 'style')} net={net} />
+                <LegGroup title="Sector" kind="sector"
+                  legs={legs.filter((l) => l.kind === 'sector')} net={net} />
               </div>
             ) : s.factors.length > 0 && (
               <div className="flex flex-wrap gap-x-8 gap-y-3 mt-2">
-                <Group title="Style" rows={s.factors.filter((f) => f.kind === 'style')} />
-                <Group title="Sector" rows={s.factors.filter((f) => f.kind === 'sector')} />
+                <Group title="Style" kind="style"
+                  rows={s.factors.filter((f) => f.kind === 'style')} />
+                <Group title="Sector" kind="sector"
+                  rows={s.factors.filter((f) => f.kind === 'sector')} />
               </div>
             )}
           </div>
@@ -261,6 +279,13 @@ export function ExposuresSection({ env, id }: { env: string; id: number }) {
           in the last column. The two legs are stacked on <b>one axis sharing one zero</b>, so their
           lengths are directly comparable and two bars running the same way is a shared tilt. Style
           and sector are drawn on their own scales, shown above each group.
+        </div>
+        {/* The two groups are in different units and nothing in the factor names says so. */}
+        <div className="text-[10px] text-[var(--tx-dim)]">
+          <b>Units differ by group:</b> a <b>sector</b> reading is an active <b>weight</b> — the
+          same quantity the optimizer bounds with its sector band. A <b>style</b> reading is in
+          <b> standard deviations</b> of cross-sectional tilt, so <b>+0.13σ</b> is a modest lean,
+          not 13%.
         </div>
         {/* THE SIGN WARNING IS PART OF THE DELIVERABLE, NOT DECORATION. The short leg stores a
             HOLDING (|w|, a positive book of what you are short of), because that is the convention

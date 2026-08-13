@@ -195,7 +195,10 @@ export interface PaperShortfall {
 // Style columns are cross-sectionally standardised, so theirs is in STANDARD DEVIATIONS. Rendering
 // 0.13σ as "13%" is a unit error that reads perfectly plausibly; `unit` travels with every row so
 // a formatter cannot get it wrong by looking at the factor name (`live_book_exposure.md` §6.3).
-export type ExposureUnit = 'weight' | 'sigma' | 'beta' | 'raw';
+// Re-exported, not redeclared: the canonical definition (and the formatter that honours it) lives
+// in `lib/exposureUnits`, shared with the pre-trade panel.
+export type { ExposureUnit } from './exposureUnits';
+import type { ExposureUnit } from './exposureUnits';
 
 export interface BookExposureFactor {
   factor: string;
