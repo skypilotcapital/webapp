@@ -28,6 +28,7 @@ import {
   type PaperPosition,
 } from '@/lib/paper';
 import { CumulativeChart, HBarChart } from '@/components/portfolio/charts';
+import { BookRisk } from '@/components/portfolio/BookRisk';
 
 const pct = (v: number | null | undefined, d = 1) =>
   v == null ? '—' : `${(v * 100).toFixed(d)}%`;
@@ -68,6 +69,10 @@ export function PaperTrack({ strategy, topSlot }: { strategy?: string; topSlot?:
 
       <BookBand data={bk} />
       <Fidelity data={fid} />
+      {/* Beside Fidelity on purpose: "did we build the book we approved?" and "what is that book
+          betting on NOW?" are the two halves of one question, and only the second keeps moving
+          after the rebalance closes. Its RISK row is the reserved slot for [10-LTE]. */}
+      <BookRisk strategy={strategy} />
       <Performance nav={nav} />
       <ByEngine pos={pos} />
       <Contribution pos={pos} />

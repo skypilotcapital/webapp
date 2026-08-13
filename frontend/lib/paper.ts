@@ -189,6 +189,91 @@ export interface PaperShortfall {
   caveats: Record<string, string>;
 }
 
+/* ------------------------------------------------------------------------- exposures ---- */
+// ⚠️ THE UNIT IS DATA, NOT A CONVENTION THE CLIENT MAY INFER. Sector and market columns of B are
+// 0/1 dummies, so their exposure is an active WEIGHT — the same quantity `sector_tol` bounds.
+// Style columns are cross-sectionally standardised, so theirs is in STANDARD DEVIATIONS. Rendering
+// 0.13σ as "13%" is a unit error that reads perfectly plausibly; `unit` travels with every row so
+// a formatter cannot get it wrong by looking at the factor name (`live_book_exposure.md` §6.3).
+export type ExposureUnit = 'weight' | 'sigma' | 'beta' | 'raw';
+
+export interface BookExposureFactor {
+  factor: string;
+  kind: 'sector' | 'style' | 'market';
+  unit: ExposureUnit;
+  exposure: number | null;
+  /** Only NET-leg sector rows carry a band — `sector_tol` bounds exactly those dummies. */
+  band: number | null;
+  /** 'hard' = the optimiser could not have breached at construction, so a breach is DRIFT.
+   *  'soft' = a hinge penalty it may deliberately have paid, so a breach is CONTEXT. */
+  band_kind: 'hard' | 'soft' | null;
+  breach: boolean | null;
+  /** Signed room left: band − |exposure|. Negative IS the breach, so there is no second concept. */
+  headroom: number | null;
+}
+
+export interface BookExposureLeg {
+  leg: 'long' | 'short' | 'benchmark';
+  benchmark: string | null;
+  /** Each leg is re-normalised to its OWN gross, which is why it carries no band. */
+  leg_gross: number | null;
+  n_names: number | null;
+  factors: Pick<BookExposureFactor, 'factor' | 'kind' | 'unit' | 'exposure'>[];
+}
+
+export interface BookExposureBreach extends
+  Pick<BookExposureFactor, 'factor' | 'kind' | 'exposure' | 'band' | 'band_kind' | 'headroom'> {
+  /** Breached on the newest measured day, as opposed to earlier in the window. */
+  current: boolean;
+  /** Counted in MEASURED days, not calendar days — read beside `history`. */
+  breach_days: number;
+  run_days: number;
+  since: string | null;
+}
+
+export interface BookExposureMandate {
+  mandate: string;
+  /** null = measured ABSOLUTE (b = 0). A dollar-neutral sleeve is an outright bet, not a
+   *  relative one — it has no benchmark rather than having cash as one. */
+  benchmark: string | null;
+  basis: string;
+  gross: number | null;
+  n_names: number | null;
+  n_covered: number | null;
+  coverage_weight: number | null;
+  n_no_isin: number | null;
+  band: number | null;
+  band_kind: 'hard' | 'soft' | null;
+  /** [10-LTE]'s slot — the panel contract (2026-08-13) reserves this row rather than letting a
+   *  three-number risk line be wedged into an exposure-only layout later. Null until TE exists. */
+  risk: null | {
+    te_target: number | null; te_expected: number | null;
+    te_realized: number | null; te_realized_se: number | null; window_days: number | null;
+  };
+  risk_note: string | null;
+  tightest: BookExposureFactor | null;
+  factors: BookExposureFactor[];
+  legs: BookExposureLeg[];
+  breaches: BookExposureBreach[];
+}
+
+export interface PaperExposures {
+  env: string;
+  strategy?: string;
+  date: string | null;
+  b_asof?: string | null;
+  b_age_days?: number | null;
+  /** The measured window. Without it, "0 breach-days" on a four-day series reads as "never". */
+  history?: { start: string | null; n_days: number };
+  mandates: BookExposureMandate[];
+  degradations: string[];
+  note?: string;
+  notes?: Record<string, string>;
+}
+
+export const fetchPaperExposures = (env = 'paper', strategy?: string) =>
+  get<PaperExposures>(`/api/v1/paper/${env}/exposures${strategy ? `?strategy=${strategy}` : ''}`);
+
 export const fetchPaperShortfall = (env = 'paper', top = 8) =>
   get<PaperShortfall>(`/api/v1/paper/${env}/shortfall?top=${top}`);
 

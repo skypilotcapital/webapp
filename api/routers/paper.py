@@ -33,6 +33,13 @@ THREE TRAPS ENCODED HERE, each of which has already bitten someone:
    price-only alternative understates the benchmark by its dividend yield every single day, and
    this is the only maintained daily benchmark the project has. Same source the reports use, on
    purpose: two implementations of "the benchmark" will drift.
+4. **Every optional filter is written `CAST(:x AS <type>) IS NULL OR col = :x`, and the cast is
+   load-bearing.** pg8000 — the Windows dev driver (`api/db.py` is platform-aware) — sends
+   parameters untyped, and Postgres cannot infer a type for one whose only context is `IS NULL`:
+   `could not determine data type of parameter $1`, a 500 on every endpoint here. It does not
+   reproduce on the droplet, where psycopg2 substitutes client-side, so the naked form looks
+   correct in production while making the page impossible to run locally. Do not "simplify" the
+   casts away.
 
 READ-ONLY, like every other analytics router. `skypilot_app` holds SELECT on `ibkr` and `trading`
 and nothing else.
@@ -96,7 +103,7 @@ def book(env: str, strategy: str | None = None):
             FROM trading.book_daily b
             LEFT JOIN trading.book_daily_status s
                    ON s.date = b.date AND s.strategy = b.strategy
-            WHERE (:strat IS NULL OR b.strategy = :strat)
+            WHERE (CAST(:strat AS text) IS NULL OR b.strategy = :strat)
             ORDER BY b.date DESC LIMIT 1"""), {"strat": strategy}).mappings().first()
 
         if row is None:
@@ -162,7 +169,7 @@ def nav_series(env: str, strategy: str | None = None):
         rows = conn.execute(text("""
             SELECT date, nav, pnl_d, gross_long, gross_short, n_long, n_short
             FROM trading.book_daily
-            WHERE (:strat IS NULL OR strategy = :strat)
+            WHERE (CAST(:strat AS text) IS NULL OR strategy = :strat)
             ORDER BY date"""), {"strat": strategy}).mappings().all()
         if not rows:
             return {"env": env, "series": [], "stats_suppressed": True, "reason": "no book yet"}
@@ -176,7 +183,7 @@ def nav_series(env: str, strategy: str | None = None):
         # The first date the book actually held something — the boundary the page marks.
         first_invested = conn.execute(text("""
             SELECT min(date) FROM trading.book_daily
-            WHERE (:strat IS NULL OR strategy = :strat)
+            WHERE (CAST(:strat AS text) IS NULL OR strategy = :strat)
               AND (COALESCE(gross_long,0) <> 0 OR COALESCE(gross_short,0) <> 0)"""),
             {"strat": strategy}).scalar()
 
@@ -237,7 +244,8 @@ def fidelity(env: str, rebalance_id: int | None = None):
         reb = conn.execute(text("""
             SELECT rebalance_id, strategy, signal_date, status, sized_equity, submitted_at
             FROM trading.rebalances
-            WHERE ((:rid IS NULL AND status = ANY(:ex)) OR rebalance_id = :rid)
+            WHERE ((CAST(:rid AS integer) IS NULL AND status = ANY(:ex))
+                   OR rebalance_id = :rid)
             ORDER BY rebalance_id DESC LIMIT 1"""),
             {"rid": rebalance_id, "ex": list(_EXECUTED)}).mappings().first()
         if reb is None:
@@ -419,7 +427,7 @@ def shortfall(env: str, rebalance_id: int | None = None, top: int = Query(8, ge=
     with get_db() as conn:
         row = conn.execute(text("""
             SELECT * FROM trading.shortfall
-            WHERE (:rid IS NULL OR rebalance_id = :rid)
+            WHERE (CAST(:rid AS integer) IS NULL OR rebalance_id = :rid)
             ORDER BY rebalance_id DESC LIMIT 1"""), {"rid": rebalance_id}).mappings().first()
         if row is None:
             return {"env": env, "window": None,
@@ -512,7 +520,7 @@ def positions(env: str, date: str | None = None, top: int = Query(10, ge=1, le=5
         # a 500 that only appears once the same parameter is used twice in one statement.
         d = conn.execute(text("""
             SELECT max(date) FROM trading.book_daily_positions
-            WHERE (:d IS NULL OR date = CAST(:d AS date))"""), {"d": date}).scalar()
+            WHERE (CAST(:d AS date) IS NULL OR date = CAST(:d AS date))"""), {"d": date}).scalar()
         if d is None:
             return {"env": env, "date": None, "positions": [],
                     "mandate_split": None,
@@ -616,4 +624,254 @@ def positions(env: str, date: str | None = None, top: int = Query(10, ge=1, le=5
                               "no attribution snapshot for this date — it rides the daily book "
                               "build (jobs/attribute_positions), so a date whose book has not "
                               "been built has none. [08-PTRK]",
+    }
+
+
+# ------------------------------------------------------------------------------ exposures ----
+# Sector/market columns of B are 0/1 dummies, so Bᵀ(w−b) on one of them IS an active WEIGHT — the
+# very quantity `optimize.py` bounds with `sector_tol`. Style columns are cross-sectionally
+# standardised, so theirs are in STANDARD DEVIATIONS of tilt. Rendering 0.13σ as "13%" is a unit
+# error that reads perfectly plausibly, so the unit travels with every row rather than being
+# inferred by the client from the factor name (`live_book_exposure.md` §6.3).
+_UNIT = {"sector": "weight", "market": "beta", "style": "sigma"}
+
+# Degradation thresholds, from `live_book_exposure.md` §8. B is monthly by design; 45 days means a
+# month-end build has been missed, which is a different fault from B merely being three weeks old.
+_MIN_COVERAGE = 0.95
+_MAX_B_AGE_DAYS = 45
+
+
+@router.get("/{env}/exposures")
+def exposures(env: str, strategy: str | None = None, date: str | None = None):
+    """What the book we HOLD is betting on, per mandate — and how much room is left in its bands.
+
+    THE PANEL THIS SERVES HAS TWO TENANTS ([10-LEXPU] / [10-LTE], contract 2026-08-13). Exposure
+    says what the book is BETTING ON; tracking error says HOW FAR IT WILL WANDER. Both are "what
+    the book is doing between rebalances, per mandate, versus what we built", they share an as-of
+    date, a mandate split and a coverage figure, and split across two surfaces a reader has to join
+    them up themselves. So each mandate carries a `risk` KEY that is null until `[10-LTE]` computes
+    it — the slot is reserved in the payload, not improvised into the layout later.
+
+    WHY THIS IS NOT `/trading/{env}/rebalances/{id}/exposures`. That one reads
+    `portfolio.attribution` and describes the TARGET at freeze: one snapshot, and then nothing looks
+    again until the next rebalance. This reads `trading.book_exposures`, written nightly against the
+    book we actually own, and it moves with all three drift mechanisms the frozen view cannot see —
+    price drift, a monthly re-estimated `B`, and composition (unfilled orders, corporate actions).
+
+    THREE THINGS THE PAYLOAD CARRIES ON PURPOSE, each of which the client would otherwise have to
+    reinvent or guess:
+
+    * **`unit` per factor row.** See `_UNIT` above.
+    * **`headroom`, not just the exposure.** A breach table is a post-mortem — it fires the week
+      after. "Consumer Defensive is 2bp inside a HARD ±3% band" is the sentence someone can act on,
+      and it is the reason the series is stored daily at all.
+    * **`band_kind`.** The core is `soft_constraints: false`, so a breach means the optimiser could
+      NOT have done this at construction → drift. Both sleeves are soft, so their band is a hinge
+      penalty the optimiser may deliberately pay → context. Same number, different findings, and a
+      page that renders them alike pages someone about the design working as intended.
+
+    ⚠️ THE BASIS IS NATIVE, which inverts the standing reporting rule. Elsewhere the rule is "report
+    with `attr_weight` (the blend contribution), feed an optimizer with `w_native`". Here the bands
+    were expressed on the mandate's OWN book, so native is the only basis on which "outside the
+    band" means anything. It is read from the stored `basis` column rather than assumed.
+
+    ⚠️ A LEG IS NOT BANDED. Each leg is re-normalised to its own gross, so judging it against a
+    limit imposed on the net would compare a percentage of one book to a bound set on another. The
+    short leg is also `|w|` — a positive-weight book of what we are SHORT OF — so a positive
+    reading there is a bet AGAINST that factor. Both facts are returned as `notes` so a renderer
+    cannot quietly drop them.
+    """
+    _env(env)
+    with get_db() as conn:
+        # CAST(), not `:d::date` — the bind-parameter trap documented on `/positions`. The cast on
+        # the `IS NULL` side is NOT cosmetic: pg8000 (the Windows dev driver) sends parameters
+        # untyped, and Postgres cannot infer a type for one whose only context is `IS NULL` —
+        # "could not determine data type of parameter $1", a 500 that appears on a developer
+        # machine and never on the droplet, where psycopg2 substitutes client-side.
+        d = conn.execute(text("""
+            SELECT max(date) FROM trading.book_exposures
+            WHERE (CAST(:strat AS text) IS NULL OR strategy = :strat)
+              AND (CAST(:d AS date) IS NULL OR date = CAST(:d AS date))"""),
+            {"strat": strategy, "d": date}).scalar()
+        if d is None:
+            # Not an error. Before the first book there is genuinely nothing to measure, and the
+            # exposure of a book that does not exist yet is not a thing.
+            return {"env": env, "date": None, "mandates": [], "degradations": [],
+                    "note": "no book exposure has been measured yet — it rides the daily book "
+                            "build, so it begins the day the book does ([10-LEXP])"}
+
+        strat = conn.execute(text(
+            "SELECT strategy FROM trading.book_exposures WHERE date = :d "
+            "AND (CAST(:strat AS text) IS NULL OR strategy = :strat) "
+            "ORDER BY strategy LIMIT 1"),
+            {"d": d, "strat": strategy}).scalar()
+
+        hdrs = conn.execute(text("""
+            SELECT mandate, leg, basis, benchmark, b_asof, b_age_days, gross, leg_gross,
+                   n_names, n_covered, coverage_weight, n_no_isin
+            FROM trading.book_exposures
+            WHERE date = :d AND strategy = :s
+            ORDER BY mandate, leg"""), {"d": d, "s": strat}).mappings().all()
+
+        facs = conn.execute(text("""
+            SELECT mandate, leg, factor, kind, exposure, band, band_kind, breach
+            FROM trading.book_exposure_factors
+            WHERE date = :d AND strategy = :s
+            ORDER BY mandate, leg, abs(exposure) DESC"""),
+            {"d": d, "s": strat}).mappings().all()
+
+        # THE BAND HISTORY, which is what makes "for how long" answerable at all. Only banded rows
+        # (net-leg sectors) are pulled — legs carry no band, so they have no breach to have a
+        # duration. Small: ~22 rows per mandate per day.
+        hist = conn.execute(text("""
+            SELECT date, mandate, factor, breach
+            FROM trading.book_exposure_factors
+            WHERE strategy = :s AND band IS NOT NULL AND date <= :d
+            ORDER BY date"""), {"s": strat, "d": d}).mappings().all()
+
+        span = conn.execute(text(
+            "SELECT min(date) AS d0, count(DISTINCT date) AS n FROM trading.book_exposures "
+            "WHERE strategy = :s AND date <= :d"), {"s": strat, "d": d}).mappings().first()
+
+    # ---- band history, folded once ----------------------------------------------------------
+    dates = sorted({r["date"] for r in hist})
+    by_key: dict[tuple, dict] = {}
+    for r in hist:
+        by_key.setdefault((r["mandate"], r["factor"]), {})[r["date"]] = bool(r["breach"])
+
+    def band_run(mandate: str, factor: str) -> dict:
+        """Total breached days in the measured history, and the length of the run ending at `d`.
+
+        ⚠️ A RUN IS COUNTED IN MEASURED DAYS, NOT CALENDAR DAYS, and `history` is returned beside
+        it: with a series a few days old, "0 breach-days" means "not since we started looking", not
+        "never". Presenting the first as the second is the shape of a false all-clear.
+        """
+        seen = by_key.get((mandate, factor), {})
+        total = sum(1 for v in seen.values() if v)
+        run, since = 0, None
+        for dt_ in reversed(dates):
+            if seen.get(dt_):
+                run += 1
+                since = dt_
+            else:
+                break
+        return {"breach_days": total, "run_days": run,
+                "since": since.isoformat() if since else None}
+
+    # ---- assemble ----------------------------------------------------------------------------
+    mandates, degr = [], []
+    for m in sorted({h["mandate"] for h in hdrs}):
+        net_h = next((h for h in hdrs if h["mandate"] == m and h["leg"] == "net"), None)
+        if net_h is None:
+            continue
+        net_f = [f for f in facs if f["mandate"] == m and f["leg"] == "net"]
+
+        rows = [{
+            "factor": f["factor"], "kind": f["kind"], "unit": _UNIT.get(f["kind"], "raw"),
+            "exposure": _f(f["exposure"]),
+            "band": _f(f["band"]), "band_kind": f["band_kind"],
+            "breach": f["breach"],
+            # Signed room, so a breach reads as a negative headroom rather than as a separate
+            # concept the client has to special-case.
+            "headroom": (_f(f["band"]) - abs(_f(f["exposure"])))
+                        if f["band"] is not None else None,
+        } for f in net_f]
+
+        banded = [r for r in rows if r["band"] is not None]
+        tightest = min(banded, key=lambda r: r["headroom"]) if banded else None
+
+        breaches = [{**{k: r[k] for k in
+                        ("factor", "kind", "exposure", "band", "band_kind", "headroom")},
+                     **band_run(m, r["factor"]), "current": True}
+                    for r in banded if r["breach"]]
+        # A band breached earlier in the window but not today is still part of "where the book has
+        # been" — the monthly's question. Reported, flagged not-current.
+        for r in banded:
+            if not r["breach"]:
+                run = band_run(m, r["factor"])
+                if run["breach_days"]:
+                    breaches.append({**{k: r[k] for k in
+                                        ("factor", "kind", "exposure", "band", "band_kind",
+                                         "headroom")},
+                                     **run, "current": False})
+
+        legs = [{
+            "leg": h["leg"], "benchmark": h["benchmark"],
+            "leg_gross": _f(h["leg_gross"]), "n_names": h["n_names"],
+            "factors": [{"factor": f["factor"], "kind": f["kind"],
+                         "unit": _UNIT.get(f["kind"], "raw"), "exposure": _f(f["exposure"])}
+                        for f in facs if f["mandate"] == m and f["leg"] == h["leg"]],
+        } for h in hdrs if h["mandate"] == m and h["leg"] != "net"]
+
+        cov = _f(net_h["coverage_weight"])
+        if cov is not None and cov < _MIN_COVERAGE:
+            degr.append(f"{m}: exposure covers only {cov:.0%} of gross — the uncovered weight is "
+                        f"absent from every number below, not zero")
+        if net_h["n_no_isin"]:
+            degr.append(f"{m}: {net_h['n_no_isin']} position(s) carry no isin and cannot be "
+                        f"measured against the risk model")
+
+        mandates.append({
+            "mandate": m,
+            # None = measured ABSOLUTE (b = 0): a dollar-neutral sleeve is an outright bet, not a
+            # relative one, and calling its benchmark "cash" would invite a relative reading.
+            "benchmark": net_h["benchmark"],
+            "basis": net_h["basis"],
+            "gross": _f(net_h["gross"]),
+            "n_names": net_h["n_names"],
+            "n_covered": net_h["n_covered"],
+            "coverage_weight": cov,
+            "n_no_isin": net_h["n_no_isin"],
+            "band": tightest["band"] if tightest else None,
+            "band_kind": tightest["band_kind"] if tightest else None,
+            # ---- [10-LTE]'s slot. The KEY EXISTS AND IS NULL, deliberately. ------------------
+            # The panel contract splits the work: this endpoint builds the shell and the exposure
+            # half; TE fills this row with {target, expected, realized, window, ...}. Shipping an
+            # exposure-only payload that a three-number risk line has to be wedged into afterwards
+            # is precisely what the contract exists to prevent.
+            "risk": None,
+            "risk_note": "tracking error is not computed for the held book yet — [10-LTE]",
+            "tightest": tightest,
+            "factors": rows,
+            "legs": legs,
+            "breaches": sorted(breaches, key=lambda b: (not b["current"], b["headroom"])),
+        })
+
+    b_age = hdrs[0]["b_age_days"] if hdrs else None
+    if b_age is not None and b_age > _MAX_B_AGE_DAYS:
+        degr.append(f"the risk model B is {b_age} days old — a month-end build has been missed, "
+                    f"so these exposures describe the book against a stale matrix")
+    # Calendar age of the measurement, in UTC — the F-009 rule. A job that never ran leaves no row
+    # to look stale, so the age is taken against the clock, not against the newest row's neighbours.
+    age = (dt.datetime.now(dt.timezone.utc).date() - d).days
+    if age > 4:
+        degr.append(f"the newest measured book is {age} days old")
+
+    return {
+        "env": env,
+        "strategy": strat,
+        "date": d.isoformat(),
+        "b_asof": hdrs[0]["b_asof"].isoformat() if hdrs and hdrs[0]["b_asof"] else None,
+        "b_age_days": b_age,
+        # Returned so "0 breach-days" cannot be read as "never" on a series a few days old.
+        "history": {"start": span["d0"].isoformat() if span and span["d0"] else None,
+                    "n_days": int(span["n"]) if span else 0},
+        "mandates": mandates,
+        "degradations": degr,
+        "notes": {
+            "units": "sector and market exposures are active WEIGHTS (fractions of the mandate's "
+                     "own book); style exposures are in STANDARD DEVIATIONS of cross-sectional "
+                     "tilt. Each row carries its own `unit` — do not infer it from the factor name.",
+            "basis": "NATIVE — each mandate's own book, not its blend contribution. The bands were "
+                     "written on the native book, so it is the only basis on which 'outside the "
+                     "band' means anything.",
+            "legs": "each leg is re-normalised to its own gross and carries NO band; the short leg "
+                    "is |w|, a positive-weight book of what we are SHORT OF, so a positive reading "
+                    "there is a bet AGAINST that factor.",
+            "bands": "a HARD breach means the optimiser could not have done this at construction, "
+                     "so it is drift; a SOFT breach is a hinge penalty the optimiser may have paid "
+                     "deliberately, so it is context.",
+            "b": "B is re-estimated monthly and held fixed intra-month by design — that is what "
+                 "lets price drift be visible. `b_asof` is its month-end.",
+        },
     }
