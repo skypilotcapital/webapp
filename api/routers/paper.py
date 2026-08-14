@@ -641,6 +641,42 @@ _MIN_COVERAGE = 0.95
 _MAX_B_AGE_DAYS = 45
 
 
+def _risk_row(r) -> dict | None:
+    """One mandate's Target · Expected · Realized, from `trading.book_risk` ([10-LTE]).
+
+    ⚠️ `realized` IS RETURNED EVEN WHEN IT IS NOT PUBLISHABLE, with `publishable=False` and its N.
+    Withholding the field entirely would leave a renderer unable to distinguish "no series yet"
+    from "a series too short to quote", and those are different states: the second one is progress.
+    The relative error bar rides along so the caller cannot show a bare number.
+    """
+    if r is None:
+        return None
+    f = _f
+    return {
+        "te_target": f(r["te_target"]),
+        "te_budget": f(r["te_budget"]),
+        "cap_calibration": f(r["cap_calibration"]),
+        "te_expected": f(r["expected_te"]),
+        "te_expected_se": f(r["expected_te_se"]),
+        "te_realized": f(r["realized_te_incep"]),
+        "te_realized_63d": f(r["realized_te_63d"]),
+        "te_realized_252d": f(r["realized_te_252d"]),
+        # RELATIVE, not absolute: 5% at ±0.15 means 4.25–5.75%, not −10% to 20%.
+        "te_realized_rel_se": f(r["realized_se_incep"]),
+        "n_obs": int(r["n_obs"]) if r["n_obs"] is not None else 0,
+        "publishable": bool(r["publishable"]),
+        # Machinery, for the methodology note only — never a report row.
+        "pred_te": f(r["pred_te"]),
+        "bias": f(r["bias"]),
+        "bias_source": r["bias_source"],
+        "factor_var": f(r["factor_var"]),
+        "specific_var": f(r["specific_var"]),
+        "coverage_sigma": f(r["coverage_sigma"]),
+        "f_asof": r["f_asof"].isoformat() if r["f_asof"] else None,
+        "sigma_asof": r["sigma_asof"].isoformat() if r["sigma_asof"] else None,
+    }
+
+
 @router.get("/{env}/exposures")
 def exposures(env: str, strategy: str | None = None, date: str | None = None):
     """What the book we HOLD is betting on, per mandate — and how much room is left in its bands.
@@ -733,6 +769,17 @@ def exposures(env: str, strategy: str | None = None, date: str | None = None):
             "SELECT min(date) AS d0, count(DISTINCT date) AS n FROM trading.book_exposures "
             "WHERE strategy = :s AND date <= :d"), {"s": strat, "d": d}).mappings().first()
 
+        # [10-LTE]'s half of the panel. Read from the row the nightly job wrote — this endpoint
+        # does no risk arithmetic of its own, for the same reason it does no exposure arithmetic.
+        risk = conn.execute(text("""
+            SELECT mandate, te_target, cap_calibration, te_budget, pred_te, bias, bias_source,
+                   expected_te, expected_te_se, factor_var, specific_var,
+                   realized_te_63d, realized_te_252d, realized_te_incep,
+                   n_obs, realized_se_incep, publishable, coverage_sigma, f_asof, sigma_asof
+            FROM trading.book_risk WHERE strategy = :s AND date = :d"""),
+            {"s": strat, "d": d}).mappings().all()
+        risk_by_mandate = {r["mandate"]: r for r in risk}
+
     # ---- band history, folded once ----------------------------------------------------------
     dates = sorted({r["date"] for r in hist})
     by_key: dict[tuple, dict] = {}
@@ -824,13 +871,22 @@ def exposures(env: str, strategy: str | None = None, date: str | None = None):
             "n_no_isin": net_h["n_no_isin"],
             "band": tightest["band"] if tightest else None,
             "band_kind": tightest["band_kind"] if tightest else None,
-            # ---- [10-LTE]'s slot. The KEY EXISTS AND IS NULL, deliberately. ------------------
-            # The panel contract splits the work: this endpoint builds the shell and the exposure
-            # half; TE fills this row with {target, expected, realized, window, ...}. Shipping an
-            # exposure-only payload that a three-number risk line has to be wedged into afterwards
-            # is precisely what the contract exists to prevent.
-            "risk": None,
-            "risk_note": "tracking error is not computed for the held book yet — [10-LTE]",
+            # ---- [10-LTE]'s row, filled from trading.book_risk ([10-LEXPU] reserved the slot).
+            #
+            # ⚠️ THREE NUMBERS, AND `pred_te`/`bias` ARE NOT AMONG THEM. The risk model
+            # under-predicts by ~70% consistently, so a panel showing "predicted 3.00% vs target
+            # 3.0% ✓" would be reassuring and wrong. The bias is BAKED INTO `te_expected`; the raw
+            # prediction and the factor travel in the payload as machinery for a methodology note,
+            # never as report rows — a reader must not have to multiply two numbers together to
+            # learn what the book is doing.
+            #
+            # ⚠️ `te_budget` IS NOT A DUPLICATE OF `te_target`. Nominal vs what the optimiser
+            # actually spent (te_target × cap_calibration). The sleeve's W4 dial sits near its 0.5
+            # floor, so a nominal 6% is a ~3.7% budget, and showing only the nominal would read
+            # "target 6.0 / expected 6.3, on target" while the optimiser deliberately spent 3.7%.
+            "risk": _risk_row(risk_by_mandate.get(m)),
+            "risk_note": None if m in risk_by_mandate else
+                         "tracking error has not been measured for this mandate yet — [10-LTE]",
             "tightest": tightest,
             "factors": rows,
             "legs": legs,

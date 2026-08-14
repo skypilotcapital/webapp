@@ -262,15 +262,70 @@ function RiskRow({ m }: { m: BookExposureMandate }) {
     );
   }
   const r = m.risk;
+  // The W4 dial is only worth showing where it is doing something. On the core it is 1.0 and
+  // static, so "budget 3.0%" beside "target 3.0%" would be noise.
+  const capped = r.cap_calibration != null && Math.abs(r.cap_calibration - 1) > 1e-9;
   return (
     <Row label="RISK">
-      <div className="flex gap-6 flex-wrap text-[11px]">
-        <span><b>Target</b> {pct1(r.te_target)}</span>
-        <span><b>Expected</b> {pct1(r.te_expected)}</span>
+      <div className="flex gap-x-7 gap-y-1 flex-wrap items-baseline text-[11.5px]"
+        style={{ color: 'var(--tx)' }}>
         <span>
-          <b>Realized</b>{r.window_days ? ` (${r.window_days}d)` : ''} {pct1(r.te_realized)}
-          {r.te_realized_se != null && ` ±${(r.te_realized_se * 100).toFixed(1)}`}
+          <b>Target</b> {pct1(r.te_target)}
+          {capped && (
+            <span style={{ color: 'var(--tx-mut)' }}> · budget {pct1(r.te_budget)}</span>
+          )}
         </span>
+        <span>
+          <b>Expected</b>{' '}
+          <span style={{
+            // Off-target by more than the estimate's own uncertainty is the finding this row
+            // exists for; inside it, the difference is not distinguishable from noise.
+            color: (r.te_expected != null && r.te_target != null
+                    && Math.abs(r.te_expected - (capped ? r.te_budget ?? r.te_target : r.te_target))
+                       > (r.te_expected_se ?? 0)) ? 'var(--amber)' : 'var(--tx)',
+            fontWeight: 600,
+          }}>
+            {pct1(r.te_expected)}
+          </span>
+          {r.te_expected_se != null && (
+            <span style={{ color: 'var(--tx-mut)' }}> ± {pct1(r.te_expected_se)}</span>
+          )}
+        </span>
+        <span>
+          <b>Realized</b>{' '}
+          {r.publishable && r.te_realized != null ? (
+            <>
+              {pct1(r.te_realized)}
+              {r.te_realized_rel_se != null && (
+                <span style={{ color: 'var(--tx-mut)' }}>
+                  {' '}± {(r.te_realized_rel_se * 100).toFixed(0)}% rel
+                </span>
+              )}
+              <span style={{ color: 'var(--tx-dim)' }}> (N={r.n_obs})</span>
+            </>
+          ) : (
+            // NOT a blank and NOT a zero. "Too short to quote" is a different state from "nothing
+            // measured", and the second is what a missing row would imply.
+            <span style={{ color: 'var(--tx-mut)' }}>
+              insufficient history (N={r.n_obs})
+            </span>
+          )}
+        </span>
+      </div>
+      <div className="text-[10.5px] mt-1" style={{ color: 'var(--tx-dim)' }}>
+        <b>Expected</b> is what tonight&rsquo;s holdings should realize on the risk model{' '}
+        <b>corrected for its known bias</b>
+        {r.bias != null && <> (×{r.bias.toFixed(2)} on a predicted {pct1(r.pred_te)}</>}
+        {r.bias != null && r.bias_source && !m.mandate.startsWith(r.bias_source.slice(0, 4))
+          ? <>, measured on <span className="font-mono">{r.bias_source.slice(0, 28)}</span>)</>
+          : r.bias != null ? <>)</> : null}
+        . The model under-predicts consistently, so the correction is baked in rather than left as a
+        factor to multiply by — and it carries its own ±20%, which is where Expected&rsquo;s error
+        bar comes from. Realized is a <b>trailing</b> window: it is the audit, not the drift signal.
+        {capped && (
+          <> The <b>budget</b> is what the optimiser actually spent — the vol cap&rsquo;s dial sat
+          at {r.cap_calibration?.toFixed(2)} — against a nominal target of {pct1(r.te_target)}.</>
+        )}
       </div>
     </Row>
   );

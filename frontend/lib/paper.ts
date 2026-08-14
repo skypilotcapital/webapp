@@ -234,6 +234,45 @@ export interface BookExposureBreach extends
   since: string | null;
 }
 
+/** Target · Expected · Realized for one mandate ([10-LTE]).
+ *
+ *  ⚠️ `pred_te` and `bias` ARE MACHINERY, NOT ROWS. The risk model under-predicts by ~70%
+ *  consistently, so "predicted 3.00% vs target 3.0% ✓" would be reassuring and wrong. The bias is
+ *  already baked into `te_expected`; these two travel only so a methodology note can show the
+ *  arithmetic. A reader must never have to multiply two numbers together to learn what the book is
+ *  doing. */
+export interface BookRisk {
+  /** Nominal, from the LOCKED config. */
+  te_target: number | null;
+  /** What the optimiser actually SPENT: te_target × cap_calibration. Differs from the nominal
+   *  wherever the W4 dial is active — the sleeve's sits near its 0.5 floor, so 6% nominal is a
+   *  ~3.7% budget, and showing only the nominal reads as on-target when it is not the question. */
+  te_budget: number | null;
+  cap_calibration: number | null;
+  /** THE REPORTED NUMBER — the risk model corrected for its known bias. */
+  te_expected: number | null;
+  /** Inherited from implied_b's own ~20% (N=12 monthly obs), so 5.1% is honestly 5.1% ± 1.0%. */
+  te_expected_se: number | null;
+  te_realized: number | null;
+  te_realized_63d: number | null;
+  te_realized_252d: number | null;
+  /** RELATIVE, not absolute: 5% at ±0.15 means 4.25–5.75%, not −10% to 20%. A floor, too —
+   *  1/√(2N) assumes iid normal returns and real ones are fat-tailed and autocorrelated. */
+  te_realized_rel_se: number | null;
+  n_obs: number;
+  /** False = a series exists but is too short to quote. Distinct from `risk === null`, which means
+   *  nothing has been measured at all; the second is progress and the first is not. */
+  publishable: boolean;
+  pred_te: number | null;
+  bias: number | null;
+  bias_source: string | null;
+  factor_var: number | null;
+  specific_var: number | null;
+  coverage_sigma: number | null;
+  f_asof: string | null;
+  sigma_asof: string | null;
+}
+
 export interface BookExposureMandate {
   mandate: string;
   /** null = measured ABSOLUTE (b = 0). A dollar-neutral sleeve is an outright bet, not a
@@ -247,12 +286,9 @@ export interface BookExposureMandate {
   n_no_isin: number | null;
   band: number | null;
   band_kind: 'hard' | 'soft' | null;
-  /** [10-LTE]'s slot — the panel contract (2026-08-13) reserves this row rather than letting a
-   *  three-number risk line be wedged into an exposure-only layout later. Null until TE exists. */
-  risk: null | {
-    te_target: number | null; te_expected: number | null;
-    te_realized: number | null; te_realized_se: number | null; window_days: number | null;
-  };
+  /** [10-LTE]'s row — the panel contract (2026-08-13) reserved this slot; the nightly job fills it.
+   *  Null when tracking error has not been measured for this mandate yet. */
+  risk: null | BookRisk;
   risk_note: string | null;
   tightest: BookExposureFactor | null;
   factors: BookExposureFactor[];
