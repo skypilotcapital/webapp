@@ -668,6 +668,10 @@ def _risk_row(r) -> dict | None:
         "te_target": f(r["te_target"]),
         "te_budget": f(r["te_budget"]),
         "cap_calibration": f(r["cap_calibration"]),
+        # 'config' = a target the optimiser was given. 'implied' = derived from the components,
+        # which is the FUND row and only the fund row — a blend runs no optimizer, so nobody set
+        # it. The client must not render an implied number under a heading that says "target".
+        "target_source": (r["target_source"] if "target_source" in r.keys() else "config"),
         "te_expected": f(r["expected_te"]),
         "te_expected_se": f(r["expected_te_se"]),
         "te_realized": f(r["realized_te_incep"]),
@@ -787,10 +791,16 @@ def exposures(env: str, strategy: str | None = None, date: str | None = None):
             SELECT mandate, te_target, cap_calibration, te_budget, pred_te, bias, bias_source,
                    expected_te, expected_te_se, factor_var, specific_var,
                    realized_te_63d, realized_te_252d, realized_te_incep,
-                   n_obs, realized_se_incep, publishable, coverage_sigma, f_asof, sigma_asof
+                   n_obs, realized_se_incep, publishable, coverage_sigma, f_asof, sigma_asof,
+                   target_source, benchmark, n_names, coverage_weight
             FROM trading.book_risk WHERE strategy = :s AND date = :d"""),
             {"s": strat, "d": d}).mappings().all()
-        risk_by_mandate = {r["mandate"]: r for r in risk}
+        # The FUND row is not a mandate and is lifted out of this map on purpose. It describes the
+        # whole netted book against the S&P 500 — one level up from the per-mandate blocks — so it
+        # travels as its own top-level key rather than as a third mandate a renderer would loop over
+        # and draw exposure bars for that do not exist.
+        risk_by_mandate = {r["mandate"]: r for r in risk if r["mandate"] != "fund"}
+        fund_row = next((r for r in risk if r["mandate"] == "fund"), None)
 
     # ---- band history, folded once ----------------------------------------------------------
     dates = sorted({r["date"] for r in hist})
@@ -925,6 +935,14 @@ def exposures(env: str, strategy: str | None = None, date: str | None = None):
         "history": {"start": span["d0"].isoformat() if span and span["d0"] else None,
                     "n_days": int(span["n"]) if span else 0},
         "mandates": mandates,
+        # ⚠️ THE FUND CARRIES AN `implied` TARGET, NOT A SET ONE, and `target_source` says so on the
+        # row. The blend runs no optimizer — `risk_diagnostics` is entirely NULL for its label — so
+        # 4.3% is what the two component targets IMPLY (core 1.0×3% ⊕ sleeve 0.5×6%, combined in
+        # variance), not a limit anyone enforced. `te_expected` beside it is measured exactly from Σ
+        # on the blended weights and assumes nothing about how the mandates correlate.
+        "fund": _risk_row(fund_row),
+        "fund_note": None if fund_row else
+                     "fund-level tracking error has not been measured yet — [10-LTE]",
         "degradations": degr,
         "notes": {
             "units": "sector and market exposures are active WEIGHTS (fractions of the mandate's "

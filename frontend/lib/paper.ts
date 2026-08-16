@@ -251,7 +251,11 @@ export interface BookExposureBreach extends
  *  arithmetic. A reader must never have to multiply two numbers together to learn what the book is
  *  doing. */
 export interface BookRisk {
-  /** Nominal, from the LOCKED config. */
+  /** 'config' = a target the optimiser was given. 'implied' = DERIVED from the components — the
+   *  fund row and only the fund row, because a blend runs no optimizer and nobody set it. An
+   *  implied number must never render under a heading that says "target". */
+  target_source?: 'config' | 'implied';
+  /** Nominal, from the LOCKED config. On the fund row this is the IMPLIED value instead. */
   te_target: number | null;
   /** What the optimiser actually SPENT: te_target × cap_calibration. Differs from the nominal
    *  wherever the W4 dial is active — the sleeve's sits near its 0.5 floor, so 6% nominal is a
@@ -314,6 +318,11 @@ export interface PaperExposures {
   /** The measured window. Without it, "0 breach-days" on a four-day series reads as "never". */
   history?: { start: string | null; n_days: number };
   mandates: BookExposureMandate[];
+  /** The WHOLE netted book against the S&P 500 — one level up from the mandate blocks, which is why
+   *  it is not a third entry in `mandates`. Its `te_target` is IMPLIED by the components, never set;
+   *  `te_expected` is measured exactly from Σ on the blended weights. */
+  fund?: BookRisk | null;
+  fund_note?: string | null;
   degradations: string[];
   note?: string;
   notes?: Record<string, string>;

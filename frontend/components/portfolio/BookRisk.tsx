@@ -18,13 +18,20 @@
 // construction, so between rebalances an excursion otherwise leaves no trace.
 //
 // PER-MANDATE IS NOT A PREFERENCE. The core is measured RELATIVE to the S&P 500 and the sleeve is
-// market-neutral and measured ABSOLUTE. A blended row would be meaningless — for exposure and for
-// tracking error in exactly the same way.
+// market-neutral and measured ABSOLUTE, so their EXPOSURES cannot be blended into one row — a
+// sector overweight against an index and one against nothing are not the same quantity.
+//
+// ⚠️ THAT ARGUMENT DOES NOT EXTEND TO TRACKING ERROR, and I originally thought it did (corrected
+// 2026-08-15, user). Once the fund's benchmark is fixed as the S&P 500 — which it is — a
+// market-neutral sleeve's whole volatility becomes active risk against that index, so the two
+// mandates' risk DOES combine. Hence the fund line above the blocks: one number for the whole
+// netted book, measured through the same Σ. Its "target" is IMPLIED by the components and labelled
+// as such, because a blend runs no optimizer and nobody set it.
 
 import useSWR from 'swr';
 import {
   fetchPaperExposures,
-  type BookExposureFactor, type BookExposureLeg, type BookExposureMandate,
+  type BookExposureFactor, type BookExposureLeg, type BookExposureMandate, type BookRisk,
 } from '@/lib/paper';
 // ⚠️ THE UNIT COMES FROM THE ROW, NEVER FROM THE FACTOR NAME — and the formatting lives in ONE
 // module, shared with the pre-trade panel. Two renderers of the same quantity is how one of them
@@ -381,6 +388,54 @@ function BandsRow({ m, historyDays, historyStart }: {
   );
 }
 
+/* --------------------------------------------------------------------- the fund line ---- */
+// ⚠️ "IMPLIED", NEVER "TARGET". The blend runs no optimizer, so 4.3% is what the two component
+// targets imply once you fix the S&P 500 as the benchmark — core 1.0×3% combined in VARIANCE with
+// sleeve 0.5×6% — not a limit anyone enforced. The word is the whole safeguard: put this number
+// under a column headed "target" and within a month someone will treat it as a breach when it moves.
+function FundLine({ r }: { r: BookRisk }) {
+  const implied = r.target_source === 'implied';
+  // Off the implied level by more than the estimate's own uncertainty is a finding; inside it, the
+  // gap is not distinguishable from noise. Same rule as the per-mandate row.
+  const off = r.te_expected != null && r.te_target != null
+    && Math.abs(r.te_expected - r.te_target) > (r.te_expected_se ?? 0);
+  return (
+    <div className="mt-3 mb-1 p-3 rounded"
+      style={{ background: 'var(--bg)', border: '1px solid var(--border-soft)' }}>
+      <div className="flex items-baseline gap-x-7 gap-y-1 flex-wrap text-[11.5px]"
+        style={{ color: 'var(--tx)' }}>
+        <span className="text-[10px] font-bold tracking-[1.2px]" style={{ color: 'var(--tx-dim)' }}>
+          WHOLE FUND
+        </span>
+        <span style={{ color: 'var(--tx-mut)' }}>vs S&amp;P 500</span>
+        <span>
+          <b>{implied ? 'Implied' : 'Target'}</b> {pct1(r.te_target)}
+          {implied && <span style={{ color: 'var(--tx-dim)' }}> (not set)</span>}
+        </span>
+        <span>
+          <b>Expected</b>{' '}
+          <span style={{ color: off ? 'var(--amber)' : 'var(--tx)', fontWeight: 600 }}>
+            {pct1(r.te_expected)}
+          </span>
+          {r.te_expected_se != null && (
+            <span style={{ color: 'var(--tx-mut)' }}> ± {pct1(r.te_expected_se)}</span>
+          )}
+        </span>
+        <span style={{ color: 'var(--tx-dim)' }}>{r.n_obs > 0 ? '' : 'realized: not yet'}</span>
+      </div>
+      <div className="text-[10.5px] mt-1" style={{ color: 'var(--tx-dim)' }}>
+        The whole netted book against the index it is benchmarked to. <b>Expected is measured</b> —
+        active weights through the same risk model — so it assumes nothing about how the two
+        mandates interact. <b>Implied is derived</b>: the core&rsquo;s {' '}
+        3.0% and the sleeve&rsquo;s 6.0% at half weight, combined in variance
+        {implied && <>, which <b>no optimizer was given</b> — a blend runs none, so this is what the
+        design implies rather than a limit anything enforces</>}. It assumes the two are
+        uncorrelated, which is why it is the secondary number.
+      </div>
+    </div>
+  );
+}
+
 /* -------------------------------------------------------------------------- the panel ---- */
 export function BookRisk({ strategy }: { strategy?: string }) {
   const { data } = useSWR(['paper-exposures', strategy],
@@ -417,6 +472,12 @@ export function BookRisk({ strategy }: { strategy?: string }) {
           {data.b_asof && ` · risk model B ${data.b_asof} (${data.b_age_days}d)`}
         </span>
       </div>
+
+      {/* THE FUND FIRST, because it is the number an investor asks for and the one level above the
+          mandate blocks. It is deliberately NOT a third mandate block: the fund has no sector band
+          and no exposure bars of its own, and giving it one would imply constraints it does not
+          have. */}
+      {data.fund && <FundLine r={data.fund} />}
 
       {!!data.degradations.length && (
         <div className="mt-2 p-2 rounded" style={{ background: 'rgba(180,83,9,0.10)' }}>
