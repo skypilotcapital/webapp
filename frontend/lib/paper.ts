@@ -44,6 +44,15 @@ export interface PaperBook {
   tied_out: boolean | null;
   nav_vs_broker: number | null;
   unresolved_breaks: number | null;
+  /** Per-kind split of `unresolved_breaks` ([10-PXCAL]). DISPLAY ONLY — these do not enter
+   *  `tied_out`, which stays strict until the price threshold is calibrated. They exist so a
+   *  reader can see that a DEGRADED day is price noise rather than a cash or position break. */
+  unresolved_price: number | null;
+  unresolved_cash: number | null;
+  unresolved_position: number | null;
+  unresolved_fill: number | null;
+  unresolved_nav: number | null;
+  unresolved_other: number | null;
   gross_long_pct: number | null;
   gross_short_pct: number | null;
   gross_pct: number | null;

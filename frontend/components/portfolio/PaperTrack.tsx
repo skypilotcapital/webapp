@@ -30,6 +30,13 @@ import {
 import { CumulativeChart, HBarChart } from '@/components/portfolio/charts';
 import { BookRisk } from '@/components/portfolio/BookRisk';
 
+// Break kinds, in the order a reader should scan them. `price` first because it is the expected
+// noise; the rest are the ones that mean something. ALWAYS_SHOWN carries the zeros that are
+// reassuring to see — a reader must not have to infer "cash is fine" from its absence.
+// `other` catches a kind added later, so a new break type can never be invisible here.
+const BREAK_KINDS = ['price', 'cash', 'position', 'fill', 'nav', 'other'] as const;
+const ALWAYS_SHOWN: readonly string[] = ['price', 'cash', 'position'];
+
 const pct = (v: number | null | undefined, d = 1) =>
   v == null ? '—' : `${(v * 100).toFixed(d)}%`;
 const usd = (v: number | null | undefined) =>
@@ -108,6 +115,28 @@ function BookBand({ data }: { data: Awaited<ReturnType<typeof fetchPaperBook>> |
             : { background: 'rgba(185,28,28,0.12)', color: 'var(--neg)' }}>
           {b.tied_out ? '✓ tied to broker' : '✗ NOT tied out'}
         </span>
+        {/* WHICH KIND broke, beside the banner ([10-PXCAL]). On the current price threshold
+            14-29 names/day breach 1%, so this badge reads red most days — and a thin-name mark
+            tail and an uncaptured fill present identically behind one count. The reader has to
+            see the composition here, without opening the break log.
+            Zeros are shown ON PURPOSE for the kinds that matter: "0 cash, 0 position" IS the
+            reassuring half, and omitting it would leave the reader inferring it from silence.
+            Display only — `tied_out` is untouched, pending the threshold calibration. */}
+        {b.tied_out === false && b.unresolved_breaks ? (
+          <span className="text-[10px] font-mono" style={{ color: 'var(--tx-mut)' }}>
+            {BREAK_KINDS
+              .filter((k) => (b[`unresolved_${k}`] ?? 0) > 0 || ALWAYS_SHOWN.includes(k))
+              .map((k) => {
+                const n = b[`unresolved_${k}`] ?? 0;
+                return (
+                  <span key={k} className="mr-2"
+                    style={n > 0 && k !== 'price' ? { color: 'var(--neg)', fontWeight: 700 } : undefined}>
+                    {n} {k}
+                  </span>
+                );
+              })}
+          </span>
+        ) : null}
       </div>
 
       <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-7 gap-3">

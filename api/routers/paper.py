@@ -99,7 +99,9 @@ def book(env: str, strategy: str | None = None):
                    b.accrued_cash, b.broker_nlv, b.mark_quality, b.n_px_fallback,
                    b.n_unresolved, b.n_unexplained_qty, b.commission, b.trade_cash,
                    b.reconciled_at, b.built_at, b.snap_ts,
-                   s.tied_out, s.nav_vs_broker, s.unresolved_breaks
+                   s.tied_out, s.nav_vs_broker, s.unresolved_breaks,
+                   s.unresolved_price, s.unresolved_cash, s.unresolved_position,
+                   s.unresolved_fill, s.unresolved_nav, s.unresolved_other
             FROM trading.book_daily b
             LEFT JOIN trading.book_daily_status s
                    ON s.date = b.date AND s.strategy = b.strategy
@@ -132,7 +134,17 @@ def book(env: str, strategy: str | None = None):
         if b["tied_out"] is False:
             degr.append("book did NOT tie out to the broker")
         if b["unresolved_breaks"]:
-            degr.append(f"{b['unresolved_breaks']} unresolved reconciliation break(s)")
+            # Composition, not just a count ([10-PXCAL]). A thin-name mark tail and an uncaptured
+            # fill are not the same event and must not read the same. On the current price
+            # threshold 14-29 names/day breach 1%, so this line is DEGRADED most days — which is
+            # exactly why the reader has to be able to see, without opening the log, whether the
+            # cash and position counts are zero. Zeros are shown deliberately: "0 cash" is the
+            # reassuring half and omitting it would leave the reader inferring silence.
+            parts = ", ".join(
+                f"{b[f'unresolved_{k}']} {k}"
+                for k in ("price", "cash", "position", "fill", "nav", "other")
+                if b.get(f"unresolved_{k}") or k in ("price", "cash", "position"))
+            degr.append(f"{b['unresolved_breaks']} unresolved reconciliation break(s) — {parts}")
         if b["n_unexplained_qty"]:
             degr.append(f"{b['n_unexplained_qty']} position(s) with unexplained quantity")
 
