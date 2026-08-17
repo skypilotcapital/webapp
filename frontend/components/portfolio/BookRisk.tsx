@@ -251,6 +251,59 @@ function Row({ label, children }: { label: string; children: React.ReactNode }) 
 // nothing to report, which is how every silent degradation in this project survived (F-006 →
 // F-008) — and the panel contract reserves this slot precisely so `[10-LTE]` adds a line rather
 // than renegotiating a layout.
+// [10-BIAS] Q3 — THE CORRECTION IS NOT A CONSTANT, so its regime spread rides beside the number it
+// moves. ONE component, used by both the per-mandate row and the fund line, because two copies of a
+// caveat drift apart and the fund is the row a reader is most likely to quote.
+//
+// ⚠️ DELIBERATELY A SEPARATE SPAN FROM `± se`, NOT MERGED INTO IT. `± se` is how precisely today's
+// correction was measured (~20%, N=12); this is how far that correction MOVES between regimes
+// (η² 0.48–0.87, means swinging up to 2.3×). Merged, a reader takes the whole width for measurement
+// noise and concludes the correction is a stable property. It was measured and it is not.
+//
+// ⚠️ Expected MAY SIT OUTSIDE THIS BAND. That is the finding — the correction is at a historical
+// extreme — and it is stated in words rather than left for a reader to spot and mistrust the panel.
+// Nothing here clamps the point or widens the band.
+function RegimeBand({ r }: { r: BookRisk }) {
+  if (r.te_expected_lo == null || r.te_expected_hi == null) return null;
+  const extreme = r.bias_pctile != null && (r.bias_pctile >= 90 || r.bias_pctile <= 10);
+  return (
+    <span style={{ color: 'var(--tx-mut)' }}>
+      <b style={{ color: 'var(--tx)' }}>Regime</b>{' '}
+      {pct1(r.te_expected_lo)}–{pct1(r.te_expected_hi)}
+      {r.bias_pctile != null && (
+        <span style={{ color: extreme ? 'var(--amber)' : 'var(--tx-dim)' }}>
+          {' '}(today p{r.bias_pctile.toFixed(0)})
+        </span>
+      )}
+    </span>
+  );
+}
+
+// The sentence that explains the band. Separate from the band itself so the numbers can sit on the
+// metric line while the explanation sits with the other footnotes.
+function RegimeNote({ r }: { r: BookRisk }) {
+  if (r.te_expected_lo == null || r.te_expected_hi == null) return null;
+  const p = r.bias_pctile;
+  const extreme = p != null && (p >= 90 || p <= 10);
+  return (
+    <>
+      {' '}<b>Regime</b> is what these same holdings would imply at the correction&rsquo;s
+      historical {p != null && r.bias_n ? <>10th–90th percentile over {r.bias_n} months</> :
+        <>10th–90th percentile</>} — a different quantity from the ± above, which is only how
+      precisely today&rsquo;s correction was measured. The correction is <b>not a constant</b>:
+      roughly half to four-fifths of its variance is explained by which regime the market is in.
+      {extreme && (
+        <span style={{ color: 'var(--amber)' }}>
+          {' '}It currently sits at the <b>{p! >= 90 ? '' : 'low '}extreme</b> of its own history
+          (p{p!.toFixed(0)}), which is why Expected falls {p! >= 90 ? 'above' : 'below'} the band —
+          the risk model is under-predicting {p! >= 90 ? 'more' : 'less'} than usual right now, and
+          that is about the market, not about the holdings.
+        </span>
+      )}
+    </>
+  );
+}
+
 function RiskRow({ m }: { m: BookExposureMandate }) {
   if (!m.risk) {
     return (
@@ -298,6 +351,7 @@ function RiskRow({ m }: { m: BookExposureMandate }) {
             <span style={{ color: 'var(--tx-mut)' }}> ± {pct1(r.te_expected_se)}</span>
           )}
         </span>
+        <RegimeBand r={r} />
         <span>
           <b>Realized</b>{' '}
           {r.publishable && r.te_realized != null ? (
@@ -329,6 +383,7 @@ function RiskRow({ m }: { m: BookExposureMandate }) {
         . The model under-predicts consistently, so the correction is baked in rather than left as a
         factor to multiply by — and it carries its own ±20%, which is where Expected&rsquo;s error
         bar comes from. Realized is a <b>trailing</b> window: it is the audit, not the drift signal.
+        <RegimeNote r={r} />
         {capped && (
           <> The <b>budget</b> is what the optimiser actually spent — the vol cap&rsquo;s dial sat
           at {r.cap_calibration?.toFixed(2)} — against a nominal target of {pct1(r.te_target)}.</>
@@ -421,6 +476,7 @@ function FundLine({ r }: { r: BookRisk }) {
             <span style={{ color: 'var(--tx-mut)' }}> ± {pct1(r.te_expected_se)}</span>
           )}
         </span>
+        <RegimeBand r={r} />
         <span style={{ color: 'var(--tx-dim)' }}>{r.n_obs > 0 ? '' : 'realized: not yet'}</span>
       </div>
       <div className="text-[10.5px] mt-1" style={{ color: 'var(--tx-dim)' }}>
@@ -431,6 +487,12 @@ function FundLine({ r }: { r: BookRisk }) {
         {implied && <>, which <b>no optimizer was given</b> — a blend runs none, so this is what the
         design implies rather than a limit anything enforces</>}. It assumes the two are
         uncorrelated, which is why it is the secondary number.
+        <RegimeNote r={r} />
+        {r.te_expected_lo != null && (
+          <> The fund&rsquo;s band blends the two mandates&rsquo; corrections as if they moved
+          together; they were measured to be essentially <b>uncorrelated</b>, so the true band is
+          narrower than the one shown.</>
+        )}
       </div>
     </div>
   );

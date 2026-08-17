@@ -266,6 +266,22 @@ export interface BookRisk {
   te_expected: number | null;
   /** Inherited from implied_b's own ~20% (N=12 monthly obs), so 5.1% is honestly 5.1% ± 1.0%. */
   te_expected_se: number | null;
+  /** ⚠️ A DIFFERENT QUANTITY FROM `te_expected_se` — do not merge them into one ± on the page.
+   *  `_se` is how precisely TODAY's correction was measured. This pair is how far that correction
+   *  MOVES between regimes: [10-BIAS] Q3 measured η² = 0.48–0.87 of its variance explained by which
+   *  regime you are in, means swinging up to 2.3×, and that pinning a median would have been wrong
+   *  by +47% to −36%. In TE units (pred_te × the bias percentiles) so the panel never asks a reader
+   *  to multiply by a bias — the same rule that keeps `bias` machinery rather than a row.
+   *
+   *  ⚠️ `te_expected` MAY FALL OUTSIDE [lo, hi]. That is the finding, not a glitch: it means the
+   *  correction sits at a historical extreme (see `bias_pctile`). Never clamp the point into the
+   *  band, and never widen the band to contain it. */
+  te_expected_lo: number | null;
+  te_expected_hi: number | null;
+  /** Where the CURRENT correction sits in its own history, 0–100. High = the risk model is
+   *  under-predicting more than usual right now. */
+  bias_pctile: number | null;
+  bias_n: number | null;
   te_realized: number | null;
   te_realized_63d: number | null;
   te_realized_252d: number | null;

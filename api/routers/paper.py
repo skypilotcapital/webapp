@@ -674,6 +674,19 @@ def _risk_row(r) -> dict | None:
         "target_source": (r["target_source"] if "target_source" in r.keys() else "config"),
         "te_expected": f(r["expected_te"]),
         "te_expected_se": f(r["expected_te_se"]),
+        # ⚠️ A DIFFERENT QUANTITY FROM `te_expected_se`, and the renderer must not merge them.
+        # `_se` is how precisely TODAY's correction was measured (~20%, N=12). This is how far that
+        # correction MOVES between regimes ([10-BIAS] Q3: 48–87% of its variance is regime; means
+        # swing up to 2.3×). Showing only the first implies a stability that was measured and
+        # rejected.
+        #
+        # ⚠️ `te_expected` MAY FALL OUTSIDE [lo, hi]. That means the correction is at a historical
+        # extreme, which is the finding — `bias_pctile` says where. Do NOT clamp the point into the
+        # band or widen the band to contain it.
+        "te_expected_lo": f(r["expected_te_lo"]),
+        "te_expected_hi": f(r["expected_te_hi"]),
+        "bias_pctile": f(r["bias_pctile"]),
+        "bias_n": int(r["bias_n"]) if r["bias_n"] is not None else None,
         "te_realized": f(r["realized_te_incep"]),
         "te_realized_63d": f(r["realized_te_63d"]),
         "te_realized_252d": f(r["realized_te_252d"]),
@@ -792,7 +805,8 @@ def exposures(env: str, strategy: str | None = None, date: str | None = None):
                    expected_te, expected_te_se, factor_var, specific_var,
                    realized_te_63d, realized_te_252d, realized_te_incep,
                    n_obs, realized_se_incep, publishable, coverage_sigma, f_asof, sigma_asof,
-                   target_source, benchmark, n_names, coverage_weight
+                   target_source, benchmark, n_names, coverage_weight,
+                   bias_p10, bias_p90, bias_pctile, bias_n, expected_te_lo, expected_te_hi
             FROM trading.book_risk WHERE strategy = :s AND date = :d"""),
             {"s": strat, "d": d}).mappings().all()
         # The FUND row is not a mandate and is lifted out of this map on purpose. It describes the
