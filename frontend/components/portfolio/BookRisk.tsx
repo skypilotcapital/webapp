@@ -285,19 +285,31 @@ function RegimeNote({ r }: { r: BookRisk }) {
   if (r.te_expected_lo == null || r.te_expected_hi == null) return null;
   const p = r.bias_pctile;
   const extreme = p != null && (p >= 90 || p <= 10);
+  // ⚠️ EVERY SPACE ADJACENT TO AN EXPRESSION OR A TAG IS EXPLICIT `{' '}`. Relying on literal
+  // spaces around `{…}` and `</b>` rendered "Regimeis what" and "percentile— a" here — caught on
+  // the page, not in review, and `tsc` and `next build` both pass either way. Prose assembled from
+  // JSX expressions needs its spacing stated, not assumed.
+  const window_ = p != null && r.bias_n
+    ? `10th–90th percentile over ${r.bias_n} months`
+    : '10th–90th percentile';
   return (
     <>
-      {' '}<b>Regime</b> is what these same holdings would imply at the correction&rsquo;s
-      historical {p != null && r.bias_n ? <>10th–90th percentile over {r.bias_n} months</> :
-        <>10th–90th percentile</>} — a different quantity from the ± above, which is only how
-      precisely today&rsquo;s correction was measured. The correction is <b>not a constant</b>:
-      roughly half to four-fifths of its variance is explained by which regime the market is in.
+      {' '}
+      <b>Regime</b>
+      {` is what these same holdings would imply at the correction's historical ${window_} — a `}
+      {'different quantity from the ± above, which is only how precisely today’s correction '}
+      {'was measured. The correction is '}
+      <b>not a constant</b>
+      {': roughly half to four-fifths of its variance is explained by which regime the market is '}
+      {'in.'}
       {extreme && (
         <span style={{ color: 'var(--amber)' }}>
-          {' '}It currently sits at the <b>{p! >= 90 ? '' : 'low '}extreme</b> of its own history
-          (p{p!.toFixed(0)}), which is why Expected falls {p! >= 90 ? 'above' : 'below'} the band —
-          the risk model is under-predicting {p! >= 90 ? 'more' : 'less'} than usual right now, and
-          that is about the market, not about the holdings.
+          {' It currently sits at the '}
+          <b>{p! >= 90 ? 'extreme' : 'low extreme'}</b>
+          {` of its own history (p${p!.toFixed(0)}), which is why Expected falls `}
+          {`${p! >= 90 ? 'above' : 'below'} the band — the risk model is under-predicting `}
+          {`${p! >= 90 ? 'more' : 'less'} than usual right now, and that is about the market, `}
+          {'not about the holdings.'}
         </span>
       )}
     </>
