@@ -326,8 +326,9 @@ function RiskRow({ m }: { m: BookExposureMandate }) {
           <div className="text-[10.5px] mt-0.5" style={{ color: 'var(--tx-dim)' }}>
             Exposure says what the book is betting on; tracking error says how far it will wander.
             It will read <b>target · expected · realized</b> here, on this same as-of date — the
-            risk model under-predicts by ~70% consistently, so the correction is baked into
-            &ldquo;expected&rdquo; rather than published as a factor to multiply by.
+            risk model is currently under-predicting by ~70%, so the correction is baked into
+            &ldquo;expected&rdquo; rather than published as a factor to multiply by. How large that
+            correction is moves with the regime, so its own historical range is shown beside it.
           </div>
         </div>
       </Row>

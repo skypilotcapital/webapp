@@ -909,9 +909,11 @@ def exposures(env: str, strategy: str | None = None, date: str | None = None):
             "band_kind": tightest["band_kind"] if tightest else None,
             # ---- [10-LTE]'s row, filled from trading.book_risk ([10-LEXPU] reserved the slot).
             #
-            # ⚠️ THREE NUMBERS, AND `pred_te`/`bias` ARE NOT AMONG THEM. The risk model
-            # under-predicts by ~70% consistently, so a panel showing "predicted 3.00% vs target
-            # 3.0% ✓" would be reassuring and wrong. The bias is BAKED INTO `te_expected`; the raw
+            # ⚠️ THREE NUMBERS, AND `pred_te`/`bias` ARE NOT AMONG THEM. The risk model is
+            # currently under-predicting by ~70% — a REGIME reading, not a constant ([10-BIAS] Q3:
+            # the core's 250-month median correction is 1.05, and today's 1.70 is its 95th
+            # percentile) — so a panel showing "predicted 3.00% vs target 3.0% ✓" would be
+            # reassuring and wrong. The bias is BAKED INTO `te_expected`; the raw
             # prediction and the factor travel in the payload as machinery for a methodology note,
             # never as report rows — a reader must not have to multiply two numbers together to
             # learn what the book is doing.
