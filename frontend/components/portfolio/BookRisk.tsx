@@ -36,9 +36,11 @@ import {
 // ⚠️ THE UNIT COMES FROM THE ROW, NEVER FROM THE FACTOR NAME — and the formatting lives in ONE
 // module, shared with the pre-trade panel. Two renderers of the same quantity is how one of them
 // ends up printing 0.13σ as "13%", which is what the pre-trade panel did until 2026-08-13.
+import { Fragment } from 'react';
 import {
   fmtExposure, fmtScale, orderFactors, UNIT_LABEL, unitForKind, type ExposureUnit,
 } from '@/lib/exposureUnits';
+import { GroupRule } from '@/components/trading/BookDiff';
 
 /* ------------------------------------------------------------------------ formatting ---- */
 // Headroom is a DIFFERENCE of two weights, so it is percentage POINTS. Calling it "%" beside an
@@ -112,8 +114,10 @@ function Group({ title, rows, showBand }: {
       </div>
       <ul className="space-y-0.5">
         {/* Fixed order (2026-09-04), shared with the pre-trade panels — see lib/exposureUnits. */}
-        {orderFactors(rows).map((f) => (
-          <li key={f.factor} className="flex items-center gap-2 text-[11px]">
+        {orderFactors(rows).map((f, i, arr) => (
+          <Fragment key={f.factor}>
+          <GroupRule factor={f.factor} i={i} rows={arr} />
+          <li className="flex items-center gap-2 text-[11px]">
             <span className="w-[124px] shrink-0 truncate" title={f.factor}>
               {f.factor.replace(/^sec_/, '').replace(/_/g, ' ')}
             </span>
@@ -130,6 +134,7 @@ function Group({ title, rows, showBand }: {
               </span>
             )}
           </li>
+          </Fragment>
         ))}
       </ul>
     </div>

@@ -1,20 +1,19 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { Fragment, useEffect, useState } from 'react';
 import { fetchExposures, type Exposures, type ExposureLeg } from '@/lib/trading';
-import { ExposureDiffColumn, useBookDiff, WithDiff } from './BookDiff';
 import {
-  fmtExposureByKind, fmtScale, isLargeTilt, orderFactors, styleGroupOf, unitForKind, UNIT_LABEL,
+  ExposureDiffFoot, ExposureDiffSleeve, GroupRule, ProposedVsLast, useBookDiff,
+} from './BookDiff';
+import {
+  fmtExposureByKind, fmtScale, isLargeTilt, orderFactors, unitForKind, UNIT_LABEL,
   type ExposureKind,
 } from '@/lib/exposureUnits';
 
 // FIXED ORDER, NOT SORTED BY SIZE (owner's call, 2026-09-04). Rows keep their position month to
-// month and match the diff column and the held-book panel row for row — see `STYLE_GROUPS` /
+// month and match the diff columns and the held-book panel row for row — see `STYLE_GROUPS` /
 // `SECTOR_ORDER` in lib/exposureUnits. Magnitude is carried by the bold highlight, not the order.
-// A style row that starts a new group (value/yield, quality/growth) gets a little air above it.
-const groupGap = (factor: string, i: number, rows: { factor: string }[]) =>
-  i > 0 && styleGroupOf(factor) >= 0 && styleGroupOf(factor) !== styleGroupOf(rows[i - 1].factor)
-    ? 'mt-1.5' : '';
+// A faint dashed rule (`GroupRule`) separates the three style groups.
 
 // WHAT THE BOOK IS BETTING ON, per sleeve, before you approve it.
 //
@@ -44,7 +43,7 @@ function Bar({ v, max }: { v: number; max: number }) {
   const pct = Math.min(Math.abs(v) / max, 1) * 50;
   const pos = v >= 0;
   return (
-    <div className="relative h-3 w-[120px] bg-[var(--bg)] rounded-sm shrink-0">
+    <div className="relative h-3 w-[104px] bg-[var(--bg)] rounded-sm shrink-0">
       <div className="absolute top-0 bottom-0 left-1/2 w-px bg-[var(--border-soft)]" />
       <div className={`absolute top-0 bottom-0 ${pos ? 'bg-[var(--pos)]' : 'bg-[var(--neg)]'}`}
            style={pos ? { left: '50%', width: `${pct}%` }
@@ -61,7 +60,7 @@ function Group({ title, rows, kind }: {
   const ordered = orderFactors(rows);
   const max = niceMax(Math.max(...rows.map((r) => Math.abs(r.active_exposure))));
   return (
-    <div className="min-w-[248px]">
+    <div className="min-w-[216px]">
       <div className="text-[10px] uppercase tracking-wider text-[var(--tx-dim)] mb-1">
         {title}
         <span className="ml-2 normal-case tracking-normal text-[var(--tx-dim)]">
@@ -70,8 +69,10 @@ function Group({ title, rows, kind }: {
       </div>
       <ul className="space-y-0.5">
         {ordered.map((f, i) => (
-          <li key={f.factor} className={`flex items-center gap-2 text-[11px] ${groupGap(f.factor, i, ordered)}`}>
-            <span className="w-[104px] shrink-0 truncate" title={f.factor}>
+          <Fragment key={f.factor}>
+          <GroupRule factor={f.factor} i={i} rows={ordered} />
+          <li className="flex items-center gap-2 text-[11px]">
+            <span className="w-[92px] shrink-0 truncate" title={f.factor}>
               {f.factor.replace(/^sec_/, '')}
             </span>
             <Bar v={f.active_exposure} max={max} />
@@ -80,6 +81,7 @@ function Group({ title, rows, kind }: {
               {fmtExposureByKind(f.active_exposure, f.kind ?? kind)}
             </span>
           </li>
+          </Fragment>
         ))}
       </ul>
     </div>
@@ -104,7 +106,7 @@ function Group({ title, rows, kind }: {
 // Freeing the second track buys the axis its width back (208px, was 104), which is what makes the
 // group's shared scale survivable: `size` at −47% sets it, and at half this width every other
 // factor was a sliver. Same honest scale, twice the resolution.
-const AXIS_W = 208;   // px
+const AXIS_W = 168;   // px (208 until 2026-09-04; narrowed to make room for the comparison columns)
 const BAR_H = 8;      // px — thin on purpose: a pair must read as one object, not two rows
 
 function LegFill({ v, max, leg, edge }: {
@@ -165,11 +167,11 @@ function LegGroup({ title, legs, net, kind }: {
   // the same length — the comparison would be a lie told in the axis.
   const max = niceMax(Math.max(...rows.flatMap((r) => [Math.abs(r.long), Math.abs(r.short)])));
   return (
-    <div className="min-w-[380px]">
+    <div className="min-w-[330px]">
       {/* Stacking leaves one column, so the per-leg COLUMN HEADINGS have nowhere to sit and become
           a legend. `L`/`S` on the bars carry the identification; this carries the meaning. */}
       <div className="text-[10px] uppercase tracking-wider text-[var(--tx-dim)] mb-1.5 flex items-baseline gap-2">
-        <span className="w-[104px] shrink-0">{title}</span>
+        <span className="w-[92px] shrink-0">{title}</span>
         <span className="flex items-center gap-1 normal-case tracking-normal">
           <i className="inline-block w-2 h-2 rounded-sm bg-[var(--teal)]" />
           <span className="text-[var(--tx-mut)]">long</span>
@@ -184,8 +186,10 @@ function LegGroup({ title, legs, net, kind }: {
           factors, so 24 bars read as 12 objects. Loosen this and the grouping collapses. */}
       <ul className="space-y-[7px]">
         {rows.map((r, i) => (
-          <li key={r.factor} className={`flex items-center gap-2 text-[11px] ${groupGap(r.factor, i, rows)}`}>
-            <span className="w-[104px] shrink-0 truncate" title={r.factor}>
+          <Fragment key={r.factor}>
+          <GroupRule factor={r.factor} i={i} rows={rows} />
+          <li className="flex items-center gap-2 text-[11px]">
+            <span className="w-[92px] shrink-0 truncate" title={r.factor}>
               {r.factor.replace(/^sec_/, '')}
             </span>
             <LegPair long={r.long} short={r.short} max={max} />
@@ -193,6 +197,7 @@ function LegGroup({ title, legs, net, kind }: {
               {fmtExposureByKind(net.get(r.factor) ?? 0, kind)}
             </span>
           </li>
+          </Fragment>
         ))}
       </ul>
     </div>
@@ -223,7 +228,11 @@ export function ExposuresSection({ env, id }: { env: string; id: number }) {
           · and what moved vs the last frozen book
         </span>
       </h2>
-      <WithDiff right={diff ? <ExposureDiffColumn d={diff} /> : null} left={<>
+      <ProposedVsLast d={diff}
+        core={diff ? <ExposureDiffSleeve d={diff} sleeve="core" /> : null}
+        sleeve={diff ? <ExposureDiffSleeve d={diff} sleeve="sleeve" /> : null}
+        foot={diff ? <ExposureDiffFoot d={diff} /> : null}
+        left={<>
 
       {d.sleeves.map((s) => {
         const legs = s.legs ?? [];

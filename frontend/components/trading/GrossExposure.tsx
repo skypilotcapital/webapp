@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from 'react';
 import { fetchGrossExposure, type GrossExposure, type RiskDiagnostic } from '@/lib/trading';
-import { GrossDiffColumn, useBookDiff, WithDiff } from './BookDiff';
+import { GrossDiffFoot, GrossDiffSleeve, ProposedVsLast, useBookDiff } from './BookDiff';
 
 // HOW BIG IS THIS BOOK, AND WHY IS IT THAT SIZE?
 //
@@ -192,7 +192,11 @@ export function GrossExposureSection({ env, id }: { env: string; id: number }) {
           · and what changes vs the last frozen book
         </span>
       </h2>
-      <WithDiff right={diff ? <GrossDiffColumn d={diff} /> : null} left={<>
+      <ProposedVsLast d={diff}
+        core={diff ? <GrossDiffSleeve d={diff} sleeve="core" /> : null}
+        sleeve={diff ? <GrossDiffSleeve d={diff} sleeve="sleeve" /> : null}
+        foot={diff ? <GrossDiffFoot d={diff} /> : null}
+        left={<>
 
       {/* LEAD WITH THE NUMBER. It comes from the frozen rows, so it is the book being approved —
           not a model book that resembles it. */}
