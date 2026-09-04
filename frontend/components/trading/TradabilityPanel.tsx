@@ -85,6 +85,48 @@ export function TradabilityPanel({
     );
   }
 
+  // FOURTH STATE (2026-09-04): nothing was measured as untradeable, but for some names the
+  // capture asked and the broker returned no fields at all — a cold snapshot subscription on a
+  // new target, not a market observation. On rebalance 28 all 18 "cannot be traded" names were
+  // this shape, three of them among the most liquid stocks in the book. They are listed so the
+  // operator knows they were not checked; they are not a refusal, and the trade gate re-checks
+  // every name with live quotes.
+  const unverified = data.unverified ?? [];
+  if (data.state === 'unverified') {
+    return (
+      <div className="panel p-4 border-l-4 border-[var(--amber)]">
+        <div className="flex items-baseline justify-between gap-3 flex-wrap">
+          <h2 className="text-sm font-semibold text-[var(--amber)]">
+            Tradability — no target measured untradeable; {unverified.length} unverified
+          </h2>
+          <span className="text-[10px] text-[var(--tx-dim)]">
+            {data.captures_examined} captures, latest {fmtTs(data.as_of)}
+          </span>
+        </div>
+        <p className="text-[11px] text-[var(--tx-mut)] mt-1">
+          {pct(data.weight_unverified ?? 0)} of gross came back with no market-data fields in the
+          latest capture (a cold quote subscription, not a halt). The live trade gate re-checks
+          every name with live quotes before anything is sent.
+        </p>
+        <table className="dtable mt-3 w-full">
+          <thead>
+            <tr>
+              <th className="text-left">Name</th>
+              <th className="text-left">Side</th>
+              <th className="text-right">Weight</th>
+              <th className="text-right">Notional</th>
+              <th className="text-right">Seen</th>
+              <th className="text-left">Observation</th>
+            </tr>
+          </thead>
+          <tbody>
+            {unverified.map((n) => <Row key={n.isin} n={n} />)}
+          </tbody>
+        </table>
+      </div>
+    );
+  }
+
   const tier = tierOf(data.weight_flagged);
 
   return (
@@ -125,6 +167,15 @@ export function TradabilityPanel({
         {' '}<b>Seen</b> = consecutive captures with no live quote; 1 is often a thin market, 2+ is
         a halt or a delisting.
       </p>
+
+      {unverified.length > 0 && (
+        <p className="text-[11px] text-[var(--tx-mut)] mt-2">
+          Plus {unverified.length} name{unverified.length === 1 ? '' : 's'} ({pct(data.weight_unverified ?? 0)} of
+          gross) unverified: the broker returned no market-data fields in the latest capture — not
+          counted above; the live trade gate re-checks them.
+          {' '}{unverified.map((n) => n.ticker ?? n.isin).join(' ')}
+        </p>
+      )}
 
       {/* The repair control only exists while there is still a book to repair. */}
       {!['cancelled', 'closed', 'reconciled'].includes(status) && (

@@ -413,6 +413,8 @@ export const fetchGrossExposure = (env: string, id: number, history = 24) =>
 
 export type TradabilityStatus =
   | 'tradable'
+  /** the capture asked and the broker returned NO fields (cold snapshot subscription) — unverified, not evidence of a halt */
+  | 'no_data'
   /** no bid and/or no ask in the latest capture — a halt or a delisting, or a very thin market */
   | 'no_two_sided_quote'
   /** priced at previous close ('C') or halted ('H') — not a live quote */
@@ -432,11 +434,14 @@ export interface TradabilityName {
 export interface Tradability {
   rebalance_id: number; strategy: string; status: string;
   as_of: string | null; captures_examined: number;
-  /** 'no_data' is a THIRD state on purpose — unknown is not clear. */
-  state: 'clear' | 'flagged' | 'no_data';
+  /** 'no_data' is a THIRD state on purpose — unknown is not clear. 'unverified' (2026-09-04):
+   *  nothing measured as untradeable, but some names came back with no fields at all. */
+  state: 'clear' | 'flagged' | 'no_data' | 'unverified';
   n_names: number; n_flagged: number;
   weight_flagged: number; notional_flagged: number;
   names: TradabilityName[];
+  /** captured, but the broker returned no market-data fields — listed, never counted as untradeable */
+  n_unverified?: number; weight_unverified?: number; unverified?: TradabilityName[];
   note: string;
 }
 

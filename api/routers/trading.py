@@ -1555,6 +1555,17 @@ def _classify(bid, ask, last) -> tuple[str, str]:
 
     if marked(bid) or marked(ask) or marked(last):
         return "stale_marker", "priced at previous close / halted, not a live quote"
+    # NO FIELDS AT ALL is not a one-sided market, it is no evidence. IBKR's Client Portal returns an
+    # empty snapshot on a cold subscription — the first request for a contract only opens the line
+    # — and the capture asks the held book twice but the calibration tail once, so a NEW target
+    # sits in the tail and comes back empty. Rebalance 28 (2026-09-04): all 18 "cannot be traded"
+    # names were this shape, three of them among the most liquid stocks in the book (PURR / NIO /
+    # CBRL), all quoting two-sided live at the trade gate. Reported as `no_data`, listed as
+    # unverified, and NOT counted as untradeable — absence of evidence is the F-014 carve-out the
+    # trading gate already makes for a contract it never asked about.
+    if bid is None and ask is None and last is None:
+        return "no_data", ("broker returned no market-data fields in this capture (cold snapshot "
+                           "subscription) — unverified, not evidence of a halt")
     try:
         b, a = float(bid), float(ask)
     except (TypeError, ValueError):
@@ -1623,18 +1634,30 @@ def tradability(env: str, rebalance_id: int, lookback: int = Query(5, ge=1, le=3
             e["consecutive"] += 1
 
     names = sorted(per.values(), key=lambda x: -abs(x["weight"]))
-    flagged = [n for n in names if n["status"] != "tradable"]
-    # 'unknown' is deliberately flagged rather than assumed fine. A conid the capture never
-    # returned is a name we have no evidence about, and treating absence of evidence as evidence
-    # of tradability is precisely how EA reached an approved book.
+    # Two different findings, kept apart on purpose:
+    #   flagged     — the capture MEASURED the name and it was not a two-sided market (or was
+    #                 priced at a close/halt marker), or the capture never asked about it at all
+    #                 ('unknown' is deliberately flagged rather than assumed fine: a conid the
+    #                 capture never returned is a name we have no evidence about, and treating
+    #                 absence of evidence as evidence of tradability is how EA reached an
+    #                 approved book).
+    #   unverified  — the capture asked and the broker returned NO fields ('no_data'): a cold
+    #                 snapshot subscription, not a market observation. Listed so the operator
+    #                 knows it was not checked; not counted as "cannot be traded", because it is
+    #                 not that either. The live trade gate re-checks every name with live quotes.
+    flagged = [n for n in names if n["status"] not in ("tradable", "no_data")]
+    unverified = [n for n in names if n["status"] == "no_data"]
     return {
         "env": env, "rebalance_id": rebalance_id, "strategy": hdr["strategy"],
         "status": hdr["status"], "as_of": latest, "captures_examined": len(snaps),
-        "state": "flagged" if flagged else "clear",
+        "state": "flagged" if flagged else ("unverified" if unverified else "clear"),
         "n_names": len(names), "n_flagged": len(flagged),
         "weight_flagged": round(sum(abs(n["weight"]) for n in flagged), 6),
         "notional_flagged": round(sum(n["notional"] for n in flagged), 2),
         "names": flagged,
+        "n_unverified": len(unverified),
+        "weight_unverified": round(sum(abs(n["weight"]) for n in unverified), 6),
+        "unverified": unverified,
         "note": ("Statuses are our own assessment computed server-side; IBKR quote values are not "
                  "published (ibkr_data_ingestion_spec.md §8)."),
     }
