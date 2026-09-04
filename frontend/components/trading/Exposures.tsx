@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from 'react';
 import { fetchExposures, type Exposures, type ExposureLeg } from '@/lib/trading';
+import { ExposureDiffColumn, useBookDiff, WithDiff } from './BookDiff';
 import {
   fmtExposureByKind, fmtScale, isLargeTilt, unitForKind, UNIT_LABEL,
   type ExposureKind,
@@ -196,6 +197,9 @@ const SLEEVE_NAME: Record<string, string> = {
 
 export function ExposuresSection({ env, id }: { env: string; id: number }) {
   const [d, setD] = useState<Exposures | null>(null);
+  // WHAT CHANGES — the right-hand column (BookDiff.tsx): factor deltas against the last frozen
+  // book, in the same units and formatted by the same helper as the bars on the left.
+  const diff = useBookDiff(env, id);
 
   useEffect(() => { fetchExposures(env, id).then(setD).catch(() => {}); }, [env, id]);
   if (!d || !d.sleeves.length) return null;
@@ -207,7 +211,11 @@ export function ExposuresSection({ env, id }: { env: string; id: number }) {
         <span className="ml-2 text-[11px] font-normal text-[var(--tx-mut)]">
           what this book is betting on, per sleeve
         </span>
+        <span className="ml-3 text-[11px] font-normal text-[var(--tx-dim)]">
+          · and what moved vs the last frozen book
+        </span>
       </h2>
+      <WithDiff right={diff ? <ExposureDiffColumn d={diff} /> : null} left={<>
 
       {d.sleeves.map((s) => {
         const legs = s.legs ?? [];
@@ -303,6 +311,7 @@ export function ExposuresSection({ env, id }: { env: string; id: number }) {
           month&apos;s factor returns, so it cannot exist for a book you have not traded.
         </div>
       </div>
+      </>} />
     </div>
   );
 }

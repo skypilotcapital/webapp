@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from 'react';
 import { fetchGrossExposure, type GrossExposure, type RiskDiagnostic } from '@/lib/trading';
+import { GrossDiffColumn, useBookDiff, WithDiff } from './BookDiff';
 
 // HOW BIG IS THIS BOOK, AND WHY IS IT THAT SIZE?
 //
@@ -171,6 +172,10 @@ function Chain({ c, isLS }: { c: RiskDiagnostic; isLS: boolean }) {
 
 export function GrossExposureSection({ env, id }: { env: string; id: number }) {
   const [d, setD] = useState<GrossExposure | null>(null);
+  // WHAT CHANGES — the right-hand column (BookDiff.tsx). Fetched beside the panel's own data,
+  // never blocking it: a diff that fails to load leaves the panel intact and the column empty
+  // with its header, not a blank panel.
+  const diff = useBookDiff(env, id);
 
   useEffect(() => { fetchGrossExposure(env, id).then(setD).catch(() => {}); }, [env, id]);
   if (!d || !d.sleeves.length) return null;
@@ -183,7 +188,11 @@ export function GrossExposureSection({ env, id }: { env: string; id: number }) {
         <span className="ml-2 text-[11px] font-normal text-[var(--tx-mut)]">
           how big this book is, and what decided that
         </span>
+        <span className="ml-3 text-[11px] font-normal text-[var(--tx-dim)]">
+          · and what changes vs the last frozen book
+        </span>
       </h2>
+      <WithDiff right={diff ? <GrossDiffColumn d={diff} /> : null} left={<>
 
       {/* LEAD WITH THE NUMBER. It comes from the frozen rows, so it is the book being approved —
           not a model book that resembles it. */}
@@ -333,6 +342,7 @@ export function GrossExposureSection({ env, id }: { env: string; id: number }) {
           <span className="font-mono">{DOC}</span>.
         </div>
       </div>
+      </>} />
     </div>
   );
 }

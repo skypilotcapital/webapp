@@ -593,6 +593,192 @@ def rebalance_gross_exposure(env: str, rebalance_id: int, history: int = 24):
             "composite": dict(comp) if comp else None, "sleeves": sleeves}
 
 
+def _composite_agg(conn, rebalance_id: int, mandate: str = "composite") -> dict | None:
+    row = conn.execute(text("""
+        SELECT COUNT(*) AS n, COALESCE(SUM(ABS(target_wt)), 0) AS gross,
+               COALESCE(SUM(target_wt), 0) AS net,
+               COALESCE(SUM(target_wt) FILTER (WHERE target_wt > 0), 0) AS long_gross,
+               COALESCE(-SUM(target_wt) FILTER (WHERE target_wt < 0), 0) AS short_gross,
+               COUNT(*) FILTER (WHERE target_wt > 0) AS n_long,
+               COUNT(*) FILTER (WHERE target_wt < 0) AS n_short
+        FROM trading.target_positions WHERE rebalance_id = :r AND mandate = :m"""),
+        {"r": rebalance_id, "m": mandate}).mappings().first()
+    return {k: (float(v) if k not in ("n", "n_long", "n_short") else int(v))
+            for k, v in dict(row).items()} if row and row["n"] else None
+
+
+@router.get("/{env}/rebalances/{rebalance_id}/diff")
+def rebalance_diff(env: str, rebalance_id: int):
+    """WHAT CHANGES IF I APPROVE THIS — the proposed book against the LAST FROZEN book.
+
+    The two panels this feeds (`/gross-exposure`, `/exposures`) describe the book as it is. The
+    question a person approving a trade actually has is what the trade CHANGES, and that is a
+    difference against something. Owner's call 2026-09-04: the comparator is the previous frozen
+    book of the same strategy — not the drifted holdings (no month-end exposures exist for an
+    intraday holding) and never the modeled Track A book (it drives no live decision).
+
+    THE COMPARATOR IS NAMED, WITH ITS DATE, IN THE PAYLOAD. The most recent non-cancelled
+    rebalance of this strategy with an earlier signal date. A cancelled book was never traded and
+    would make the diff describe a decision nobody took.
+
+    FOUR DIFFS, each from tables that already exist:
+      composite  — the frozen rows themselves (long / short / gross / net / names) plus, per
+                   mandate, the same from the ledger rows; and the cost of getting there: names in
+                   and out and one-way turnover, which the left-hand panels cannot show at all.
+      sectors    — net weight by sector of the whole book, from the composite rows.
+      risk       — per component book, the risk-diagnostics chain at both dates (budget, cap,
+                   gross, names), so a change in SIZE can be traced to its cause.
+      exposures  — per component book, active factor exposure at both dates and the delta, sorted
+                   by the size of the move; plus predicted active variance and its specific share.
+
+    ⚠️ VINTAGE GUARD. Exposures and diagnostics are keyed by the component labels the freeze
+    recorded. When the two rebalances name different labels (the 2026-08-06 re-lock did exactly
+    this), the delta would compare two different books under one heading; the endpoint then
+    returns `comparable=False` with the reason instead of a number.
+
+    ⚠️ ABSENCE IS SAID OUT LOUD. When last month's exposures were never computed, the sleeve says
+    so. An empty right-hand column reads as "no change", which is the wrong thing for it to say.
+    """
+    _env(env)
+    with get_db() as conn:
+        hdr = conn.execute(text(
+            "SELECT rebalance_id, strategy, signal_date, status, source FROM trading.rebalances "
+            "WHERE rebalance_id = :r"), {"r": rebalance_id}).mappings().first()
+        if hdr is None:
+            raise HTTPException(status_code=404, detail="no such rebalance")
+        sig = hdr["signal_date"]
+        labels = ((hdr["source"] or {}).get("component_labels") or [])
+        prev = conn.execute(text("""
+            SELECT rebalance_id, signal_date, status, source FROM trading.rebalances
+            WHERE strategy = :s AND signal_date < :d AND status <> 'cancelled'
+            ORDER BY signal_date DESC, rebalance_id DESC LIMIT 1"""),
+            {"s": hdr["strategy"], "d": sig}).mappings().first()
+        if prev is None:
+            return {"env": env, "rebalance_id": rebalance_id, "signal_date": sig,
+                    "comparator": None, "note": "no earlier frozen book for this strategy"}
+        psig = prev["signal_date"]
+        plabels = ((prev["source"] or {}).get("component_labels") or [])
+        comparable = list(labels) == list(plabels)
+        cmp = {"rebalance_id": prev["rebalance_id"], "signal_date": psig,
+               "status": prev["status"], "comparable": comparable,
+               "note": None if comparable else (
+                   "the two books were frozen from different component vintages "
+                   f"({plabels} vs {labels}); risk and exposure deltas are not comparable")}
+
+        # --- composite + mandates, and the cost of getting there --------------------------------
+        books = {}
+        for m in ("composite", "core", "sleeve"):
+            books[m] = {"now": _composite_agg(conn, rebalance_id, m),
+                        "prev": _composite_agg(conn, prev["rebalance_id"], m)}
+        rows = conn.execute(text("""
+            SELECT mandate, isin, MAX(target_wt) FILTER (WHERE rebalance_id = :a) AS w_now,
+                   MAX(target_wt) FILTER (WHERE rebalance_id = :b) AS w_prev
+            FROM trading.target_positions
+            WHERE rebalance_id IN (:a, :b)
+            GROUP BY mandate, isin"""),
+            {"a": rebalance_id, "b": prev["rebalance_id"]}).mappings().all()
+        turn = {}
+        for r in rows:
+            t = turn.setdefault(r["mandate"], {"entered": 0, "exited": 0, "one_way": 0.0,
+                                               "n_traded": 0})
+            wn, wp = float(r["w_now"] or 0), float(r["w_prev"] or 0)
+            if wn and not wp:
+                t["entered"] += 1
+            elif wp and not wn:
+                t["exited"] += 1
+            if abs(wn - wp) > 1e-9:
+                t["n_traded"] += 1
+            t["one_way"] += abs(wn - wp) / 2
+        for m in books:
+            books[m]["turnover"] = turn.get(m)
+
+        # --- sectors: net weight of the whole book -----------------------------------------------
+        sec = conn.execute(text("""
+            SELECT COALESCE(s.sector, 'Unknown') AS sector,
+                   COALESCE(SUM(t.target_wt) FILTER (WHERE t.rebalance_id = :a), 0) AS w_now,
+                   COALESCE(SUM(t.target_wt) FILTER (WHERE t.rebalance_id = :b), 0) AS w_prev
+            FROM trading.target_positions t
+            LEFT JOIN secmaster.securities s ON s.isin = t.isin
+            WHERE t.rebalance_id IN (:a, :b) AND t.mandate = 'composite'
+            GROUP BY 1"""), {"a": rebalance_id, "b": prev["rebalance_id"]}).mappings().all()
+        sectors = sorted([{"sector": r["sector"], "now": float(r["w_now"]),
+                           "prev": float(r["w_prev"]),
+                           "delta": float(r["w_now"]) - float(r["w_prev"])} for r in sec],
+                         key=lambda x: -abs(x["delta"]))
+
+        # --- per component book: risk chain and factor exposures at both dates ------------------
+        sleeves = []
+        for lbl in labels:
+            tag = "sleeve" if "_ls_" in lbl else "core"
+            out = {"sleeve": tag, "label": lbl}
+
+            def diag(d):
+                asof = conn.execute(text(
+                    "SELECT max(date) FROM portfolio.risk_diagnostics "
+                    "WHERE model_label = :l AND date <= :d"), {"l": lbl, "d": d}).scalar()
+                if asof is None:
+                    return None
+                r = conn.execute(text("""
+                    SELECT date, gross, net, n_names, n_long, n_short, n_at_floor, active_share,
+                           te_target, cap_calibration, cap_bound, vol_budget, pred_vol, sigma_eff,
+                           source
+                    FROM portfolio.risk_diagnostics WHERE model_label = :l AND date = :d"""),
+                    {"l": lbl, "d": asof}).mappings().first()
+                return dict(r) if r else None
+
+            def expo(d):
+                asof = conn.execute(text(
+                    "SELECT max(date) FROM portfolio.attribution "
+                    "WHERE model_label = :l AND date <= :d AND active_exposure IS NOT NULL"),
+                    {"l": lbl, "d": d}).scalar()
+                if asof is None:
+                    return None, None, None
+                rs = conn.execute(text("""
+                    SELECT factor, active_exposure, risk_var_contrib FROM portfolio.attribution
+                    WHERE model_label = :l AND date = :d"""), {"l": lbl, "d": asof}).mappings().all()
+                fx = {r["factor"]: float(r["active_exposure"]) for r in rs
+                      if r["factor"] not in ("total", "specific") and r["active_exposure"] is not None}
+                var = {r["factor"]: float(r["risk_var_contrib"]) for r in rs
+                       if r["factor"] in ("total", "specific") and r["risk_var_contrib"] is not None}
+                return asof, fx, var
+
+            if comparable:
+                dn, dp = diag(sig), diag(psig)
+                out["risk"] = {"now": dn, "prev": dp,
+                               "now_is_current": bool(dn and dn["date"] == sig),
+                               "prev_is_current": bool(dp and dp["date"] == psig)}
+                an, fn, vn = expo(sig)
+                ap_, fp, vp = expo(psig)
+                if fn is None or fp is None:
+                    out["exposures"] = None
+                    out["exposures_note"] = ("exposures not computed for "
+                                             + ("this" if fn is None else "last month's") + " book")
+                else:
+                    facs = sorted(set(fn) | set(fp))
+                    out["exposures"] = {
+                        "now_as_of": an, "prev_as_of": ap_,
+                        "now_is_current": an == sig, "prev_is_current": ap_ == psig,
+                        "factors": sorted([{
+                            "factor": f,
+                            "kind": ("sector" if f.startswith("sec_")
+                                     else "market" if f == "market" else "style"),
+                            "now": fn.get(f, 0.0), "prev": fp.get(f, 0.0),
+                            "delta": fn.get(f, 0.0) - fp.get(f, 0.0)} for f in facs],
+                            key=lambda x: -abs(x["delta"])),
+                        # monthly variance → annualised vol, and the specific share of the total
+                        "pred_vol_now": (vn["total"] * 12) ** 0.5 if vn.get("total") else None,
+                        "pred_vol_prev": (vp["total"] * 12) ** 0.5 if vp.get("total") else None,
+                        "specific_share_now": (vn["specific"] / vn["total"]
+                                               if vn.get("total") else None),
+                        "specific_share_prev": (vp["specific"] / vp["total"]
+                                                if vp.get("total") else None),
+                    }
+            sleeves.append(out)
+
+    return {"env": env, "rebalance_id": rebalance_id, "signal_date": sig,
+            "comparator": cmp, "books": books, "sectors": sectors, "sleeves": sleeves}
+
+
 @router.get("/{env}/ledger")
 def ledger(env: str, rebalance_id: int | None = None):
     """S7 — the rebalance as an ordered PROCESS with a clock. One row per step.
