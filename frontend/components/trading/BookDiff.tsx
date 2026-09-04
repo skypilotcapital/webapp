@@ -258,7 +258,11 @@ export function GroupRule({ factor, i, rows }: { factor: string; i: number; rows
   return <li aria-hidden className="border-t border-dashed border-[var(--border-soft)] my-1" />;
 }
 
-const DCOLS = `grid-cols-[minmax(76px,1fr)_${BAR_W}px_50px_50px_56px]`;
+// ⚠️ INLINE STYLE, NOT A COMPOSED TAILWIND CLASS. The first version built
+// `grid-cols-[minmax(76px,1fr)_${BAR_W}px_…]` from a template string; Tailwind generates only the
+// class strings it can read verbatim in the source, so that one never existed and every row
+// stacked vertically on the live page (2026-09-04). A computed template belongs in `style`.
+const DGRID = { display: 'grid', gridTemplateColumns: `minmax(76px,1fr) ${BAR_W}px 50px 50px 56px` } as const;
 
 // The formatter already carries the sign (and a true minus); a zero delta reads as a plain 0.
 const fmtDelta = (v: number, kind: ExposureKind) =>
@@ -279,14 +283,14 @@ function DeltaGroup({ title, rows, kind }: { title: string; rows: DiffFactor[]; 
         </span>
       </div>
       <ul className="space-y-0.5">
-        <li className={`grid ${DCOLS} gap-2 text-[9px] uppercase tracking-wider text-[var(--tx-dim)]`}>
+        <li style={DGRID} className="gap-2 text-[9px] uppercase tracking-wider text-[var(--tx-dim)]">
           <span /><span /><span className="text-right">last</span><span className="text-right">now</span>
           <span className="text-right">Δ</span>
         </li>
         {shown.map((r, i) => (
           <Fragment key={r.factor}>
             <GroupRule factor={r.factor} i={i} rows={shown} />
-            <li className={`grid ${DCOLS} items-center gap-2 text-[11px]`}>
+            <li style={DGRID} className="items-center gap-2 text-[11px]">
               <span className="truncate" title={r.factor}>{r.factor.replace(/^sec_/, '').replace(/_/g, ' ')}</span>
               <DeltaBar v={r.delta} max={max} />
               <span className="text-right tabular-nums text-[var(--tx-dim)]">{f(r.prev)}</span>
