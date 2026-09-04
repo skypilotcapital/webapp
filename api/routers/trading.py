@@ -515,7 +515,15 @@ def rebalance_gross_exposure(env: str, rebalance_id: int, history: int = 24):
                    COALESCE(-SUM(target_wt) FILTER (WHERE target_wt < 0), 0) AS short_gross,
                    COUNT(*) FILTER (WHERE target_wt > 0) AS n_long,
                    COUNT(*) FILTER (WHERE target_wt < 0) AS n_short
-            FROM trading.target_positions WHERE rebalance_id = :r"""),
+            FROM trading.target_positions
+            WHERE rebalance_id = :r
+              -- COMPOSITE ONLY. Since [10-LEDG] a frozen book also carries one row per (name,
+              -- mandate) — core and sleeve — beside the composite row the executor trades. Summing
+              -- all three counted every dollar twice: rebalance 28 (2026-09-04) rendered as
+              -- "3.396x gross = 270% long + 70% short, 904 names" for a book that is 1.698x,
+              -- 135% / 35%, 452 names. The mandate rows are the DECOMPOSITION of the composite,
+              -- not additional positions.
+              AND mandate = 'composite'"""),
             {"r": rebalance_id}).mappings().first()
 
         sleeves = []
