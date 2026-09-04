@@ -4,9 +4,17 @@ import { useEffect, useState } from 'react';
 import { fetchExposures, type Exposures, type ExposureLeg } from '@/lib/trading';
 import { ExposureDiffColumn, useBookDiff, WithDiff } from './BookDiff';
 import {
-  fmtExposureByKind, fmtScale, isLargeTilt, unitForKind, UNIT_LABEL,
+  fmtExposureByKind, fmtScale, isLargeTilt, orderFactors, styleGroupOf, unitForKind, UNIT_LABEL,
   type ExposureKind,
 } from '@/lib/exposureUnits';
+
+// FIXED ORDER, NOT SORTED BY SIZE (owner's call, 2026-09-04). Rows keep their position month to
+// month and match the diff column and the held-book panel row for row — see `STYLE_GROUPS` /
+// `SECTOR_ORDER` in lib/exposureUnits. Magnitude is carried by the bold highlight, not the order.
+// A style row that starts a new group (value/yield, quality/growth) gets a little air above it.
+const groupGap = (factor: string, i: number, rows: { factor: string }[]) =>
+  i > 0 && styleGroupOf(factor) >= 0 && styleGroupOf(factor) !== styleGroupOf(rows[i - 1].factor)
+    ? 'mt-1.5' : '';
 
 // WHAT THE BOOK IS BETTING ON, per sleeve, before you approve it.
 //
@@ -50,6 +58,7 @@ function Group({ title, rows, kind }: {
 }) {
   if (!rows.length) return null;
   const unit = unitForKind[kind];
+  const ordered = orderFactors(rows);
   const max = niceMax(Math.max(...rows.map((r) => Math.abs(r.active_exposure))));
   return (
     <div className="min-w-[248px]">
@@ -60,8 +69,8 @@ function Group({ title, rows, kind }: {
         </span>
       </div>
       <ul className="space-y-0.5">
-        {rows.map((f) => (
-          <li key={f.factor} className="flex items-center gap-2 text-[11px]">
+        {ordered.map((f, i) => (
+          <li key={f.factor} className={`flex items-center gap-2 text-[11px] ${groupGap(f.factor, i, ordered)}`}>
             <span className="w-[104px] shrink-0 truncate" title={f.factor}>
               {f.factor.replace(/^sec_/, '')}
             </span>
@@ -146,12 +155,11 @@ function LegGroup({ title, legs, net, kind }: {
     e[l.leg] = l.active_exposure;
     byFactor.set(l.factor, e);
   }
-  const rows = [...byFactor.entries()]
-    .map(([factor, e]) => ({ factor, long: e.long ?? 0, short: e.short ?? 0 }))
-    // Ordered by the LARGER leg, not by the net — a factor where the legs disagree violently is
-    // exactly what this view is for, and ordering by the net would bury it.
-    .sort((a, b) => Math.max(Math.abs(b.long), Math.abs(b.short))
-                  - Math.max(Math.abs(a.long), Math.abs(a.short)));
+  // Fixed order (2026-09-04) — it used to sort by the larger leg so a violent disagreement rose to
+  // the top; that now has to be seen by scanning, which the paired bars make cheap, and in exchange
+  // every row sits where it sat last month and where it sits in the diff column.
+  const rows = orderFactors([...byFactor.entries()]
+    .map(([factor, e]) => ({ factor, long: e.long ?? 0, short: e.short ?? 0 })));
   if (!rows.length) return null;
   // ONE scale across BOTH legs. Per-leg scales would render a +2% long bar and a −21% short bar
   // the same length — the comparison would be a lie told in the axis.
@@ -175,8 +183,8 @@ function LegGroup({ title, legs, net, kind }: {
       {/* PROXIMITY IS DOING REAL WORK HERE: 1px inside a pair (in LegPair) against 7px between
           factors, so 24 bars read as 12 objects. Loosen this and the grouping collapses. */}
       <ul className="space-y-[7px]">
-        {rows.map((r) => (
-          <li key={r.factor} className="flex items-center gap-2 text-[11px]">
+        {rows.map((r, i) => (
+          <li key={r.factor} className={`flex items-center gap-2 text-[11px] ${groupGap(r.factor, i, rows)}`}>
             <span className="w-[104px] shrink-0 truncate" title={r.factor}>
               {r.factor.replace(/^sec_/, '')}
             </span>

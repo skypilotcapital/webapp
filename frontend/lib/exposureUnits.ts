@@ -59,3 +59,60 @@ const LARGE: Record<ExposureUnit, number> = { weight: 0.05, sigma: 0.25, beta: 0
 
 export const isLargeTilt = (v: number | null | undefined, unit: ExposureUnit) =>
   v != null && Math.abs(v) > LARGE[unit];
+
+// ---------------------------------------------------------------------------------------------
+// ONE FIXED ORDER FOR EVERY PANEL THAT DRAWS THESE BARS (owner's call, 2026-09-04).
+//
+// Until now each panel sorted its rows by magnitude. That answers "what is the biggest tilt right
+// now" — once — and breaks everything else: a reader compares by POSITION, so rows that reorder
+// each month read as changes when only a neighbour moved, and a diff column cannot share rows with
+// a sorted left-hand side at all. Magnitude is still signalled (bold on a large tilt); the order
+// no longer carries it.
+//
+// STYLES: the vendor convention (Barra USE4 / MSCI GEMLT / Axioma all do a version of it) runs from
+// how the stock TRADES to what you OWN. Three groups, in this sequence:
+//   risk / technical   beta · size · resid_vol · momentum · liquidity
+//   value / yield      value · earnings_yield · dividend_yield
+//   quality / growth   profitability · earnings_qual · leverage · growth
+//
+// SECTORS: GICS code order — the sequence S&P, MSCI and Bloomberg factsheets print — mapped onto
+// our Morningstar names one-to-one. Not benchmark-weight order, which reshuffles as the index does.
+// ---------------------------------------------------------------------------------------------
+export const STYLE_GROUPS: { title: string; factors: string[] }[] = [
+  { title: 'risk / technical', factors: ['beta', 'size', 'resid_vol', 'momentum', 'liquidity'] },
+  { title: 'value / yield', factors: ['value', 'earnings_yield', 'dividend_yield'] },
+  { title: 'quality / growth', factors: ['profitability', 'earnings_qual', 'leverage', 'growth'] },
+];
+export const STYLE_ORDER: string[] = STYLE_GROUPS.flatMap((g) => g.factors);
+
+/** GICS order; each entry is the Morningstar name and the `sec_` factor id it appears under. */
+export const SECTOR_ORDER: { name: string; id: string }[] = [
+  { name: 'Energy', id: 'sec_energy' },
+  { name: 'Basic Materials', id: 'sec_basic_materials' },
+  { name: 'Industrials', id: 'sec_industrials' },
+  { name: 'Consumer Cyclical', id: 'sec_consumer_cyclical' },
+  { name: 'Consumer Defensive', id: 'sec_consumer_defensive' },
+  { name: 'Healthcare', id: 'sec_healthcare' },
+  { name: 'Financial Services', id: 'sec_financial_services' },
+  { name: 'Technology', id: 'sec_technology' },
+  { name: 'Communication Services', id: 'sec_communication_services' },
+  { name: 'Utilities', id: 'sec_utilities' },
+  { name: 'Real Estate', id: 'sec_real_estate' },
+];
+
+const RANK = new Map<string, number>();
+STYLE_ORDER.forEach((f, i) => RANK.set(f, i));
+SECTOR_ORDER.forEach((s, i) => { RANK.set(s.id, i); RANK.set(s.name, i); });
+
+/** Position of a factor in the fixed order; unknown factors sort last, alphabetically. */
+export const factorRank = (factor: string): number => RANK.get(factor) ?? 1_000;
+
+/** Stable fixed-order sort. Works on any row shape carrying `factor`. */
+export function orderFactors<T extends { factor: string }>(rows: T[]): T[] {
+  return [...rows].sort((a, b) =>
+    (factorRank(a.factor) - factorRank(b.factor)) || a.factor.localeCompare(b.factor));
+}
+
+/** Index of the style group a factor belongs to (−1 for a non-style), for drawing the group rule. */
+export const styleGroupOf = (factor: string): number =>
+  STYLE_GROUPS.findIndex((g) => g.factors.includes(factor));

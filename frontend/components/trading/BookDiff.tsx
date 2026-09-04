@@ -2,7 +2,10 @@
 
 import { useEffect, useState } from 'react';
 import { fetchBookDiff, type BookDiff, type DiffFactor } from '@/lib/trading';
-import { fmtExposureByKind, fmtScale, unitForKind, UNIT_LABEL, type ExposureKind } from '@/lib/exposureUnits';
+import {
+  fmtExposureByKind, fmtScale, orderFactors, styleGroupOf, unitForKind, UNIT_LABEL,
+  type ExposureKind,
+} from '@/lib/exposureUnits';
 
 // WHAT CHANGES IF I APPROVE THIS — the right-hand column of the Gross exposure and Exposures
 // panels ([10-GEXP] / §3.9, extended 2026-09-04).
@@ -199,12 +202,19 @@ function DeltaBar({ v, max }: { v: number; max: number }) {
   );
 }
 
-function DeltaGroup({ title, rows, kind, limit = 8 }: {
-  title: string; rows: DiffFactor[]; kind: ExposureKind; limit?: number;
+// FIXED ORDER, every row (owner's call, 2026-09-04): the same sequence as the bars on the left, so
+// the two halves read row for row — see STYLE_GROUPS / SECTOR_ORDER in lib/exposureUnits. The
+// delta bars carry the magnitude; a style row that starts a new group gets a little air above.
+const groupGap = (factor: string, i: number, rows: { factor: string }[]) =>
+  i > 0 && styleGroupOf(factor) >= 0 && styleGroupOf(factor) !== styleGroupOf(rows[i - 1].factor)
+    ? 'mt-1.5' : '';
+
+function DeltaGroup({ title, rows, kind }: {
+  title: string; rows: DiffFactor[]; kind: ExposureKind;
 }) {
   if (!rows.length) return null;
   const unit = unitForKind[kind];
-  const shown = rows.slice(0, limit);
+  const shown = orderFactors(rows);
   const max = niceMax(Math.max(...shown.map((r) => Math.abs(r.delta))));
   const f = (v: number) => fmtExposureByKind(v, kind);
   return (
@@ -213,7 +223,6 @@ function DeltaGroup({ title, rows, kind, limit = 8 }: {
         {title} · Δ
         <span className="ml-2 normal-case tracking-normal">
           {UNIT_LABEL[unit]} · scale ±{fmtScale(max, unit)}
-          {rows.length > limit && ` · largest ${limit} of ${rows.length}`}
         </span>
       </div>
       <ul className="space-y-0.5">
@@ -221,8 +230,8 @@ function DeltaGroup({ title, rows, kind, limit = 8 }: {
           <span /><span /><span className="text-right">last</span><span className="text-right">now</span>
           <span className="text-right">Δ</span>
         </li>
-        {shown.map((r) => (
-          <li key={r.factor} className="grid grid-cols-[92px_100px_52px_52px_58px] items-center gap-2 text-[11px]">
+        {shown.map((r, i) => (
+          <li key={r.factor} className={`grid grid-cols-[92px_100px_52px_52px_58px] items-center gap-2 text-[11px] ${groupGap(r.factor, i, shown)}`}>
             <span className="truncate" title={r.factor}>{r.factor.replace(/^sec_/, '')}</span>
             <DeltaBar v={r.delta} max={max} />
             <span className="text-right tabular-nums text-[var(--tx-dim)]">{f(r.prev)}</span>
@@ -282,7 +291,7 @@ export function ExposureDiffColumn({ d }: { d: BookDiff }) {
                 <DeltaGroup title="Style" kind="style" rows={e.factors.filter((f) => f.kind === 'style')} />
                 <div className="mt-2">
                   <DeltaGroup title="Sector (net, vs benchmark)" kind="sector"
-                              rows={e.factors.filter((f) => f.kind === 'sector')} limit={6} />
+                              rows={e.factors.filter((f) => f.kind === 'sector')} />
                 </div>
               </div>
             )}
@@ -294,7 +303,7 @@ export function ExposureDiffColumn({ d }: { d: BookDiff }) {
           above (those are vs each sleeve's benchmark); it answers "where did the dollars move". */}
       {secRows.length > 0 && (
         <div className="mt-3 pt-2 border-t border-[var(--border-soft)]">
-          <DeltaGroup title="Whole book · sector net weight" kind="sector" rows={secRows} limit={6} />
+          <DeltaGroup title="Whole book · sector net weight" kind="sector" rows={secRows} />
         </div>
       )}
     </div>

@@ -37,7 +37,7 @@ import {
 // module, shared with the pre-trade panel. Two renderers of the same quantity is how one of them
 // ends up printing 0.13σ as "13%", which is what the pre-trade panel did until 2026-08-13.
 import {
-  fmtExposure, fmtScale, UNIT_LABEL, unitForKind, type ExposureUnit,
+  fmtExposure, fmtScale, orderFactors, UNIT_LABEL, unitForKind, type ExposureUnit,
 } from '@/lib/exposureUnits';
 
 /* ------------------------------------------------------------------------ formatting ---- */
@@ -111,7 +111,8 @@ function Group({ title, rows, showBand }: {
         </span>
       </div>
       <ul className="space-y-0.5">
-        {rows.map((f) => (
+        {/* Fixed order (2026-09-04), shared with the pre-trade panels — see lib/exposureUnits. */}
+        {orderFactors(rows).map((f) => (
           <li key={f.factor} className="flex items-center gap-2 text-[11px]">
             <span className="w-[124px] shrink-0 truncate" title={f.factor}>
               {f.factor.replace(/^sec_/, '').replace(/_/g, ' ')}
@@ -175,12 +176,10 @@ function LegGroup({ title, legs, net }: {
       by.set(f.factor, e);
     }
   }
-  const rows = [...by.entries()]
-    .map(([factor, e]) => ({ factor, long: e.long ?? 0, short: e.short ?? 0, unit: e.unit }))
-    // Ordered by the LARGER leg, not by the net: a factor whose legs disagree violently is exactly
-    // what this view exists for, and ordering by the net would bury it.
-    .sort((a, b) => Math.max(Math.abs(b.long), Math.abs(b.short))
-                  - Math.max(Math.abs(a.long), Math.abs(a.short)));
+  // Fixed order (2026-09-04), shared with the pre-trade panels — see lib/exposureUnits. It used to
+  // sort by the larger leg; a violent disagreement is now found by scanning the paired bars.
+  const rows = orderFactors([...by.entries()]
+    .map(([factor, e]) => ({ factor, long: e.long ?? 0, short: e.short ?? 0, unit: e.unit })));
   if (!rows.length) return null;
   // ONE scale across BOTH legs — per-leg scales would draw a +0.02 long and a −0.21 short the same
   // length, and the comparison would be a lie told in the axis.
