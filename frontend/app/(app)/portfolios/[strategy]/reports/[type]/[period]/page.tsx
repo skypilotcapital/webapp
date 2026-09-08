@@ -16,7 +16,7 @@ import { useParams, useSearchParams } from 'next/navigation';
 import { useState } from 'react';
 import useSWR from 'swr';
 import { productForSlug } from '@/lib/products';
-import { fetchReport, statusColor, REPORT_TYPES, type ReportType } from '@/lib/reports';
+import { fetchReport, reportPdfUrl, statusColor, REPORT_TYPES, type ReportType } from '@/lib/reports';
 import { ReportMarkdown } from '@/components/portfolio/ReportMarkdown';
 
 export default function ReportPage() {
@@ -87,6 +87,16 @@ export default function ReportPage() {
                   ? data.period_start : `${data.period_start} → ${data.period_end}`}
               </div>
               <div className="ml-auto flex items-center gap-2">
+                {/* The PDF of THIS revision, rendered at publication. Not a re-render: the file
+                    and the text above it were written together and must stay the same document. */}
+                {data.has_pdf && (
+                  <a href={reportPdfUrl(strategy!, type, period, data.revision)}
+                     target="_blank" rel="noreferrer"
+                     className="text-[10px] px-1.5 py-0.5 rounded font-semibold"
+                     style={{ background: 'var(--panel2)', color: 'var(--tx-mut)' }}>
+                    PDF
+                  </a>
+                )}
                 <span className="text-[10px] px-1.5 py-0.5 rounded font-semibold"
                       style={{ background: 'var(--panel2)', color: statusColor(data.status) }}>
                   {data.status}

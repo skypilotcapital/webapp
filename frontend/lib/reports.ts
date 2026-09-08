@@ -16,12 +16,16 @@ async function get<T>(path: string): Promise<T> {
   return res.json();
 }
 
-export type ReportType = 'daily' | 'weekly' | 'monthly';
+export type ReportType = 'daily' | 'weekly' | 'monthly' | 'rebalance';
 
 export const REPORT_TYPES: { key: ReportType; label: string; note: string }[] = [
   { key: 'daily', label: 'Daily', note: 'did anything break' },
   { key: 'weekly', label: 'Weekly', note: 'is the book where it should be' },
   { key: 'monthly', label: 'Monthly', note: 'what happened and why' },
+  // Per REBALANCE, not per calendar period ([08-RBRP]). Listed last because the other three are
+  // an ascending cadence and this one is not on that axis at all — it is issued when a trade
+  // happens, which is the only scope under which "planned versus filled" is a real question.
+  { key: 'rebalance', label: 'Rebalance', note: 'did the trade do what we approved' },
 ];
 
 export interface ReportIndexItem {
@@ -37,6 +41,12 @@ export interface ReportIndexItem {
   built_at: string;
   delivered_at: string | null;
   has_commentary: boolean;
+  /** A PDF was rendered for this revision at publication. Rendered once, never on request. */
+  has_pdf: boolean;
+  /** Where a report sits in its own lifecycle, from the payload. The rebalance report uses
+   *  'session-closed' then 'final'; a later revision carrying the SAME stage is a genuine
+   *  correction. Null for the calendar cadences, which have one issue per period. */
+  stage: string | null;
   n_revisions: number;
   /** More than one revision exists — the period was restated after first publication. */
   restated: boolean;
@@ -74,6 +84,7 @@ export interface Report {
   commentary: string | null;
   built_at: string;
   delivered_at: string | null;
+  has_pdf: boolean;
   revisions: ReportRevision[];
   is_latest: boolean;
   /** Set when viewing a superseded revision — the reader must be told, or the archive becomes a
@@ -84,6 +95,12 @@ export interface Report {
 export const fetchReportIndex = (strategy: string, type?: ReportType) =>
   get<ReportIndex>(`/api/v1/report-archive/${encodeURIComponent(strategy)}`
     + (type ? `?type=${type}` : ''));
+
+/** The archived PDF. A link, not a fetch: the browser should stream it, and the file was written
+ *  at publication — asking for it never triggers a render. */
+export const reportPdfUrl = (strategy: string, type: ReportType, period: string, revision?: number) =>
+  `${API_BASE}/api/v1/report-archive/${encodeURIComponent(strategy)}/${type}/`
+  + `${encodeURIComponent(period)}/pdf` + (revision != null ? `?revision=${revision}` : '');
 
 export const fetchReport = (strategy: string, type: ReportType, period: string, revision?: number) =>
   get<Report>(`/api/v1/report-archive/${encodeURIComponent(strategy)}/${type}/`

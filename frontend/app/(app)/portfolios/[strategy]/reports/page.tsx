@@ -19,7 +19,7 @@ import { useParams } from 'next/navigation';
 import useSWR from 'swr';
 import { productForSlug, PRODUCTS } from '@/lib/products';
 import {
-  fetchReportIndex, REPORT_TYPES, statusColor,
+  fetchReportIndex, reportPdfUrl, REPORT_TYPES, statusColor,
   type ReportIndexItem, type ReportType,
 } from '@/lib/reports';
 
@@ -122,7 +122,9 @@ function Archive({ slug, strategy, name }: { slug: string; strategy: string; nam
               </div>
             </div>
             <div className="space-y-1">
-              {items.map((r) => <Row key={`${r.period_key}`} slug={slug} r={r} type={key} />)}
+              {items.map((r) => (
+                <Row key={`${r.period_key}`} slug={slug} strategy={strategy} r={r} type={key} />
+              ))}
             </div>
           </div>
         );
@@ -131,7 +133,8 @@ function Archive({ slug, strategy, name }: { slug: string; strategy: string; nam
   );
 }
 
-function Row({ slug, r, type }: { slug: string; r: ReportIndexItem; type: ReportType }) {
+function Row({ slug, strategy, r, type }:
+             { slug: string; strategy: string; r: ReportIndexItem; type: ReportType }) {
   return (
     <Link href={`/portfolios/${slug}/reports/${type}/${encodeURIComponent(r.period_key)}`}
           className="flex items-center gap-3 py-1.5 px-2 rounded transition-colors"
@@ -151,12 +154,26 @@ function Row({ slug, r, type }: { slug: string; r: ReportIndexItem; type: Report
           {r.n_degradations} degradation{r.n_degradations > 1 ? 's' : ''}
         </span>
       )}
+      {/* A SECOND REVISION IS NOT ALWAYS A CORRECTION. The rebalance report is issued twice by
+          design — once when the session closes, once when the shortfall window does — and calling
+          that "restated" would teach a reader to distrust the first issue. `stage` is the report's
+          own word for where it sits in its lifecycle, so a final says final and only an actual
+          re-issue of the same stage says restated. */}
       {r.restated && (
-        <span className="text-[10px] px-1.5 py-0.5 rounded font-semibold"
-              style={{ background: 'var(--panel2)', color: 'var(--amber)' }}
-              title={`${r.n_revisions} revisions — this period was restated after first publication`}>
-          restated ·  rev {r.revision}
-        </span>
+        r.stage === 'final' ? (
+          <span className="text-[10px] px-1.5 py-0.5 rounded font-semibold"
+                style={{ background: 'var(--panel2)', color: 'var(--tx-mut)' }}
+                title="the shortfall window has closed and any sweep has settled — this is the
+                       completed record, not a correction of the earlier issue">
+            final ·  rev {r.revision}
+          </span>
+        ) : (
+          <span className="text-[10px] px-1.5 py-0.5 rounded font-semibold"
+                style={{ background: 'var(--panel2)', color: 'var(--amber)' }}
+                title={`${r.n_revisions} revisions — this period was restated after first publication`}>
+            restated ·  rev {r.revision}
+          </span>
+        )
       )}
       {r.book_asof && r.book_asof !== r.period_end && (
         <span className="text-[10px]" style={{ color: 'var(--tx-dim)' }}
@@ -164,7 +181,21 @@ function Row({ slug, r, type }: { slug: string; r: ReportIndexItem; type: Report
           book {r.book_asof}
         </span>
       )}
-      <span className="ml-auto text-[11px] teal font-semibold">→</span>
+      <span className="ml-auto flex items-center gap-2">
+        {/* Rendered at publication and served as a file. `stopPropagation` because this sits
+            inside the row's Link and a download is not navigation. */}
+        {r.has_pdf && (
+          <a href={reportPdfUrl(strategy, type, r.period_key, r.revision)}
+             onClick={(e) => e.stopPropagation()}
+             target="_blank" rel="noreferrer"
+             className="text-[10px] px-1.5 py-0.5 rounded font-semibold"
+             style={{ background: 'var(--panel2)', color: 'var(--tx-mut)' }}
+             title="the PDF as it was rendered at publication">
+            PDF
+          </a>
+        )}
+        <span className="text-[11px] teal font-semibold">→</span>
+      </span>
     </Link>
   );
 }
