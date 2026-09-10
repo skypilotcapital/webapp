@@ -163,18 +163,24 @@ def book(env: str, strategy: str | None = None):
 
 
 @router.get("/{env}/nav")
-def nav_series(env: str, strategy: str | None = None):
+def nav_series(env: str, strategy: str | None = None, include_cash_days: bool = False):
     """Daily NAV against the benchmark, since inception, both rebased to 100.
 
     Two things are deliberately NOT done here:
 
     * **No ratio statistics below `_MIN_OBS_RATIOS`.** `stats_suppressed` says so explicitly so
       the page can print the reason. See the module docstring.
-    * **The cash days are marked, not restated.** The account was funded before it traded, and a
-      period reaching back into those days is labelled `incl. cash days` rather than silently
-      re-based to the first fill. Holding cash through a benchmark rally is a real opportunity
-      cost and erasing it would flatter the track on exactly the days it is most fragile.
-      (`performance_reporting_plan.md`, "Two presentation rules".)
+    * **Performance starts at the close of the FIRST TRADED day, not the funding date** (owner
+      decision 2026-09-10, reversing the §XV recommendation). The account was funded 2026-07-30 and
+      the establishment trade was 2026-08-07; the eight cash days in between handed the benchmark a
+      permanent ~4-point head start that said nothing about the strategy. Both indices are rebased
+      to 100 at `perf_inception` (= `first_invested`). The funded date is still published as
+      `inception_funded`, and `include_cash_days=true` returns the cash period rebased the old way
+      for anyone who wants the opportunity-cost reading — labelled, not restated away.
+    * **`periods` carries the window boundaries every performance section shares.** A window is
+      `(start, end]` on book dates: `start` is the close the window is measured FROM. Resolving the
+      boundaries in one place is what keeps the chart, the engine split and the contributor tables
+      describing the same days.
     """
     _env(env)
     with get_db() as conn:
@@ -199,8 +205,15 @@ def nav_series(env: str, strategy: str | None = None):
               AND (COALESCE(gross_long,0) <> 0 OR COALESCE(gross_short,0) <> 0)"""),
             {"strat": strategy}).scalar()
 
-    nav0 = _f(rows[0]["nav"])
-    b0 = next((bench[r["date"]] for r in rows if bench.get(r["date"])), None)
+        periods = _period_starts(conn, strategy, rows[-1]["date"], first_invested)
+
+    # Rebase at the performance inception (first traded close). Before it, the account was cash.
+    base_date = first_invested or rows[0]["date"]
+    if not include_cash_days:
+        rows = [r for r in rows if r["date"] >= base_date]
+    base = next((r for r in rows if r["date"] >= base_date), rows[0])
+    nav0 = _f(base["nav"])
+    b0 = bench.get(base["date"]) or next((bench[r["date"]] for r in rows if bench.get(r["date"])), None)
     series = []
     for r in rows:
         bl = bench.get(r["date"])
@@ -217,9 +230,11 @@ def nav_series(env: str, strategy: str | None = None):
     return {
         "env": env,
         "series": series,
-        "inception": rows[0]["date"].isoformat(),
+        "inception_funded": d0.isoformat(),
+        "perf_inception": base_date.isoformat(),
         "first_invested": first_invested.isoformat() if first_invested else None,
-        "incl_cash_days": bool(first_invested and first_invested > rows[0]["date"]),
+        "incl_cash_days": bool(include_cash_days and first_invested and first_invested > d0),
+        "periods": periods,
         "n_obs": n,
         # The page must not compute these itself from `series` — the suppression is the point.
         "stats_suppressed": n < _MIN_OBS_RATIOS,
@@ -408,7 +423,8 @@ def fidelity(env: str, rebalance_id: int | None = None):
 
 # ------------------------------------------------------------------------------ shortfall ----
 @router.get("/{env}/shortfall")
-def shortfall(env: str, rebalance_id: int | None = None, top: int = Query(8, ge=1, le=40)):
+def shortfall(env: str, rebalance_id: int | None = None, strategy: str | None = None,
+              top: int = Query(8, ge=1, le=40)):
     """Implementation shortfall for one rebalance window — READ from `[10-SHFL]`, not computed.
 
     THIS IS ALSO THE TRACK B OVERLAY. The IA (§XII.D) listed "shortfall series" and "Track B vs
@@ -440,10 +456,28 @@ def shortfall(env: str, rebalance_id: int | None = None, top: int = Query(8, ge=
         row = conn.execute(text("""
             SELECT * FROM trading.shortfall
             WHERE (CAST(:rid AS integer) IS NULL OR rebalance_id = :rid)
-            ORDER BY rebalance_id DESC LIMIT 1"""), {"rid": rebalance_id}).mappings().first()
+              AND (CAST(:strat AS text) IS NULL OR strategy = :strat)
+            ORDER BY rebalance_id DESC LIMIT 1"""),
+            {"rid": rebalance_id, "strat": strategy}).mappings().first()
         if row is None:
-            return {"env": env, "window": None,
-                    "note": "no shortfall window computed yet — owned by [10-SHFL]"}
+            # The page asks for the rebalance its Fidelity section shows. Answering with a DIFFERENT
+            # rebalance's window (the establishment trade, say) would put two trades on one page
+            # under one heading — which is exactly what this page did until 2026-09-10. Say which
+            # window does exist, and let the page label it.
+            latest = conn.execute(text("""
+                SELECT rebalance_id, window_start, window_end, is_establishment, is_open
+                FROM trading.shortfall
+                WHERE (CAST(:strat AS text) IS NULL OR strategy = :strat)
+                ORDER BY rebalance_id DESC LIMIT 1"""), {"strat": strategy}).mappings().first()
+            return {"env": env, "window": None, "requested_rebalance_id": rebalance_id,
+                    "latest_computed": ({"rebalance_id": int(latest["rebalance_id"]),
+                                         "window_start": latest["window_start"].isoformat(),
+                                         "window_end": latest["window_end"].isoformat(),
+                                         "is_establishment": bool(latest["is_establishment"]),
+                                         "is_open": bool(latest["is_open"])} if latest else None),
+                    "note": (f"no shortfall window has been computed for rebalance "
+                             f"#{rebalance_id} yet — owned by [10-SHFL]" if rebalance_id
+                             else "no shortfall window computed yet — owned by [10-SHFL]")}
         rid = row["rebalance_id"]
         names = conn.execute(text("""
             SELECT ticker, mandate, delay_usd, rounding_usd, fill_usd, unfilled_usd,
@@ -976,4 +1010,522 @@ def exposures(env: str, strategy: str | None = None, date: str | None = None):
             "b": "B is re-estimated monthly and held fixed intra-month by design — that is what "
                  "lets price drift be visible. `b_asof` is its month-end.",
         },
+    }
+
+
+# =============================================================================================
+# Performance over a WINDOW — engines, contributors, and the boundaries they share (2026-09-10)
+# =============================================================================================
+#
+# The page originally showed the engine split and the contributors for ONE day (the latest book)
+# under a "Return" heading that ran since inception. Everything below is windowed on the same
+# `(start, end]` convention as the monthly report: `start` is the close the window is measured
+# FROM, so a window's P&L is the sum of `pnl_d` on book dates strictly after it.
+
+PERIOD_KEYS = ("1d", "wtd", "mtd", "since_reb", "incep")
+
+
+def _period_starts(conn, strategy: str | None, end: dt.date, first_invested: dt.date | None) -> dict:
+    """Window start (a BOOK date, the close measured from) for every period key, ending at `end`.
+
+    Every start is clamped to `first_invested`: a window cannot reach into the cash days, because
+    the performance clock starts at the first traded close (see `/nav`). If the book is younger
+    than the period, the key resolves to the inception start and the page labels it as such.
+    """
+    dates = [r[0] for r in conn.execute(text("""
+        SELECT date FROM trading.book_daily
+        WHERE (CAST(:strat AS text) IS NULL OR strategy = :strat) AND date <= :e
+        ORDER BY date"""), {"strat": strategy, "e": end})]
+    base = first_invested or (dates[0] if dates else end)
+
+    def last_before(cut: dt.date) -> dt.date:
+        prior = [d for d in dates if d < cut]
+        return max(prior[-1], base) if prior else base
+
+    reb = conn.execute(text("""
+        SELECT submitted_at::date FROM trading.rebalances
+        WHERE status = ANY(:ex) AND (CAST(:strat AS text) IS NULL OR strategy = :strat)
+          AND submitted_at::date <= :e
+        ORDER BY submitted_at DESC LIMIT 1"""),
+        {"ex": list(_EXECUTED), "strat": strategy, "e": end}).scalar()
+    # Since last rebalance = from the CLOSE of the trade day (the establishment cost sits inside
+    # the trade day, not the window). If the trade day has no book row, the latest one before it.
+    reb_start = base
+    if reb:
+        on_or_before = [d for d in dates if d <= reb]
+        reb_start = max(on_or_before[-1], base) if on_or_before else base
+
+    monday = end - dt.timedelta(days=end.weekday())
+    return {
+        "1d": last_before(end).isoformat(),
+        "wtd": last_before(monday).isoformat(),
+        "mtd": last_before(end.replace(day=1)).isoformat(),
+        "since_reb": reb_start.isoformat(),
+        "incep": base.isoformat(),
+        "end": end.isoformat(),
+        "last_rebalance_date": reb.isoformat() if reb else None,
+    }
+
+
+def _resolve_window(conn, strategy: str | None, period: str, end: str | None):
+    if period not in PERIOD_KEYS:
+        raise HTTPException(status_code=400, detail=f"period must be one of {PERIOD_KEYS}")
+    d_end = conn.execute(text("""
+        SELECT max(date) FROM trading.book_daily
+        WHERE (CAST(:strat AS text) IS NULL OR strategy = :strat)
+          AND (CAST(:d AS date) IS NULL OR date <= CAST(:d AS date))"""),
+        {"strat": strategy, "d": end}).scalar()
+    if d_end is None:
+        return None, None, None
+    first_invested = conn.execute(text("""
+        SELECT min(date) FROM trading.book_daily
+        WHERE (CAST(:strat AS text) IS NULL OR strategy = :strat)
+          AND (COALESCE(gross_long,0) <> 0 OR COALESCE(gross_short,0) <> 0)"""),
+        {"strat": strategy}).scalar()
+    starts = _period_starts(conn, strategy, d_end, first_invested)
+    return dt.date.fromisoformat(starts[period]), d_end, starts
+
+
+# The carry-back the monthly report uses (`reports/data.py::mandate_pnl_range`): a name the book
+# EXITS sits at qty = 0 on the trade date and still carries that day's P&L, while the ledger writes
+# no attribution for zero shares. The mandate that held it yesterday owns today's exit.
+_ATTR_CARRY_DAYS = 10
+
+
+def _mandate_pnl_rows(conn, strategy: str | None, start: dt.date, end: dt.date) -> list[dict]:
+    """Per (date, conid, mandate): the mandate's share of that day's P&L, over `(start, end]`.
+
+    THE SPLIT IS READ, NOT RECOMPUTED — `trading.position_attribution` is the ledger's snapshot,
+    and `attr_qty / qty` is the share in BLEND space, which is what P&L arrives in (`w_native` is
+    2x on the sleeve and belongs to the optimizer). A row with no attribution in force is returned
+    with `mandate = None` so the caller reports it as unattributed rather than absorbing it.
+    """
+    book = conn.execute(text("""
+        SELECT date, conid, ticker, isin, side, qty, price, mkt_value, pnl_d
+        FROM trading.book_daily_positions
+        WHERE (CAST(:strat AS text) IS NULL OR strategy = :strat)
+          AND date > :s AND date <= :e
+        ORDER BY date, conid"""), {"strat": strategy, "s": start, "e": end}).mappings().all()
+    attr = conn.execute(text("""
+        SELECT date, conid, mandate, attr_qty, attr_weight, w_native, method
+        FROM trading.position_attribution
+        WHERE (CAST(:strat AS text) IS NULL OR strategy = :strat)
+          AND date > :s0 AND date <= :e
+        ORDER BY date, conid"""),
+        {"strat": strategy, "s0": start - dt.timedelta(days=_ATTR_CARRY_DAYS), "e": end}
+    ).mappings().all()
+
+    by_conid: dict[int, dict] = {}
+    for a in attr:
+        by_conid.setdefault(a["conid"], {}).setdefault(a["date"], []).append(dict(a))
+    dates_of = {cid: sorted(d) for cid, d in by_conid.items()}
+
+    def claims_for(conid, d):
+        avail = dates_of.get(conid)
+        if not avail:
+            return None, None
+        best = None
+        for ad in avail:
+            if ad <= d:
+                best = ad
+            else:
+                break
+        if best is None or (d - best).days > _ATTR_CARRY_DAYS:
+            return None, None
+        return best, by_conid[conid][best]
+
+    out = []
+    for r in book:
+        pnl = _f(r["pnl_d"]) or 0.0
+        qty = _f(r["qty"]) or 0.0
+        base = {"date": r["date"], "conid": r["conid"], "ticker": r["ticker"], "isin": r["isin"],
+                "side": r["side"], "qty": qty, "price": _f(r["price"]),
+                "mkt_value": _f(r["mkt_value"])}
+        attr_date, claims = claims_for(r["conid"], r["date"])
+        if not claims:
+            out.append({**base, "mandate": None, "pnl": pnl, "share": 1.0, "carried": False})
+            continue
+        denom = qty if qty else sum(_f(c["attr_qty"]) or 0.0 for c in claims)
+        for c in claims:
+            share = ((_f(c["attr_qty"]) or 0.0) / denom) if denom else 1.0 / len(claims)
+            out.append({**base, "mandate": c["mandate"], "pnl": pnl * share, "share": share,
+                        "carried": attr_date != r["date"]})
+    return out
+
+
+@router.get("/{env}/engines")
+def engines(env: str, strategy: str | None = None, period: str = "incep", end: str | None = None):
+    """Core vs sleeve over a window, plus the daily cumulative series that draws it.
+
+    Contribution is in basis points of the NAV at the window's START — one denominator for every
+    engine and every day, so the engines sum to the book and the series is additive. The
+    unattributed remainder is a line of its own (reported, never absorbed — the ledger rule).
+    """
+    _env(env)
+    with get_db() as conn:
+        start, d_end, starts = _resolve_window(conn, strategy, period, end)
+        if start is None:
+            return {"env": env, "window": None, "note": "no book yet"}
+        navs = {r["date"]: _f(r["nav"]) for r in conn.execute(text("""
+            SELECT date, nav FROM trading.book_daily
+            WHERE (CAST(:strat AS text) IS NULL OR strategy = :strat)
+              AND date >= :s AND date <= :e ORDER BY date"""),
+            {"strat": strategy, "s": start, "e": d_end}).mappings()}
+        bench = {r["date"]: _f(r["tr_level"]) for r in conn.execute(text("""
+            SELECT date, tr_level FROM clean.beta_sp500_daily
+            WHERE date BETWEEN :s AND :e ORDER BY date"""), {"s": start, "e": d_end}).mappings()}
+        rows = _mandate_pnl_rows(conn, strategy, start, d_end)
+
+    nav0 = navs.get(start) or next(iter(navs.values()), None)
+    nav1 = navs.get(d_end)
+    b0, b1 = bench.get(start), bench.get(d_end)
+    to_bps = (lambda v: v / nav0 * 1e4) if nav0 else (lambda v: None)
+
+    dates = sorted({r["date"] for r in rows})
+    mandates = sorted({r["mandate"] for r in rows if r["mandate"]})
+    keys = mandates + ["unattributed"]
+    daily = {k: {d: 0.0 for d in dates} for k in keys}
+    n_rows = {k: 0 for k in keys}
+    carried = 0
+    for r in rows:
+        k = r["mandate"] or "unattributed"
+        daily[k][r["date"]] += r["pnl"]
+        n_rows[k] += 1
+        carried += int(r["carried"])
+    # THE ENGINES SUM TO THE POSITIONS' P&L, NOT TO THE BOOK. The NAV also moves on cash items —
+    # dividends received and paid, interest, commission on the trade day — which no position owns.
+    # That remainder is a line of its own so the engines reconcile to the book return a reader
+    # sees on the chart, rather than to a number 30 bp away from it with no explanation.
+    series = []
+    cum = {k: 0.0 for k in keys}
+    for d in dates:
+        pt = {"date": d.isoformat()}
+        tot = 0.0
+        for k in keys:
+            cum[k] += daily[k][d]
+            pt[k] = to_bps(cum[k])
+            tot += cum[k]
+        pt["positions"] = to_bps(tot)
+        nv = navs.get(d)
+        pt["book"] = ((nv - nav0) / nav0 * 1e4) if (nv and nav0) else None
+        pt["cash_other"] = (pt["book"] - pt["positions"]) if pt["book"] is not None else None
+        pt["total"] = pt["book"]
+        # The benchmark's cumulative return over the same days, in the same units.
+        bl = bench.get(d)
+        pt["bench"] = ((bl / b0 - 1) * 1e4) if (bl and b0) else None
+        series.append(pt)
+
+    totals = {k: sum(daily[k].values()) for k in keys}
+    positions_pnl = sum(totals.values())
+    book_pnl = (nav1 - nav0) if (nav0 and nav1) else None
+    cash_other = (book_pnl - positions_pnl) if book_pnl is not None else None
+    total_pnl = book_pnl if book_pnl is not None else positions_pnl
+    return {
+        "env": env,
+        "period": period,
+        "window": {"start": start.isoformat(), "end": d_end.isoformat(), "n_days": len(dates),
+                   "nav_start": nav0, "nav_end": nav1,
+                   "book_return": (nav1 / nav0 - 1) if (nav0 and nav1) else None,
+                   "bench_return": (b1 / b0 - 1) if (b0 and b1) else None},
+        "periods": starts,
+        "by_mandate": [{"mandate": k, "pnl": totals[k], "contrib_bps": to_bps(totals[k]),
+                        "n_rows": n_rows[k]} for k in mandates],
+        "unattributed": {"pnl": totals["unattributed"],
+                         "contrib_bps": to_bps(totals["unattributed"]),
+                         "n_rows": n_rows["unattributed"]},
+        "positions": {"pnl": positions_pnl, "contrib_bps": to_bps(positions_pnl)},
+        # Dividends (received on longs, PAID on shorts), interest and trade-day commission — the
+        # NAV movement no position owns. Book = positions + this, by construction.
+        "cash_other": {"pnl": cash_other,
+                       "contrib_bps": to_bps(cash_other) if cash_other is not None else None},
+        "total": {"pnl": total_pnl, "contrib_bps": to_bps(total_pnl)},
+        "carried_rows": carried,
+        "series": series,
+        "basis": "basis points of NAV at the window start; the sleeve enters the blend at 0.5x, "
+                 "so its line is its BLEND contribution. Engines sum to the positions' P&L; the "
+                 "book adds cash items (dividends, interest, commission) that no position owns",
+    }
+
+
+@router.get("/{env}/contributors")
+def contributors(env: str, strategy: str | None = None, period: str = "incep",
+                 end: str | None = None, top: int = Query(8, ge=1, le=40)):
+    """Per-engine top contributors and detractors over a window, with what built the number.
+
+    The contribution itself is EXACT — the sum of the mandate's share of daily P&L, in bps of the
+    NAV at the window start — and the rest of the row is the arithmetic a reader wants beside it:
+    held weight, benchmark weight, active weight, the stock's own return over the days it was
+    held, and the benchmark's return over the same window. `approx_bps` = held weight at the
+    start x stock return is shown so the reader can see how much of the exact number that simple
+    product explains; the gap (rebalance-day trades, weight drift, partial holding) is a residual
+    to read, not to hide.
+
+    Benchmark weights are the MONTH-END cap weights the risk model uses
+    (`optimizer.benchmark_weights`, S&P 500 for the core), stamped with their as-of date. The
+    sleeve is market-neutral against cash: no benchmark column, and its held weight is the BLEND
+    weight (its native book is 2x).
+    """
+    _env(env)
+    with get_db() as conn:
+        start, d_end, starts = _resolve_window(conn, strategy, period, end)
+        if start is None:
+            return {"env": env, "window": None, "note": "no book yet"}
+        nav0 = _f(conn.execute(text("""
+            SELECT nav FROM trading.book_daily
+            WHERE (CAST(:strat AS text) IS NULL OR strategy = :strat) AND date = :s
+            ORDER BY strategy LIMIT 1"""), {"strat": strategy, "s": start}).scalar())
+        bench = {r["date"]: _f(r["tr_level"]) for r in conn.execute(text("""
+            SELECT date, tr_level FROM clean.beta_sp500_daily
+            WHERE date IN (:s, :e)"""), {"s": start, "e": d_end}).mappings()}
+        rows = _mandate_pnl_rows(conn, strategy, start, d_end)
+        # Held weights at both ends, from the ledger snapshot (blend basis, signed).
+        w_end = {(r["mandate"], r["conid"]): dict(r) for r in conn.execute(text("""
+            SELECT mandate, conid, attr_weight, w_native FROM trading.position_attribution
+            WHERE (CAST(:strat AS text) IS NULL OR strategy = :strat) AND date = :d"""),
+            {"strat": strategy, "d": d_end}).mappings()}
+        w_start = {(r["mandate"], r["conid"]): dict(r) for r in conn.execute(text("""
+            SELECT mandate, conid, attr_weight, w_native FROM trading.position_attribution
+            WHERE (CAST(:strat AS text) IS NULL OR strategy = :strat) AND date = :d"""),
+            {"strat": strategy, "d": start}).mappings()}
+        # The close at the window start, per name — the price a "stock return" runs from.
+        px_start = {r["conid"]: _f(r["price"]) for r in conn.execute(text("""
+            SELECT conid, price FROM trading.book_daily_positions
+            WHERE (CAST(:strat AS text) IS NULL OR strategy = :strat) AND date = :d
+              AND COALESCE(qty, 0) <> 0"""), {"strat": strategy, "d": start}).mappings()}
+        bw_date = conn.execute(text(
+            "SELECT max(date) FROM optimizer.benchmark_weights "
+            "WHERE universe = 'sp500' AND date <= :d"), {"d": d_end}).scalar()
+        bw = {}
+        if bw_date:
+            bw = {r["isin"]: _f(r["weight"]) for r in conn.execute(text(
+                "SELECT isin, weight FROM optimizer.benchmark_weights "
+                "WHERE universe = 'sp500' AND date = :d"), {"d": bw_date}).mappings()}
+        isins = sorted({r["isin"] for r in rows if r["isin"]})
+        sectors = {r["isin"]: r["sector"] for r in conn.execute(text(
+            "SELECT isin, sector FROM secmaster.securities WHERE isin = ANY(:i)"),
+            {"i": isins}).mappings()} if isins else {}
+
+    b0, b1 = bench.get(start), bench.get(d_end)
+    bench_ret = (b1 / b0 - 1) if (b0 and b1) else None
+    to_bps = (lambda v: v / nav0 * 1e4) if nav0 else (lambda v: None)
+
+    # Fold the daily rows per (mandate, conid).
+    agg: dict[tuple, dict] = {}
+    for r in rows:
+        k = (r["mandate"] or "unattributed", r["conid"])
+        a = agg.setdefault(k, {"conid": r["conid"], "ticker": r["ticker"], "isin": r["isin"],
+                               "mandate": k[0], "pnl": 0.0, "days_held": 0,
+                               "first_price": None, "last_date": None, "last_price": None,
+                               "side": None})
+        a["pnl"] += r["pnl"]
+        if r["qty"]:
+            a["days_held"] += 1
+            if a["first_price"] is None:
+                a["first_price"] = r["price"]
+            a["last_date"], a["last_price"], a["side"] = r["date"], r["price"], r["side"]
+
+    def row(a):
+        m, cid = a["mandate"], a["conid"]
+        we, ws = w_end.get((m, cid)), w_start.get((m, cid))
+        held = _f(we["attr_weight"]) if we else None
+        held_start = _f(ws["attr_weight"]) if ws else None
+        # From the close at the window start if the name was held then; otherwise from its first
+        # held close (it ENTERED inside the window, and `entered` says so).
+        p0 = px_start.get(cid)
+        entered = p0 is None
+        if entered:
+            p0 = a["first_price"]
+        stock_ret = (a["last_price"] / p0 - 1) if (p0 and a["last_price"]) else None
+        bwt = bw.get(a["isin"]) if m == "core" else None
+        approx = None
+        if stock_ret is not None and held_start is not None and not entered:
+            approx = held_start * stock_ret * 1e4      # signed weight x stock return
+        return {
+            "ticker": a["ticker"], "isin": a["isin"], "conid": cid, "mandate": m,
+            "side": a["side"], "sector": sectors.get(a["isin"]),
+            "held_weight": held, "held_weight_start": held_start,
+            "native_weight": _f(we["w_native"]) if we else None,
+            "bench_weight": bwt,
+            "active_weight": ((held - (bwt or 0.0)) if (held is not None and m == "core")
+                              else None),
+            "stock_return": stock_ret,
+            "days_held": a["days_held"],
+            "entered": entered,
+            "exited": bool(a["last_date"] and a["last_date"] < d_end),
+            "contrib_bps": to_bps(a["pnl"]),
+            "pnl": a["pnl"],
+            "approx_bps": approx,
+        }
+
+    out = {}
+    for m in sorted({k[0] for k in agg}):
+        items = [row(a) for k, a in agg.items() if k[0] == m]
+        items.sort(key=lambda x: x["contrib_bps"] or 0.0, reverse=True)
+        total = sum(x["pnl"] for x in items)
+        out[m] = {
+            "n_names": len(items),
+            "total_bps": to_bps(total),
+            "contributors": items[:top],
+            "detractors": list(reversed(items[-top:])) if items else [],
+        }
+
+    return {
+        "env": env, "period": period,
+        "window": {"start": start.isoformat(), "end": d_end.isoformat(), "nav_start": nav0,
+                   "bench_return": bench_ret},
+        "periods": starts,
+        "bench_weights_asof": bw_date.isoformat() if bw_date else None,
+        "by_mandate": out,
+        "notes": {
+            "contrib": "EXACT — the mandate's share of daily P&L summed over the window, in bps "
+                       "of the NAV at the window start. Each engine's lists are drawn from a set "
+                       "that sums to that engine's total_bps.",
+            "approx": "held weight at the window start x the stock's return over the window — "
+                      "the simple product, shown so the reader can see how much of the exact "
+                      "number it explains. The gap is trades, drift and partial holding: a "
+                      "residual to read rather than hide. Null for a name that entered inside "
+                      "the window.",
+            "core": "long-only, measured against the S&P 500: a name held at benchmark weight is "
+                    "a zero active bet. active_weight = held - benchmark (month-end cap weights).",
+            "sleeve": "market-neutral against cash: no benchmark column. held_weight is the BLEND "
+                      "weight (the sleeve enters at 0.5x); native_weight is its own book.",
+        },
+    }
+
+
+# =============================================================================================
+# Integrity — reconciliation breaks and corporate actions (2026-09-10)
+# =============================================================================================
+#
+# Both were listed on the page as "not yet available" long after they existed: the recon writer
+# has run nightly since August and the corporate-actions feed went live 2026-08-06, but neither
+# had an endpoint, so a hardcoded list kept saying they did not. These read the authority.
+
+@router.get("/{env}/recon")
+def recon(env: str, strategy: str | None = None, days: int = Query(10, ge=1, le=60)):
+    """Reconciliation breaks over the last `days` book dates — what broke, by kind, with the note.
+
+    A `price` break on a thin name is expected noise at the current threshold ([10-PXCAL]); a
+    `cash`, `position` or `fill` break is the one that means something. The composition is
+    returned per date so the page can show that shape instead of one red count.
+    """
+    _env(env)
+    with get_db() as conn:
+        dates = [r[0] for r in conn.execute(text("""
+            SELECT date FROM trading.book_daily
+            WHERE (CAST(:strat AS text) IS NULL OR strategy = :strat)
+            ORDER BY date DESC LIMIT :n"""), {"strat": strategy, "n": days})]
+        if not dates:
+            return {"env": env, "dates": [], "breaks": [], "n_breaks": 0}
+        d0, d1 = min(dates), max(dates)
+        rows = conn.execute(text("""
+            SELECT l.id, l.date, l.kind, l.conid, p.ticker, l.internal_value, l.broker_value,
+                   l.diff, l.resolved, l.note, l.rebalance_id
+            FROM trading.reconciliation_log l
+            LEFT JOIN LATERAL (
+                SELECT ticker FROM trading.book_daily_positions p
+                WHERE p.conid = l.conid AND p.date <= l.date ORDER BY p.date DESC LIMIT 1) p ON TRUE
+            WHERE l.date BETWEEN :a AND :b
+            ORDER BY l.date DESC, l.resolved, l.kind, abs(l.diff) DESC"""),
+            {"a": d0, "b": d1}).mappings().all()
+        status = conn.execute(text("""
+            SELECT date, tied_out, unresolved_breaks, unresolved_price, unresolved_cash,
+                   unresolved_position, unresolved_fill, unresolved_nav, unresolved_other
+            FROM trading.book_daily_status
+            WHERE (CAST(:strat AS text) IS NULL OR strategy = :strat) AND date BETWEEN :a AND :b
+            ORDER BY date DESC"""), {"strat": strategy, "a": d0, "b": d1}).mappings().all()
+
+    return {
+        "env": env,
+        "dates": [{"date": s["date"].isoformat(), "tied_out": s["tied_out"],
+                   "unresolved": int(s["unresolved_breaks"] or 0),
+                   "by_kind": {k: int(s[f"unresolved_{k}"] or 0)
+                               for k in ("price", "cash", "position", "fill", "nav", "other")}}
+                  for s in status],
+        "breaks": [{"id": r["id"], "date": r["date"].isoformat(), "kind": r["kind"],
+                    "conid": r["conid"], "ticker": r["ticker"],
+                    "internal_value": _f(r["internal_value"]),
+                    "broker_value": _f(r["broker_value"]),
+                    "diff": _f(r["diff"]), "resolved": bool(r["resolved"]), "note": r["note"],
+                    "rebalance_id": r["rebalance_id"]} for r in rows[:300]],
+        "n_breaks": len(rows),
+        "note": "a price break is our close vs the broker's mark on a thin name — expected noise "
+                "at the current threshold ([10-PXCAL]); cash, position and fill breaks are the "
+                "ones that mean something. A break stays unresolved until a human explains it.",
+    }
+
+
+# Action types that change what we hold or what it is worth. Dividends are counted but listed
+# separately: ~40k a year in the feed, and on a 450-name book a dozen a week is the normal state.
+_CA_MATERIAL = ("split", "adrratiosplit", "spinoff", "spunofffrom", "spinoffdividend",
+                "acquisitionby", "acquisitionof", "acquisitioncash", "acquisitionstock",
+                "mergerto", "mergerfrom", "spacmerger", "delisted", "voluntarydelisting",
+                "regulatorydelisting", "bankruptcyliquidation", "tickerchangefrom",
+                "tickerchangeto")
+
+
+@router.get("/{env}/corporate-actions")
+def corporate_actions(env: str, strategy: str | None = None,
+                      days: int = Query(30, ge=1, le=120)):
+    """Corporate actions on names we HELD during the window, from the effective-dated feed
+    (`clean.actions`, `[10-CAREP]` Track 1), with the feed's own freshness beside it.
+
+    "No corporate actions" and "the feed stopped" must not render the same, so `feed` carries the
+    latest date and its age and the page prints it next to an empty list.
+    """
+    _env(env)
+    with get_db() as conn:
+        d1 = conn.execute(text("""
+            SELECT max(date) FROM trading.book_daily
+            WHERE (CAST(:strat AS text) IS NULL OR strategy = :strat)"""),
+            {"strat": strategy}).scalar()
+        if d1 is None:
+            return {"env": env, "actions": [], "dividends": [], "feed": None, "note": "no book yet"}
+        d0 = d1 - dt.timedelta(days=days)
+        feed = conn.execute(text(
+            "SELECT max(date) AS latest, count(*) AS n FROM clean.actions")).mappings().first()
+        rows = conn.execute(text("""
+            WITH held AS (
+                SELECT isin, min(date) AS first_held, max(date) AS last_held,
+                       (ARRAY_AGG(side ORDER BY date DESC))[1] AS side,
+                       (ARRAY_AGG(ticker ORDER BY date DESC))[1] AS ticker
+                FROM trading.book_daily_positions
+                WHERE (CAST(:strat AS text) IS NULL OR strategy = :strat)
+                  AND date BETWEEN :a AND :b AND COALESCE(qty,0) <> 0
+                GROUP BY isin)
+            SELECT a.date, a.isin, COALESCE(a.ticker, h.ticker) AS ticker, a.action, a.value,
+                   a.contraticker, a.contraname, a.is_material, a.first_seen, h.side,
+                   h.first_held, h.last_held
+            FROM clean.actions a
+            JOIN held h ON h.isin = a.isin
+            WHERE a.date BETWEEN :a AND :b
+            ORDER BY a.date DESC, a.action"""),
+            {"strat": strategy, "a": d0, "b": d1}).mappings().all()
+
+    def _r(r):
+        return {"date": r["date"].isoformat(), "ticker": r["ticker"], "isin": r["isin"],
+                "action": r["action"], "value": _f(r["value"]),
+                "contraticker": r["contraticker"], "contraname": r["contraname"],
+                "is_material": bool(r["is_material"]), "side": r["side"],
+                "first_seen": r["first_seen"].isoformat() if r["first_seen"] else None,
+                "held_through": bool(r["last_held"] and r["last_held"] >= r["date"])}
+    material = [_r(r) for r in rows if r["action"] in _CA_MATERIAL]
+    divs = [_r(r) for r in rows if r["action"] == "dividend"]
+    other = [_r(r) for r in rows if r["action"] not in _CA_MATERIAL and r["action"] != "dividend"]
+    latest = feed["latest"] if feed else None
+    age = (dt.datetime.now(dt.timezone.utc).date() - latest).days if latest else None
+    return {
+        "env": env,
+        "window": {"start": d0.isoformat(), "end": d1.isoformat()},
+        "feed": {"latest": latest.isoformat() if latest else None, "age_days": age,
+                 "n_rows": int(feed["n"]) if feed else 0,
+                 "stale": (age is None or age > 7)},
+        "actions": material,
+        "dividends": divs,
+        "other": other[:50],
+        "n_dividends": len(divs),
+        "note": "effective-dated, from the vendor feed — it lags the market by days and names the "
+                "event; the daily quote monitor sees a name go dark first but never says why "
+                "([10-CAREP]). Dividends on held longs are received and on held shorts PAID; the "
+                "cash check names an expected dividend but does not yet net it ([10-CAACC]).",
     }
