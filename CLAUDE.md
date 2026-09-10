@@ -175,3 +175,27 @@ arbitrary values like `bg-[var(--panel)]` and the semantic classes `.panel/.kpi/
 follow the theme automatically; the quintile ramp is `#dc2626/#ea580c/#64748b/#0d9488/#16a34a`
 (red→green, light-legible). To re-theme, swap the variable VALUES — layout/components are
 palette-agnostic. Text on the teal accent is `#fffdf9` (cream), never near-black.
+
+## IBKR paper track page — `/portfolios/sp500-ext-te6/ibkr` (reorganised 2026-09-10)
+
+`components/portfolio/PaperTrack.tsx` + `api/routers/paper.py` (prefix `/api/v1/paper/{env}`, env=`paper`
+only). Five bands with a sticky sub-nav, each answering ONE question: **Status** (book at a glance,
+tie-out with break composition, since-first-trade vs S&P) · **Performance** (ONE period selector —
+1d / wtd / mtd / since_reb / incep — shared by the NAV chart, the engine split and the contributors)
+· **Book** (gross/net/names + `BookRisk` exposures/TE) · **Last rebalance** (fidelity + shortfall for the
+SAME rebalance id, links to the post-rebalance report `reports/rebalance/r{id}`) · **Integrity**
+(recon breaks + corporate actions, read from their tables; "not yet available" rows are DATA-DRIVEN).
+
+- **Performance inception = first TRADED close (2026-08-07), not the funding date (07-30)** — owner
+  decision 2026-09-10. `/nav` rebases there and publishes `inception_funded` + `perf_inception` +
+  `periods` (the window boundaries; a window is `(start, end]` on book dates).
+- `/engines?period=` — core vs sleeve over the window + daily cumulative series in bp of start NAV,
+  PLUS a `cash_other` line (dividends, interest, commission) so engines + cash = the NAV move.
+- `/contributors?period=&top=` — per-engine top/bottom with held / benchmark (month-end
+  `optimizer.benchmark_weights`, core only) / active weight, stock return, `approx_bps` (w×r) beside
+  the EXACT contribution. The sleeve is vs cash: no benchmark column, held = blend weight (0.5×).
+- `/recon?days=` reads `trading.reconciliation_log`; `/corporate-actions?days=` reads `clean.actions`
+  for held names + feed freshness. `/shortfall?rebalance_id=&strategy=` returns `latest_computed`
+  when the requested rebalance has no window (never silently answers with a different trade).
+- Charts: `charts.tsx xTicks()` picks weekly / monthly / yearly x-labels by span (the old rule labelled
+  only years divisible by 3 → a blank axis on a 5-week series).

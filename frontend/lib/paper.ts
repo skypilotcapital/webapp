@@ -75,15 +75,115 @@ export interface PaperNavPoint {
   invested: boolean;
 }
 
+/** Window boundaries every performance section shares. A window is `(start, end]` on BOOK dates:
+ *  `start` is the close it is measured FROM. Resolved once, server-side, so the chart, the engine
+ *  split and the contributor tables describe the same days. */
+export type PeriodKey = '1d' | 'wtd' | 'mtd' | 'since_reb' | 'incep';
+export interface PaperPeriods {
+  '1d': string; wtd: string; mtd: string; since_reb: string; incep: string; end: string;
+  last_rebalance_date: string | null;
+}
+
 export interface PaperNavResponse {
   env: string;
+  /** Rebased to 100 at `perf_inception` — the close of the first TRADED day (owner decision
+   *  2026-09-10). The funded-but-cash days are excluded unless `include_cash_days` was asked. */
   series: PaperNavPoint[];
-  inception: string | null;
+  inception_funded: string | null;
+  perf_inception: string | null;
   first_invested: string | null;
   incl_cash_days: boolean;
+  periods: PaperPeriods | null;
   n_obs: number;
   stats_suppressed: boolean;
   reason: string | null;
+}
+
+/* ------------------------------------------------------------------- windowed performance ---- */
+export interface PaperEnginePoint {
+  date: string;
+  /** positions = the engines summed; book = the NAV move; cash_other = book − positions. */
+  positions: number | null; book: number | null; cash_other: number | null;
+  total: number | null; bench: number | null;
+  [mandate: string]: number | string | null;
+}
+export interface PaperEngines {
+  env: string;
+  period: PeriodKey;
+  window: {
+    start: string; end: string; n_days: number;
+    nav_start: number | null; nav_end: number | null;
+    book_return: number | null; bench_return: number | null;
+  } | null;
+  note?: string;
+  periods: PaperPeriods;
+  /** bps of NAV at the window START — one denominator, so the engines sum to the book. */
+  by_mandate: { mandate: string; pnl: number; contrib_bps: number | null; n_rows: number }[];
+  unattributed: { pnl: number; contrib_bps: number | null; n_rows: number };
+  positions: { pnl: number; contrib_bps: number | null };
+  /** Dividends (received on longs, PAID on shorts), interest, trade-day commission — NAV
+   *  movement no position owns. book = positions + cash_other by construction. */
+  cash_other: { pnl: number | null; contrib_bps: number | null };
+  total: { pnl: number; contrib_bps: number | null };
+  carried_rows: number;
+  series: PaperEnginePoint[];
+  basis: string;
+}
+
+export interface PaperContributorRow {
+  ticker: string | null; isin: string | null; conid: number; mandate: string;
+  side: string | null; sector: string | null;
+  /** BLEND weight at the window end (signed); the sleeve's native book is 2×. */
+  held_weight: number | null; held_weight_start: number | null; native_weight: number | null;
+  /** Month-end S&P 500 cap weight — core only. */
+  bench_weight: number | null; active_weight: number | null;
+  stock_return: number | null;
+  days_held: number; entered: boolean; exited: boolean;
+  /** EXACT: the mandate's share of daily P&L summed over the window, bps of start NAV. */
+  contrib_bps: number | null; pnl: number;
+  /** held weight at start × stock return — the simple product, for comparison. */
+  approx_bps: number | null;
+}
+export interface PaperContributors {
+  env: string;
+  period: PeriodKey;
+  window: { start: string; end: string; nav_start: number | null; bench_return: number | null } | null;
+  note?: string;
+  periods: PaperPeriods;
+  bench_weights_asof: string | null;
+  by_mandate: Record<string, {
+    n_names: number; total_bps: number | null;
+    contributors: PaperContributorRow[]; detractors: PaperContributorRow[];
+  }>;
+  notes: Record<string, string>;
+}
+
+/* --------------------------------------------------------------------------- integrity ---- */
+export interface PaperRecon {
+  env: string;
+  dates: { date: string; tied_out: boolean | null; unresolved: number;
+           by_kind: Record<string, number> }[];
+  breaks: { id: number; date: string; kind: string; conid: number | null; ticker: string | null;
+            internal_value: number | null; broker_value: number | null; diff: number | null;
+            resolved: boolean; note: string | null; rebalance_id: number | null }[];
+  n_breaks: number;
+  note?: string;
+}
+
+export interface PaperCorporateAction {
+  date: string; ticker: string | null; isin: string; action: string; value: number | null;
+  contraticker: string | null; contraname: string | null; is_material: boolean;
+  side: string | null; first_seen: string | null; held_through: boolean;
+}
+export interface PaperCorporateActions {
+  env: string;
+  window: { start: string; end: string } | null;
+  feed: { latest: string | null; age_days: number | null; n_rows: number; stale: boolean } | null;
+  actions: PaperCorporateAction[];
+  dividends: PaperCorporateAction[];
+  other: PaperCorporateAction[];
+  n_dividends: number;
+  note?: string;
 }
 
 export interface PaperFidelity {
@@ -189,13 +289,18 @@ export interface PaperShortfall {
     tied_out_days: number;
   } | null;
   note?: string;
-  chain: { term: string; usd: number | null; bps: number | null; step: string }[];
-  names: {
+  /** Set when the rebalance the page asked for has no window yet — so the page can say which
+   *  one DOES exist rather than silently rendering a different trade. */
+  requested_rebalance_id?: number | null;
+  latest_computed?: { rebalance_id: number; window_start: string; window_end: string;
+                      is_establishment: boolean; is_open: boolean } | null;
+  chain?: { term: string; usd: number | null; bps: number | null; step: string }[];
+  names?: {
     ticker: string | null; mandate: string | null;
     delay_usd: number | null; fill_usd: number | null;
     total_usd: number | null; total_bps: number | null;
   }[];
-  caveats: Record<string, string>;
+  caveats?: Record<string, string>;
 }
 
 /* ------------------------------------------------------------------------- exposures ---- */
@@ -347,17 +452,33 @@ export interface PaperExposures {
 export const fetchPaperExposures = (env = 'paper', strategy?: string) =>
   get<PaperExposures>(`/api/v1/paper/${env}/exposures${strategy ? `?strategy=${strategy}` : ''}`);
 
-export const fetchPaperShortfall = (env = 'paper', top = 8) =>
-  get<PaperShortfall>(`/api/v1/paper/${env}/shortfall?top=${top}`);
+const q = (o: Record<string, string | number | undefined>) =>
+  Object.entries(o).filter(([, v]) => v != null && v !== '')
+    .map(([k, v]) => `${k}=${encodeURIComponent(String(v))}`).join('&');
+
+export const fetchPaperShortfall = (env = 'paper', top = 8, rebalanceId?: number, strategy?: string) =>
+  get<PaperShortfall>(`/api/v1/paper/${env}/shortfall?${q({ top, rebalance_id: rebalanceId, strategy })}`);
 
 export const fetchPaperBook = (env = 'paper', strategy?: string) =>
-  get<PaperBookResponse>(`/api/v1/paper/${env}/book${strategy ? `?strategy=${strategy}` : ''}`);
+  get<PaperBookResponse>(`/api/v1/paper/${env}/book?${q({ strategy })}`);
 
 export const fetchPaperNav = (env = 'paper', strategy?: string) =>
-  get<PaperNavResponse>(`/api/v1/paper/${env}/nav${strategy ? `?strategy=${strategy}` : ''}`);
+  get<PaperNavResponse>(`/api/v1/paper/${env}/nav?${q({ strategy })}`);
 
 export const fetchPaperFidelity = (env = 'paper') =>
   get<PaperFidelity>(`/api/v1/paper/${env}/fidelity`);
 
 export const fetchPaperPositions = (env = 'paper', top = 10) =>
   get<PaperPositionsResponse>(`/api/v1/paper/${env}/positions?top=${top}`);
+
+export const fetchPaperEngines = (env = 'paper', strategy?: string, period: PeriodKey = 'incep') =>
+  get<PaperEngines>(`/api/v1/paper/${env}/engines?${q({ strategy, period })}`);
+
+export const fetchPaperContributors = (env = 'paper', strategy?: string, period: PeriodKey = 'incep', top = 8) =>
+  get<PaperContributors>(`/api/v1/paper/${env}/contributors?${q({ strategy, period, top })}`);
+
+export const fetchPaperRecon = (env = 'paper', strategy?: string, days = 10) =>
+  get<PaperRecon>(`/api/v1/paper/${env}/recon?${q({ strategy, days })}`);
+
+export const fetchPaperCorporateActions = (env = 'paper', strategy?: string, days = 30) =>
+  get<PaperCorporateActions>(`/api/v1/paper/${env}/corporate-actions?${q({ strategy, days })}`);

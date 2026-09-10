@@ -196,9 +196,10 @@ function PaperBand({ strategy }: { strategy: string }) {
 
       <div className="grid grid-cols-3 sm:grid-cols-5 gap-2">
         <MiniStat label="NAV" value={b.nav == null ? '—' : `$${Math.round(b.nav).toLocaleString()}`} />
-        <MiniStat label="Since inception" value={pctSign(sinceIncept, 2)}
+        {/* From the first TRADED close (owner decision 2026-09-10) — the API rebases there. */}
+        <MiniStat label="Since first trade" value={pctSign(sinceIncept, 2)}
           color={(sinceIncept ?? 0) >= 0 ? 'var(--pos)' : 'var(--neg)'}
-          sub={nav?.inception ? `from ${nav.inception}` : undefined} />
+          sub={nav?.perf_inception ? `from ${nav.perf_inception}` : undefined} />
         {/* RELATIVE PERFORMANCE IS SUPPRESSED WHILE THE ACCOUNT IS CASH — the reports' first
             presentation rule, and it earns its keep here. A funded-but-untraded account sitting
             through a benchmark rally shows a real opportunity cost, but rendering it beside the

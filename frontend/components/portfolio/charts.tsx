@@ -37,6 +37,42 @@ export function FrontierChart({ points, height = 96 }: { points: FrontierPoint[]
 
 interface Series { label: string; color: string; values: (number | null)[]; dash?: boolean; }
 
+/** X-axis ticks that fit the span. The charts were built for a 2005–2026 monthly series (a label
+ *  every third year); on a five-week daily series that rule yields no label at all, which is how
+ *  the paper track's return chart shipped with a blank axis. Granularity follows the span:
+ *  ≤ ~4 months → one tick per week (Mondays) as "Sep 8"; ≤ 3 years → months as "Sep '26";
+ *  ≤ 12 years → every year; longer → every third year. */
+export function xTicks(dates: string[]): { i: number; label: string }[] {
+  if (dates.length < 2) return [];
+  const d0 = new Date(dates[0]), d1 = new Date(dates[dates.length - 1]);
+  const spanDays = (d1.getTime() - d0.getTime()) / 86400000;
+  const MON = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+  const out: { i: number; label: string }[] = [];
+  if (spanDays <= 130) {
+    // weekly: the first observation on or after each Monday
+    let lastWeek = -1;
+    dates.forEach((d, i) => {
+      const dt = new Date(d + 'T00:00:00Z');
+      const monday = new Date(dt); monday.setUTCDate(dt.getUTCDate() - ((dt.getUTCDay() + 6) % 7));
+      const wk = Math.floor(monday.getTime() / 86400000);
+      if (wk !== lastWeek) { out.push({ i, label: `${MON[dt.getUTCMonth()]} ${dt.getUTCDate()}` }); lastWeek = wk; }
+    });
+    // thin to at most ~10 labels
+    const step = Math.ceil(out.length / 10);
+    return step > 1 ? out.filter((_, k) => k % step === 0) : out;
+  }
+  if (spanDays <= 3 * 366) {
+    let last = '';
+    dates.forEach((d, i) => { const ym = d.slice(0, 7); if (ym !== last) { out.push({ i, label: `${MON[+d.slice(5, 7) - 1]} '${d.slice(2, 4)}` }); last = ym; } });
+    const step = Math.ceil(out.length / 12);
+    return step > 1 ? out.filter((_, k) => k % step === 0) : out;
+  }
+  const every = spanDays <= 12 * 366 ? 1 : 3;
+  let last = '';
+  dates.forEach((d, i) => { const y = d.slice(0, 4); if (y !== last && +y % every === 0) { out.push({ i, label: y }); last = y; } });
+  return out;
+}
+
 /** Cumulative (base 100) multi-line chart with year ticks + legend. Optional in-sample/OOS boundary marker. */
 export function CumulativeChart({ dates, series, height = 240, boundaryDate, log = false }: { dates: string[]; series: Series[]; height?: number; boundaryDate?: string; log?: boolean }) {
   const W = 900, PL = 46, PR = 14, PT = 10, PB = 26;
@@ -60,9 +96,7 @@ export function CumulativeChart({ dates, series, height = 240, boundaryDate, log
   };
   // tick VALUES in level units (so labels read "100, 150, …"); positioned via yAt through the log transform
   const ticks = Array.from({ length: 6 }, (_, i) => { const t = mn + (i / 5) * (mx - mn); return useLog ? Math.pow(10, t) : t; });
-  const years: { i: number; y: string }[] = [];
-  let last = '';
-  dates.forEach((d, i) => { const y = d.slice(0, 4); if (y !== last && +y % 3 === 0) { years.push({ i, y }); last = y; } });
+  const years = xTicks(dates).map((t) => ({ i: t.i, y: t.label }));
   return (
     <svg viewBox={`0 0 ${W} ${height}`} className="w-full h-auto">
       {ticks.map((v, i) => (
@@ -111,7 +145,7 @@ export function DrawdownChart({ dates, dd, height = 120, boundaryDate }: { dates
   );
 }
 
-interface LineSeries { label: string; color: string; values: (number | null)[]; }
+interface LineSeries { label: string; color: string; values: (number | null)[]; dash?: boolean; }
 
 /** Generic multi-line time series with a horizontal reference line (rolling IR, batting avg, etc.). */
 export function MultiLineChart({ dates, series, height = 190, refY = 0, refLabel, yFmt, yDomain }: {
@@ -134,8 +168,7 @@ export function MultiLineChart({ dates, series, height = 190, refY = 0, refLabel
     return d;
   };
   const ticks = Array.from({ length: 5 }, (_, i) => mn + (i / 4) * (mx - mn));
-  const years: { i: number; y: string }[] = []; let last = '';
-  dates.forEach((d, i) => { const y = d.slice(0, 4); if (y !== last && +y % 3 === 0) { years.push({ i, y }); last = y; } });
+  const years = xTicks(dates).map((t) => ({ i: t.i, y: t.label }));
   const refPix = refY != null ? yAt(refY) : 0;
   return (
     <svg viewBox={`0 0 ${W} ${height}`} className="w-full h-auto">
@@ -152,7 +185,7 @@ export function MultiLineChart({ dates, series, height = 190, refY = 0, refLabel
         </>
       )}
       {series.map((s, i) => (
-        <path key={`${s.label}-${i}`} d={pathOf(s.values)} fill="none" stroke={s.color} strokeWidth="1.8" strokeLinejoin="round" strokeLinecap="round" />
+        <path key={`${s.label}-${i}`} d={pathOf(s.values)} fill="none" stroke={s.color} strokeWidth={s.dash ? 1.4 : 1.8} strokeDasharray={s.dash ? '5 3' : undefined} opacity={s.dash ? 0.8 : 1} strokeLinejoin="round" strokeLinecap="round" />
       ))}
       {years.map(({ i, y }) => <text key={y} x={xAt(i)} y={height - 6} textAnchor="middle" fontSize="9" fill="var(--tx-dim)">{y}</text>)}
     </svg>

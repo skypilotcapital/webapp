@@ -42,6 +42,8 @@ export default function StrategyTrackPage() {
     return (
       <PaperTrack
         strategy={product.paperStrategy}
+        slug={product.slug}
+        productName={product.name}
         topSlot={<TrackSelector product={product} active="ibkr" />}
       />
     );
