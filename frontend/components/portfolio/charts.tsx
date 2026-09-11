@@ -74,7 +74,10 @@ export function xTicks(dates: string[]): { i: number; label: string }[] {
 }
 
 /** Cumulative (base 100) multi-line chart with year ticks + legend. Optional in-sample/OOS boundary marker. */
-export function CumulativeChart({ dates, series, height = 240, boundaryDate, log = false }: { dates: string[]; series: Series[]; height?: number; boundaryDate?: string; log?: boolean }) {
+/** `baseline` draws ONE reference level heavier than the grid (growth-of-100's 100, say).
+ *  The grid is six equal ticks and one of them may or may not land on the level that means
+ *  "flat"; drawing it explicitly is what lets a reader see above/below at a glance. */
+export function CumulativeChart({ dates, series, height = 240, boundaryDate, log = false, baseline }: { dates: string[]; series: Series[]; height?: number; boundaryDate?: string; log?: boolean; baseline?: number }) {
   const W = 900, PL = 46, PR = 14, PT = 10, PB = 26;
   const cw = W - PL - PR, ch = height - PT - PB;
   const all = series.flatMap((s) => s.values).filter((v): v is number => v != null);
@@ -105,6 +108,15 @@ export function CumulativeChart({ dates, series, height = 240, boundaryDate, log
           <text x={PL - 6} y={yAt(v) + 3} textAnchor="end" fontSize="8.5" fill="var(--tx-dim)">{v.toFixed(0)}</text>
         </g>
       ))}
+      {baseline != null && baseline >= (useLog ? Math.pow(10, mn) : mn) && baseline <= (useLog ? Math.pow(10, mx) : mx) && (
+        <g>
+          <line x1={PL} y1={yAt(baseline).toFixed(1)} x2={W - PR} y2={yAt(baseline).toFixed(1)}
+            stroke="var(--tx-mut)" strokeWidth="1.6" opacity="0.9" />
+          <text x={PL - 6} y={yAt(baseline) + 3} textAnchor="end" fontSize="9" fontWeight="700" fill="var(--tx)">
+            {baseline.toFixed(0)}
+          </text>
+        </g>
+      )}
       {bIdx > 0 && (
         <g>
           <line x1={xAt(bIdx)} y1={PT} x2={xAt(bIdx)} y2={PT + ch} stroke="var(--tx-mut)" strokeWidth="1" strokeDasharray="3 3" opacity="0.65" />
@@ -150,13 +162,17 @@ export function DrawdownChart({ dates, dd, height = 120, boundaryDate }: { dates
  *  marker per bar (a short horizontal tick at, say, the day's total). Positive parts stack upward from
  *  zero and negative parts downward, so a mixed day reads as what it is. Built for the paper track's
  *  "which days did it" row under the cumulative lines: half height, same x-ticks, one legend outside. */
-export function BarSeriesChart({ dates, groups, marker, height = 110, yFmt, markerColor = 'var(--tx)', grouped = false }: {
+export function BarSeriesChart({ dates, groups, marker, height = 110, yFmt, markerColor = 'var(--tx)', grouped = false, yDomain }: {
   dates: string[];
   groups: { label: string; color: string; values: (number | null)[] }[];
   marker?: { label: string; values: (number | null)[] };
   height?: number; yFmt: (v: number) => string; markerColor?: string;
   /** Side-by-side bars per period instead of a stack — for series that are not parts of one total. */
   grouped?: boolean;
+  /** Force the scale instead of fitting this chart's own extent. REQUIRED when several of these
+   *  are stacked as small multiples: independently-fitted axes make a small series look like a
+   *  large one, and a reader comparing bar heights down a column has no way to see it. */
+  yDomain?: [number, number];
 }) {
   const W = 900, PL = 46, PR = 14, PT = 8, PB = 22;
   const cw = W - PL - PR, ch = height - PT - PB;
@@ -172,8 +188,9 @@ export function BarSeriesChart({ dates, groups, marker, height = 110, yFmt, mark
     });
     mx = Math.max(mx, up, marker?.values[i] ?? 0); mn = Math.min(mn, dn, marker?.values[i] ?? 0);
   }
+  if (yDomain) { [mn, mx] = yDomain; }
   if (mx === mn) { mx = 1; mn = -1; }
-  const pad = (mx - mn) * 0.08; mx += pad; mn -= pad;
+  if (!yDomain) { const pad = (mx - mn) * 0.08; mx += pad; mn -= pad; }
   const yAt = (v: number) => PT + ch - ((v - mn) / (mx - mn)) * ch;
   const slot = cw / n, bw = Math.max(1.5, slot * 0.68);
   const xAt = (i: number) => PL + slot * i + (slot - bw) / 2;
@@ -215,9 +232,13 @@ export function BarSeriesChart({ dates, groups, marker, height = 110, yFmt, mark
 interface LineSeries { label: string; color: string; values: (number | null)[]; dash?: boolean; }
 
 /** Generic multi-line time series with a horizontal reference line (rolling IR, batting avg, etc.). */
-export function MultiLineChart({ dates, series, height = 190, refY = 0, refLabel, yFmt, yDomain }: {
+export function MultiLineChart({ dates, series, height = 190, refY = 0, refLabel, yFmt, yDomain, refStrong = false }: {
   dates: string[]; series: LineSeries[]; height?: number; refY?: number | null; refLabel?: string;
   yFmt: (v: number) => string; yDomain?: [number, number];
+  /** Solid and heavier instead of the default hairline dash — for a zero line that is the whole
+   *  point of the chart rather than a passing annotation. Opt-in: the eleven report callers keep
+   *  the dashed default. */
+  refStrong?: boolean;
 }) {
   const W = 900, PL = 48, PR = 16, PT = 12, PB = 24;
   const cw = W - PL - PR, ch = height - PT - PB;
@@ -247,7 +268,9 @@ export function MultiLineChart({ dates, series, height = 190, refY = 0, refLabel
       ))}
       {refY != null && refY >= mn && refY <= mx && (
         <>
-          <line x1={PL} y1={refPix} x2={W - PR} y2={refPix} stroke="var(--tx-mut)" strokeWidth="1.2" strokeDasharray="4 3" />
+          <line x1={PL} y1={refPix} x2={W - PR} y2={refPix} stroke="var(--tx-mut)"
+            strokeWidth={refStrong ? 1.6 : 1.2} strokeDasharray={refStrong ? undefined : '4 3'}
+            opacity={refStrong ? 0.9 : 1} />
           {refLabel && <text x={W - PR - 2} y={refPix - 3} textAnchor="end" fontSize="8.5" fill="var(--tx-mut)">{refLabel}</text>}
         </>
       )}

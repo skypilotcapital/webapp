@@ -503,17 +503,16 @@ function PerformanceBand({ nav, eng, ctb, period, setPeriod, custom, setCustom, 
               { label: 'S&P 500 TR', color: 'var(--tx-dim)', dash: true, values: sl.map((p) => (p.bench_idx == null ? null : p.bench_idx / b0 * 100)) },
             ]}
             height={210}
+            baseline={100}
           />
           <Legend items={[['Paper book', 'var(--teal)'], ['S&P 500 TR', 'var(--tx-dim)']]} />
-        </div>
-        <div>
-          <div className="text-[10px] font-bold tracking-[1.5px] mb-1" style={{ color: 'var(--tx-dim)' }}>
+          <div className="text-[10px] font-bold tracking-[1.5px] mb-1 mt-4" style={{ color: 'var(--tx-dim)' }}>
             BY ENGINE · cumulative bp of start NAV
           </div>
           {eng?.series.length ? (
             <>
               <MultiLineChart dates={eng.series.map((p) => p.date)} series={engSeries} height={210}
-                refY={0} yFmt={bpsFmt} />
+                refY={0} refStrong yFmt={bpsFmt} />
               <Legend items={[
                 ...eng.by_mandate.map((m) => [MANDATE_NAME[m.mandate] ?? m.mandate, MANDATE_COLOR[m.mandate] ?? 'var(--tx)'] as [string, string]),
                 ['Book', 'var(--tx)'], ['S&P 500 TR', 'var(--tx-dim)'],
@@ -521,10 +520,9 @@ function PerformanceBand({ nav, eng, ctb, period, setPeriod, custom, setCustom, 
             </>
           ) : <Muted>{eng?.note ?? 'loading…'}</Muted>}
         </div>
+        {/* Right: the same window as small multiples — whole book, then each engine. */}
+        <DailyBars sl={sl} eng={eng} />
       </div>
-
-      {/* The "which days did it" row: same window, same x-axis, half the height. */}
-      <DailyBars sl={sl} eng={eng} mandates={eng?.by_mandate.map((m) => m.mandate) ?? []} />
 
       {nav.stats_suppressed && (
         <div className="text-[10.5px] mt-3 p-2 rounded" style={{ background: 'var(--panel2)', color: 'var(--tx-mut)' }}>
@@ -614,75 +612,103 @@ function bucketize(dates: string[], series: (number | null)[][]): { dates: strin
   return { dates: outDates, series: out, weekly: true };
 }
 
-function DailyBars({ sl, eng, mandates }: {
+function DailyBars({ sl, eng }: {
   sl: { date: string; nav_idx: number | null; bench_idx: number | null }[];
-  eng?: PaperEngines; mandates: string[];
+  eng?: PaperEngines;
 }) {
-  // Left: the book's EXCESS return per period (book − index), one series, nothing else — the
-  // owner's read of the first version was that the index tick made it busy without adding a
-  // question the line chart above does not already answer.
-  const dDates: string[] = [], active: (number | null)[] = [];
+  // THREE SMALL MULTIPLES: the whole book, then each engine. Stacked rather than grouped side by
+  // side because grouped bars halve the slot width, which is already tight at ~22 book dates and
+  // unreadable once the window buckets to weeks.
+  //
+  // ONE X-AXIS FOR ALL THREE, and it is the BOOK's. Engine values are looked up BY DATE and left
+  // null where the ledger has no attribution for a day, so a missing day is a missing bar rather
+  // than a shifted axis — three charts read down a column have to line up date for date or the
+  // comparison they invite is false.
+  const dates: string[] = [], book: (number | null)[] = [],
+        core: (number | null)[] = [], sleeve: (number | null)[] = [];
+  const engAt = new Map((eng?.series ?? []).map((p) => [p.date, p]));
+  const cum = (d: string, k: string): number | null => {
+    const p = engAt.get(d); if (!p) return null;
+    const v = p[k] as number | null; return v ?? null;
+  };
+  const diff = (a: number | null, b: number | null) => (a != null && b != null ? a - b : null);
   for (let i = 1; i < sl.length; i++) {
     const a = sl[i - 1], b = sl[i];
+    dates.push(b.date);
     const rb = a.nav_idx && b.nav_idx ? (b.nav_idx / a.nav_idx - 1) * 1e4 : null;
     const ri = a.bench_idx && b.bench_idx ? (b.bench_idx / a.bench_idx - 1) * 1e4 : null;
-    dDates.push(b.date); active.push(rb != null && ri != null ? rb - ri : null);
+    book.push(diff(rb, ri));
+    // The core runs at 1.0x against the S&P 500, so its EXCESS is its contribution minus the
+    // index's move over the same day; the sleeve is market-neutral against cash, so its own
+    // contribution already is its excess.
+    const dc = diff(cum(b.date, 'core'), cum(a.date, 'core'));
+    const db = diff(cum(b.date, 'bench'), cum(a.date, 'bench'));
+    core.push(diff(dc, db));
+    sleeve.push(diff(cum(b.date, 'sleeve'), cum(a.date, 'sleeve')));
   }
-  const L = bucketize(dDates, [active]);
+  const B = bucketize(dates, [book, core, sleeve]);
+  const [bookV, coreV, sleeveV] = B.series;
 
-  // Right: each engine's EXCESS return, side by side. The core runs at 1.0× against the S&P 500,
-  // so its excess is its contribution minus the index's move; the sleeve is market-neutral
-  // against cash, so its excess is its own contribution. Grouped, not stacked: the two are not
-  // parts of one total once the index is taken out of only one of them.
-  let R: { dates: string[]; series: (number | null)[][]; weekly: boolean } | null = null;
-  if (eng?.series?.length && eng.series.length > 1) {
-    const eDates: string[] = []; const core: (number | null)[] = []; const sleeve: (number | null)[] = [];
-    for (let i = 1; i < eng.series.length; i++) {
-      const a = eng.series[i - 1], b = eng.series[i];
-      eDates.push(b.date);
-      const dc = (a.core as number | null) != null && (b.core as number | null) != null ? (b.core as number) - (a.core as number) : null;
-      const db = a.bench != null && b.bench != null ? b.bench - a.bench : null;
-      const ds = (a.sleeve as number | null) != null && (b.sleeve as number | null) != null ? (b.sleeve as number) - (a.sleeve as number) : null;
-      core.push(dc != null && db != null ? dc - db : null);
-      sleeve.push(ds);
-    }
-    R = bucketize(eDates, [core, sleeve]);
-  }
+  // ONE SCALE for all three. `BarSeriesChart` fits its own extent by default, and three
+  // independently-fitted axes stacked vertically make a 5 bp day in one engine look like a 50 bp
+  // day in another. The union domain is the only thing that makes the column comparable.
+  const flat = [...bookV, ...coreV, ...sleeveV].filter((v): v is number => v != null);
+  let lo = Math.min(0, ...flat), hi = Math.max(0, ...flat);
+  if (lo === hi) { lo = -1; hi = 1; }
+  const pad = (hi - lo) * 0.08;
+  const domain: [number, number] = [lo - pad, hi + pad];
+
   const bp = (v: number) => `${v >= 0 ? '+' : ''}${v.toFixed(0)}`;
-  const unit = L.weekly ? 'WEEKLY' : 'DAILY';
-  return (
-    <div className="grid lg:grid-cols-2 gap-5 mt-2">
-      <div>
-        <div className="text-[10px] font-bold tracking-[1.5px] mb-1" style={{ color: 'var(--tx-dim)' }}>
-          {unit + ' EXCESS RETURN · bp · book − S&P 500 TR'}
-        </div>
-        <BarSeriesChart dates={L.dates} yFmt={bp}
-          groups={[{ label: 'excess', color: 'var(--teal)', values: L.series[0] }]} />
+  const unit = B.weekly ? 'WEEKLY' : 'DAILY';
+  // The book bar is CHARCOAL, the colour the book already carries in the cumulative chart beside
+  // it; the engines keep their own teal and amber. So the palette says the same thing in both
+  // columns, and no bar shares a colour with a different series.
+  const BOOK_COLOR = 'var(--tx)';
+  // Tuned so the two columns END level: left is 2 charts at 210, right is 3 at this plus one
+  // extra header. Both sides' charts scale with column width and the chrome does not, so the
+  // residual is width-dependent — measured within +/-2px across 1100-1920px at this value.
+  const H = 145;
+
+  const chart = (title: string, sub: string, color: string, values: (number | null)[]) => (
+    <div>
+      <div className="text-[10px] font-bold tracking-[1.5px] mb-1 flex items-center gap-1.5"
+        style={{ color: 'var(--tx-dim)' }}>
+        <span style={{ width: 8, height: 8, background: color, borderRadius: 2, display: 'inline-block' }} />
+        {title}<span style={{ fontWeight: 400 }}>· {sub}</span>
       </div>
-      <div>
-        <div className="text-[10px] font-bold tracking-[1.5px] mb-1" style={{ color: 'var(--tx-dim)' }}>
-          {unit + ' EXCESS RETURN BY ENGINE · bp of start NAV · side by side'}
-        </div>
-        {R ? (
-          <>
-            <BarSeriesChart dates={R.dates} yFmt={bp} grouped
-              groups={[
-                { label: 'LO core − index', color: MANDATE_COLOR.core, values: R.series[0] },
-                { label: 'L/S sleeve (vs cash)', color: MANDATE_COLOR.sleeve, values: R.series[1] },
-              ]} />
-            <Legend items={[['LO core − index', MANDATE_COLOR.core], ['L/S sleeve (vs cash)', MANDATE_COLOR.sleeve]]} />
-          </>
-        ) : <Muted>loading…</Muted>}
-      </div>
-      <div className="lg:col-span-2 text-[10px] -mt-3" style={{ color: 'var(--tx-dim)' }}>
-        {L.weekly
-          ? 'Bucketed to calendar weeks (labelled by the week\'s last book date) because the window is longer than three months; bp summed within a week.'
-          : 'One bar per book date.'}{' '}
-        Core excess = its contribution minus the index (it runs at 1.0× against the S&P 500); sleeve excess = its
-        contribution (market-neutral against cash). Cash &amp; financing is not in either bar. A single large bar on a
-        book this young is a day, not a finding — the no-ratio-statistics rule above applies here too.
-      </div>
+      <BarSeriesChart dates={B.dates} yFmt={bp} height={H} yDomain={domain}
+        groups={[{ label: title, color, values }]} />
     </div>
+  );
+
+  if (!dates.length) return <Muted>loading…</Muted>;
+  // A FRAGMENT, not a wrapper: these become grid items of the PARENT grid, which is what lets the
+  // caption span both columns. Kept out of the right column on purpose — it is a text block whose
+  // wrapped line count changes with width, and inside the column that variance is the single
+  // biggest source of the two sides ending at different heights.
+  return (
+    <>
+    <div className="flex flex-col gap-3">
+      {chart(`${unit} EXCESS · WHOLE BOOK`, 'book − S&P 500 TR', BOOK_COLOR, bookV)}
+      {eng?.series?.length
+        ? (
+          <>
+            {chart('LO CORE', 'its contribution − the index', MANDATE_COLOR.core, coreV)}
+            {chart('L/S SLEEVE', 'market-neutral, so vs cash', MANDATE_COLOR.sleeve, sleeveV)}
+          </>
+        )
+        : <Muted>{eng?.note ?? 'loading…'}</Muted>}
+    </div>
+      <div className="lg:col-span-2 text-[10px]" style={{ color: 'var(--tx-dim)' }}>
+        {B.weekly
+          ? "Bucketed to calendar weeks (labelled by the week's last book date) because the window is longer than three months; bp summed within a week."
+          : 'One bar per book date.'}{' '}
+        <b>The three bar charts share one scale</b>, so their heights compare down the column — but the top chart
+        is <b>not</b> the sum of the two below it: the index is taken out of only the core, and cash
+        &amp; financing is in none of them. A single large bar on a book this young is a day, not a
+        finding — the no-ratio-statistics rule applies here too.
+      </div>
+    </>
   );
 }
 
