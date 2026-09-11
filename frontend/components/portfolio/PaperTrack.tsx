@@ -594,6 +594,7 @@ function EnginesTable({ eng }: { eng: PaperEngines }) {
   // No benchmark for the window means no excess for ANY row — not a column of contributions
   // relabelled "excess", which is what falling back row-by-row would quietly produce.
   const showExcess = benchBps != null;
+  const bookEx = exBps('book', eng.total.contrib_bps);
   const WASH = { background: 'var(--panel2)' };
 
   const rows = [
@@ -619,8 +620,15 @@ function EnginesTable({ eng }: { eng: PaperEngines }) {
             <td className={`text-right tabular-nums pl-3 ${w}`} style={{ ...WASH, color: sign(exu) }}>
               {usd(exu)}
             </td>
-            <td className={`text-right tabular-nums pr-1 ${bold ? 'font-bold' : 'font-semibold'}`}
+            <td className={`text-right tabular-nums ${bold ? 'font-bold' : 'font-semibold'}`}
               style={{ ...WASH, color: sign(ex) }}>{bpsS(ex)} bp</td>
+            {/* Share of ACTIVE, the mirror of share of book — and the honest denominator here is the
+                BOOK ROW's excess, not a re-sum of the engines: the two are equal only because the
+                column is additive, and a share that quietly normalises to its own numerator can
+                never disagree with the table, which is exactly what makes it worthless as a check. */}
+            <td className="text-right tabular-nums pr-1" style={{ ...WASH, color: 'var(--tx-mut)' }}>
+              {bookEx ? `${((ex ?? 0) / bookEx * 100).toFixed(0)}%` : '—'}
+            </td>
           </>
         )}
       </>
@@ -635,7 +643,7 @@ function EnginesTable({ eng }: { eng: PaperEngines }) {
             <th colSpan={4} />
             {/* Said ONCE, over the block, rather than per column: "excess" is meaningless without
                 naming what it is against, and repeating it in two headers wastes the width. */}
-            <th colSpan={2} className="text-[9px] font-bold tracking-[1.2px] py-1 text-center"
+            <th colSpan={3} className="text-[9px] font-bold tracking-[1.2px] py-1 text-center"
               style={{ ...WASH, color: 'var(--tx-dim)' }}>
               EXCESS · VS S&amp;P 500 TR
             </th>
@@ -649,7 +657,8 @@ function EnginesTable({ eng }: { eng: PaperEngines }) {
           {showExcess && (
             <>
               <th className="text-[9px] font-bold tracking-[1.2px] py-1 text-right pl-3" style={WASH}>P&amp;L</th>
-              <th className="text-[9px] font-bold tracking-[1.2px] py-1 text-right pr-1" style={WASH}>BP</th>
+              <th className="text-[9px] font-bold tracking-[1.2px] py-1 text-right" style={WASH}>BP</th>
+              <th className="text-[9px] font-bold tracking-[1.2px] py-1 text-right pr-1" style={WASH}>SHARE OF ACTIVE</th>
             </>
           )}
         </tr>
