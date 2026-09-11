@@ -1022,7 +1022,16 @@ def exposures(env: str, strategy: str | None = None, date: str | None = None):
 # `(start, end]` convention as the monthly report: `start` is the close the window is measured
 # FROM, so a window's P&L is the sum of `pnl_d` on book dates strictly after it.
 
-PERIOD_KEYS = ("1d", "wtd", "mtd", "since_reb", "incep")
+PERIOD_KEYS = ("1d", "wtd", "mtd", "1m", "3m", "since_reb", "incep")
+
+
+def _months_back(d: dt.date, n: int) -> dt.date:
+    """Same day-of-month `n` months earlier, clamped to that month's length (no dateutil)."""
+    y, m = d.year, d.month - n
+    while m <= 0:
+        y, m = y - 1, m + 12
+    import calendar
+    return d.replace(year=y, month=m, day=min(d.day, calendar.monthrange(y, m)[1]))
 
 
 def _period_starts(conn, strategy: str | None, end: dt.date, first_invested: dt.date | None) -> dict:
@@ -1040,6 +1049,10 @@ def _period_starts(conn, strategy: str | None, end: dt.date, first_invested: dt.
 
     def last_before(cut: dt.date) -> dt.date:
         prior = [d for d in dates if d < cut]
+        return max(prior[-1], base) if prior else base
+
+    def last_on_or_before(cut: dt.date) -> dt.date:
+        prior = [d for d in dates if d <= cut]
         return max(prior[-1], base) if prior else base
 
     reb = conn.execute(text("""
@@ -1060,6 +1073,11 @@ def _period_starts(conn, strategy: str | None, end: dt.date, first_invested: dt.
         "1d": last_before(end).isoformat(),
         "wtd": last_before(monday).isoformat(),
         "mtd": last_before(end.replace(day=1)).isoformat(),
+        # Trailing windows: the close on (or the last one before) the same calendar day one / three
+        # months back. Collapse onto inception while the book is younger than that — the page greys
+        # the button and says so, rather than hiding a period that will exist next month.
+        "1m": last_on_or_before(_months_back(end, 1)).isoformat(),
+        "3m": last_on_or_before(_months_back(end, 3)).isoformat(),
         "since_reb": reb_start.isoformat(),
         "incep": base.isoformat(),
         "end": end.isoformat(),
@@ -1196,7 +1214,8 @@ def engines(env: str, strategy: str | None = None, period: str = "incep", end: s
     # dividends received and paid, interest, commission on the trade day — which no position owns.
     # That remainder is a line of its own so the engines reconcile to the book return a reader
     # sees on the chart, rather than to a number 30 bp away from it with no explanation.
-    series = []
+    series = [{"date": start.isoformat(), **{k: 0.0 for k in keys},
+               "positions": 0.0, "book": 0.0, "cash_other": 0.0, "total": 0.0, "bench": 0.0}]
     cum = {k: 0.0 for k in keys}
     for d in dates:
         pt = {"date": d.isoformat()}

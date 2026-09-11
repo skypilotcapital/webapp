@@ -78,12 +78,16 @@ const sign = (v: number | null | undefined) =>
 const MANDATE_NAME: Record<string, string> = { core: 'LO core', sleeve: 'L/S sleeve', unattributed: 'unattributed', cash_other: 'cash, dividends & financing' };
 const MANDATE_COLOR: Record<string, string> = { core: 'var(--teal)', sleeve: '#b45309', unattributed: 'var(--tx-dim)', cash_other: 'var(--tx-mut)' };
 
+// Owner's set (2026-09-10 review): "since rebalance" dropped (month-to-date covers it on a monthly
+// book); trailing windows added so the page grows into them — they collapse onto inception and
+// render greyed until the book is old enough. "Last day" = the latest marked book date.
 const PERIODS: { key: PeriodKey; label: string }[] = [
-  { key: '1d', label: '1 day' },
+  { key: '1d', label: 'Last day' },
   { key: 'wtd', label: 'Week to date' },
   { key: 'mtd', label: 'Month to date' },
-  { key: 'since_reb', label: 'Since rebalance' },
-  { key: 'incep', label: 'Since first trade' },
+  { key: '1m', label: 'Trailing 1M' },
+  { key: '3m', label: 'Trailing 3M' },
+  { key: 'incep', label: 'Since inception' },
 ];
 
 const SECTIONS = [
@@ -233,8 +237,8 @@ function StatusBand({ bk, nav, fid, slug, name }: {
       <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3">
         <Stat label="NAV" value={usd(b.nav)} sub={`broker ${usd(b.broker_nlv)}`} />
         <Stat label="Day P&L" value={usd(b.pnl_d)} color={sign(b.pnl_d)} sub={`${bps((b.pnl_d ?? 0) / (b.nav || 1) * 1e4)} of NAV`} />
-        <Stat label="Since first trade" value={pctS(bookRet)} color={sign(bookRet)}
-          sub={nav?.perf_inception ? `from ${nav.perf_inception} close` : undefined} />
+        <Stat label="Since inception" value={pctS(bookRet)} color={sign(bookRet)}
+          sub={nav?.perf_inception ? `from ${nav.perf_inception} close (first trade)` : undefined} />
         <Stat label="S&P 500 TR" value={pctS(benchRet)} color={sign(benchRet)} sub="same window" />
         <Stat label="Active" value={bookRet != null && benchRet != null ? pctS(bookRet - benchRet) : '—'}
           color={bookRet != null && benchRet != null ? sign(bookRet - benchRet) : undefined}
@@ -279,7 +283,7 @@ function PeriodSelector({ period, setPeriod, periods }: {
         const collapsed = !!periods && p.key !== 'incep' && start === periods.incep;
         return (
           <button key={p.key} onClick={() => setPeriod(p.key)}
-            title={start ? `from the ${start} close${collapsed ? ' (= first trade)' : ''}` : undefined}
+            title={start ? `from the ${start} close${collapsed ? ' — not yet a full window; same as since inception' : ''}` : undefined}
             className="text-[11px] font-semibold px-2.5 py-1 rounded-md"
             style={active
               ? { background: 'var(--teal)', color: '#fffdf9' }
