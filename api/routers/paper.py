@@ -1147,78 +1147,41 @@ def _resolve_window(conn, strategy: str | None, period: str, end: str | None,
     return dt.date.fromisoformat(starts[period]), d_end, starts
 
 
-# The carry-back the monthly report uses (`reports/data.py::mandate_pnl_range`): a name the book
-# EXITS sits at qty = 0 on the trade date and still carries that day's P&L, while the ledger writes
-# no attribution for zero shares. The mandate that held it yesterday owns today's exit.
-_ATTR_CARRY_DAYS = 10
-
-
 def _mandate_pnl_rows(conn, strategy: str | None, start: dt.date, end: dt.date) -> list[dict]:
     """Per (date, conid, mandate): the mandate's share of that day's P&L, over `(start, end]`.
 
-    THE SPLIT IS READ, NOT RECOMPUTED — `trading.position_attribution` is the ledger's snapshot,
-    and `attr_qty / qty` is the share in BLEND space, which is what P&L arrives in (`w_native` is
-    2x on the sleeve and belongs to the optimizer). A row with no attribution in force is returned
-    with `mandate = None` so the caller reports it as unattributed rather than absorbing it.
+    THIS IS NOW A JOIN. Until 2026-09-11 this function APPLIED the ledger's claims itself — the
+    carry-back for exited names, the denominator, the residual bucket — and so did the trading
+    repo's `reports/data.py::mandate_pnl_range`. Two implementations of one rule in two repos, and
+    [10-CARRY] was in both of them: a claim carried onto a SOLD-DOWN name was divided by today's
+    quantity instead of its own, so SAN (62 shares -> 1) distributed its P&L 62x and $603 of
+    POSITION P&L was reported in the "cash, dividends & financing" row. The two agreeing to
+    0.000000 bp looked like evidence and was not.
+
+    `trading.mandate_pnl_daily` now applies the claims ONCE, in the trading repo's
+    `ledger.persist_mandate_pnl`, which refuses to publish a date whose split does not sum to
+    `book_daily.pnl_d_positions`. This reads it. Do not reintroduce the rules here: the whole point
+    is that there is one place they can be wrong, and that place asserts itself against the book.
+
+    `mandate` is never NULL — a claimless row carries the literal 'unattributed', which is what the
+    callers already bucket it under.
     """
-    book = conn.execute(text("""
-        SELECT date, conid, ticker, isin, side, qty, price, mkt_value, pnl_d
-        FROM trading.book_daily_positions
-        WHERE (CAST(:strat AS text) IS NULL OR strategy = :strat)
-          AND date > :s AND date <= :e
-        ORDER BY date, conid"""), {"strat": strategy, "s": start, "e": end}).mappings().all()
-    attr = conn.execute(text("""
-        SELECT date, conid, mandate, attr_qty, attr_weight, w_native, method
-        FROM trading.position_attribution
-        WHERE (CAST(:strat AS text) IS NULL OR strategy = :strat)
-          AND date > :s0 AND date <= :e
-        ORDER BY date, conid"""),
-        {"strat": strategy, "s0": start - dt.timedelta(days=_ATTR_CARRY_DAYS), "e": end}
-    ).mappings().all()
-
-    by_conid: dict[int, dict] = {}
-    for a in attr:
-        by_conid.setdefault(a["conid"], {}).setdefault(a["date"], []).append(dict(a))
-    dates_of = {cid: sorted(d) for cid, d in by_conid.items()}
-
-    def claims_for(conid, d):
-        avail = dates_of.get(conid)
-        if not avail:
-            return None, None
-        best = None
-        for ad in avail:
-            if ad <= d:
-                best = ad
-            else:
-                break
-        if best is None or (d - best).days > _ATTR_CARRY_DAYS:
-            return None, None
-        return best, by_conid[conid][best]
-
-    out = []
-    for r in book:
-        pnl = _f(r["pnl_d"]) or 0.0
-        qty = _f(r["qty"]) or 0.0
-        base = {"date": r["date"], "conid": r["conid"], "ticker": r["ticker"], "isin": r["isin"],
-                "side": r["side"], "qty": qty, "price": _f(r["price"]),
-                "mkt_value": _f(r["mkt_value"])}
-        attr_date, claims = claims_for(r["conid"], r["date"])
-        if not claims:
-            out.append({**base, "mandate": None, "pnl": pnl, "share": 1.0, "carried": False})
-            continue
-        # ⚠️ A CARRIED CLAIM DESCRIBES THE SPLIT, NOT THE QUANTITY, so it must always normalise by
-        # its OWN sum. Dividing yesterday's shares by today's quantity only happens to give 1 when
-        # the two agree — true for an exit (qty = 0 takes the else branch) and true for a name that
-        # did not trade, and false for a name SOLD DOWN. SAN went 62 shares -> 1 on 2026-09-04 with
-        # the claim carried from the day before: denom = 1 distributed its P&L 62x, moving $603 of
-        # position P&L into the cash row across the window. Fixed 2026-09-11, [10-CARRY].
-        same_day = attr_date == r["date"]
-        denom = qty if (same_day and qty) else sum(_f(c["attr_qty"]) or 0.0 for c in claims)
-        for c in claims:
-            share = ((_f(c["attr_qty"]) or 0.0) / denom) if denom else 1.0 / len(claims)
-            out.append({**base, "mandate": c["mandate"], "pnl": pnl * share, "share": share,
-                        "carried": not same_day})
-    return out
+    # ⚠️ COERCE THE NUMERICS. These columns arrive as `Decimal` now that they come from the
+    # database rather than being computed in Python here, and the callers accumulate them into
+    # float zeros — which raises rather than quietly rounding, but only on a code path that has
+    # data. Caught in local test, not production.
+    return [{**r, "pnl": _f(r["pnl"]) or 0.0, "share": _f(r["share"]),
+             "qty": _f(r["qty"]), "price": _f(r["price"]), "mkt_value": _f(r["mkt_value"])}
+            for r in conn.execute(text("""
+        SELECT m.date, m.conid, p.ticker, p.isin, p.side, p.qty, p.price, p.mkt_value,
+               m.mandate, m.pnl, m.share, m.carried
+        FROM trading.mandate_pnl_daily m
+        JOIN trading.book_daily_positions p
+          ON p.date = m.date AND p.conid = m.conid AND p.strategy = m.strategy
+        WHERE (CAST(:strat AS text) IS NULL OR m.strategy = :strat)
+          AND m.date > :s AND m.date <= :e
+        ORDER BY m.date, m.conid"""),
+        {"strat": strategy, "s": start, "e": end}).mappings()]
 
 
 @router.get("/{env}/engines")
