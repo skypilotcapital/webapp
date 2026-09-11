@@ -685,7 +685,7 @@ function DailyBars({ sl, eng }: {
         {title}<span style={{ fontWeight: 400 }}>· {sub}</span>
       </div>
       <BarSeriesChart dates={B.dates} yFmt={bp} height={last ? H + AXIS : H} yDomain={domain}
-        hideXAxis={!last} groups={[{ label: title, color, values }]} />
+        hideXAxis={!last} shadeNegative groups={[{ label: title, color, values }]} />
     </div>
   );
 

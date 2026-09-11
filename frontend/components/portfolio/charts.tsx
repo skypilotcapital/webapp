@@ -166,7 +166,7 @@ export function DrawdownChart({ dates, dd, height = 120, boundaryDate }: { dates
  *  size the labelled chart taller by exactly the difference and keep every plot area equal. */
 export const X_AXIS_PB = 22, BARE_PB = 6;
 
-export function BarSeriesChart({ dates, groups, marker, height = 110, yFmt, markerColor = 'var(--tx)', grouped = false, yDomain, hideXAxis = false }: {
+export function BarSeriesChart({ dates, groups, marker, height = 110, yFmt, markerColor = 'var(--tx)', grouped = false, yDomain, hideXAxis = false, shadeNegative = false }: {
   dates: string[];
   groups: { label: string; color: string; values: (number | null)[] }[];
   marker?: { label: string; values: (number | null)[] };
@@ -183,6 +183,12 @@ export function BarSeriesChart({ dates, groups, marker, height = 110, yFmt, mark
    *  X_AXIS_PB − BARE_PB) or their plot areas differ and the shared `yDomain` stops meaning equal
    *  bar heights — which is the whole reason the axis is shared. */
   hideXAxis?: boolean;
+  /** Wash the plot BELOW zero so sign reads at a glance without touching the bars.
+   *  Deliberately background, not mark: shading the bars themselves would make one sign lighter
+   *  than the other, and a lighter bar of equal length reads as a smaller one — an asymmetry a
+   *  performance chart should not carry. As background it biases nothing, costs no new hue, and
+   *  across stacked charts on a shared domain the bands line up, which SHOWS the shared scale. */
+  shadeNegative?: boolean;
 }) {
   const W = 900, PL = 46, PR = 14, PT = 8, PB = hideXAxis ? BARE_PB : X_AXIS_PB;
   const cw = W - PL - PR, ch = height - PT - PB;
@@ -206,15 +212,21 @@ export function BarSeriesChart({ dates, groups, marker, height = 110, yFmt, mark
   const xAt = (i: number) => PL + slot * i + (slot - bw) / 2;
   const ticks = Array.from({ length: 3 }, (_, k) => mn + (k / 2) * (mx - mn));
   const years = xTicks(dates);
+  const zeroY = yAt(0);
   return (
     <svg viewBox={`0 0 ${W} ${height}`} className="w-full h-auto">
+      {/* Under everything, so gridlines and bars read normally on top of it. */}
+      {shadeNegative && zeroY < PT + ch && (
+        <rect x={PL} y={Math.max(PT, zeroY).toFixed(1)} width={W - PL - PR}
+          height={(PT + ch - Math.max(PT, zeroY)).toFixed(1)} fill="var(--tx)" opacity="0.045" />
+      )}
       {ticks.map((v, k) => (
         <g key={k}>
           <line x1={PL} y1={yAt(v).toFixed(1)} x2={W - PR} y2={yAt(v).toFixed(1)} stroke="var(--border-soft)" strokeWidth="1" />
           <text x={PL - 6} y={yAt(v) + 3} textAnchor="end" fontSize="8.5" fill="var(--tx-dim)">{yFmt(v)}</text>
         </g>
       ))}
-      <line x1={PL} y1={yAt(0).toFixed(1)} x2={W - PR} y2={yAt(0).toFixed(1)} stroke="var(--tx-mut)" strokeWidth="1" opacity="0.7" />
+      <line x1={PL} y1={zeroY.toFixed(1)} x2={W - PR} y2={zeroY.toFixed(1)} stroke="var(--tx-mut)" strokeWidth={shadeNegative ? 1.3 : 1} opacity={shadeNegative ? 0.9 : 0.7} />
       {dates.map((d, i) => {
         let up = 0, dn = 0;
         const gw = grouped ? bw / groups.length : bw;
