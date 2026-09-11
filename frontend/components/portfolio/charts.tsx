@@ -74,9 +74,11 @@ export function xTicks(dates: string[]): { i: number; label: string }[] {
 }
 
 /** Cumulative (base 100) multi-line chart with year ticks + legend. Optional in-sample/OOS boundary marker. */
-/** `baseline` draws ONE reference level heavier than the grid (growth-of-100's 100, say).
- *  The grid is six equal ticks and one of them may or may not land on the level that means
- *  "flat"; drawing it explicitly is what lets a reader see above/below at a glance. */
+/** `baseline` ANCHORS THE GRID on one level (growth-of-100's 100, say) and draws that gridline
+ *  heavier, rather than adding a second line near it. The default grid is six ticks spread evenly
+ *  over the domain, so nothing lands on 100 except by luck — a separate line then sits a pixel or
+ *  two off the tick labelled "100" and reads as a bug. Anchoring also makes every other label a
+ *  round step away from the baseline, which is what a reader expects of a growth chart. */
 export function CumulativeChart({ dates, series, height = 240, boundaryDate, log = false, baseline }: { dates: string[]; series: Series[]; height?: number; boundaryDate?: string; log?: boolean; baseline?: number }) {
   const W = 900, PL = 46, PR = 14, PT = 10, PB = 26;
   const cw = W - PL - PR, ch = height - PT - PB;
@@ -98,25 +100,41 @@ export function CumulativeChart({ dates, series, height = 240, boundaryDate, log
     return d;
   };
   // tick VALUES in level units (so labels read "100, 150, …"); positioned via yAt through the log transform
-  const ticks = Array.from({ length: 6 }, (_, i) => { const t = mn + (i / 5) * (mx - mn); return useLog ? Math.pow(10, t) : t; });
+  const tBase = baseline != null ? T(baseline) : null;
+  const anchored = tBase != null && tBase > mn && tBase < mx;
+  let ticks: number[];
+  if (anchored && tBase != null) {
+    // Step up and down FROM the baseline, on a round increment, so the baseline is a real tick.
+    const raw = (mx - mn) / 5, p10 = Math.pow(10, Math.floor(Math.log10(raw))), f = raw / p10;
+    const step = (f <= 1 ? 1 : f <= 2 ? 2 : f <= 2.5 ? 2.5 : f <= 5 ? 5 : 10) * p10;
+    ticks = [];
+    for (let k = Math.ceil((mn - tBase) / step); k <= Math.floor((mx - tBase) / step); k++) {
+      const t = tBase + k * step;
+      ticks.push(useLog ? Math.pow(10, t) : t);
+    }
+  } else {
+    ticks = Array.from({ length: 6 }, (_, i) => { const t = mn + (i / 5) * (mx - mn); return useLog ? Math.pow(10, t) : t; });
+  }
   const years = xTicks(dates).map((t) => ({ i: t.i, y: t.label }));
   return (
     <svg viewBox={`0 0 ${W} ${height}`} className="w-full h-auto">
-      {ticks.map((v, i) => (
-        <g key={i}>
-          <line x1={PL} y1={yAt(v).toFixed(1)} x2={W - PR} y2={yAt(v).toFixed(1)} stroke="var(--border-soft)" strokeWidth="1" />
-          <text x={PL - 6} y={yAt(v) + 3} textAnchor="end" fontSize="8.5" fill="var(--tx-dim)">{v.toFixed(0)}</text>
-        </g>
-      ))}
-      {baseline != null && baseline >= (useLog ? Math.pow(10, mn) : mn) && baseline <= (useLog ? Math.pow(10, mx) : mx) && (
-        <g>
-          <line x1={PL} y1={yAt(baseline).toFixed(1)} x2={W - PR} y2={yAt(baseline).toFixed(1)}
-            stroke="var(--tx-mut)" strokeWidth="1.6" opacity="0.9" />
-          <text x={PL - 6} y={yAt(baseline) + 3} textAnchor="end" fontSize="9" fontWeight="700" fill="var(--tx)">
-            {baseline.toFixed(0)}
-          </text>
-        </g>
-      )}
+      {ticks.map((v, i) => {
+        // The baseline is one OF these ticks when anchored, drawn heavier in place. Compared on the
+        // transformed value, not the level: under log the level-space gap at the baseline is not
+        // symmetric and an absolute epsilon on levels would miss it.
+        const isBase = anchored && tBase != null && Math.abs(T(v) - tBase) < (mx - mn) * 1e-6;
+        return (
+          <g key={i}>
+            <line x1={PL} y1={yAt(v).toFixed(1)} x2={W - PR} y2={yAt(v).toFixed(1)}
+              stroke={isBase ? 'var(--tx-mut)' : 'var(--border-soft)'} strokeWidth={isBase ? 1.6 : 1}
+              opacity={isBase ? 0.9 : 1} />
+            <text x={PL - 6} y={yAt(v) + 3} textAnchor="end" fontSize={isBase ? 9 : 8.5}
+              fontWeight={isBase ? 700 : undefined} fill={isBase ? 'var(--tx)' : 'var(--tx-dim)'}>
+              {v.toFixed(0)}
+            </text>
+          </g>
+        );
+      })}
       {bIdx > 0 && (
         <g>
           <line x1={xAt(bIdx)} y1={PT} x2={xAt(bIdx)} y2={PT + ch} stroke="var(--tx-mut)" strokeWidth="1" strokeDasharray="3 3" opacity="0.65" />
