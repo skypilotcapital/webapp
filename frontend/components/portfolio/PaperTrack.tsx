@@ -541,37 +541,7 @@ function PerformanceBand({ nav, eng, ctb, period, setPeriod, custom, setCustom, 
             BY ENGINE · the netted account split back to its two mandates
           </div>
           <div className="overflow-x-auto">
-            <table className="w-full text-[11.5px]" style={{ borderCollapse: 'collapse' }}>
-              <thead>
-                <tr style={{ color: 'var(--tx-dim)' }}>
-                  {['Engine', 'P&L', 'Contribution', 'Share of book'].map((h, i) => (
-                    <th key={h} className="text-[9px] font-bold tracking-[1.2px] py-1"
-                      style={{ textAlign: i === 0 ? 'left' : 'right' }}>{h.toUpperCase()}</th>
-                  ))}
-                </tr>
-              </thead>
-              <tbody>
-                {[...eng.by_mandate, { mandate: 'unattributed', ...eng.unattributed },
-                  { mandate: 'cash_other', pnl: eng.cash_other.pnl ?? 0, contrib_bps: eng.cash_other.contrib_bps }].map((m) => (
-                  <tr key={m.mandate} style={{ borderTop: '1px solid var(--border-soft)' }}>
-                    <td className="py-1.5 font-semibold" style={{ color: MANDATE_COLOR[m.mandate] ?? 'var(--tx)' }}>
-                      {MANDATE_NAME[m.mandate] ?? m.mandate}
-                    </td>
-                    <td className="text-right tabular-nums" style={{ color: sign(m.pnl) }}>{usd(m.pnl)}</td>
-                    <td className="text-right tabular-nums font-semibold" style={{ color: sign(m.contrib_bps) }}>{bpsS(m.contrib_bps)} bp</td>
-                    <td className="text-right tabular-nums" style={{ color: 'var(--tx-mut)' }}>
-                      {eng.total.pnl ? `${(m.pnl / eng.total.pnl * 100).toFixed(0)}%` : '—'}
-                    </td>
-                  </tr>
-                ))}
-                <tr style={{ borderTop: '1px solid var(--border)' }}>
-                  <td className="py-1.5 font-bold" style={{ color: 'var(--tx)' }}>book</td>
-                  <td className="text-right tabular-nums font-bold" style={{ color: sign(eng.total.pnl) }}>{usd(eng.total.pnl)}</td>
-                  <td className="text-right tabular-nums font-bold" style={{ color: sign(eng.total.contrib_bps) }}>{bpsS(eng.total.contrib_bps)} bp</td>
-                  <td className="text-right tabular-nums" style={{ color: 'var(--tx-mut)' }}>100%</td>
-                </tr>
-              </tbody>
-            </table>
+            <EnginesTable eng={eng} />
           </div>
           <div className="text-[10.5px] mt-2" style={{ color: 'var(--tx-dim)' }}>
             {eng.basis}. The book row is the NAV move; the cash row is what the engines cannot own
@@ -579,6 +549,14 @@ function PerformanceBand({ nav, eng, ctb, period, setPeriod, custom, setCustom, 
             from the ledger&apos;s daily attribution, never recomputed here; a name
             the book exits still earns its exit-day P&L, attributed to the mandate that held it the day
             before ({eng.carried_rows} row{eng.carried_rows === 1 ? '' : 's'} carried this window).
+            {eng.window?.bench_return != null && (
+              <> <b>The shaded columns take the index out of the LO core only</b> — it is the one
+              mandate benchmarked to the S&amp;P 500; the sleeve is market-neutral against cash and
+              the cash row is not a mandate, so for those the contribution already is the excess.
+              Because the index is removed exactly once, the excess column still sums to the book
+              row, and the book row&apos;s excess is the <i>active</i> figure at the top of this
+              section.</>
+            )}
           </div>
         </div>
       )}
@@ -586,6 +564,111 @@ function PerformanceBand({ nav, eng, ctb, period, setPeriod, custom, setCustom, 
       {/* ---- contributors ---- */}
       <Contributors ctb={ctb} />
     </div>
+  );
+}
+
+/* --------------------------------------------------------------------- engines table ---- */
+// Absolute on the left, EXCESS on the right behind a wash.
+//
+// THE ONE THING TO UNDERSTAND HERE: the index comes out of the CORE ALONE. It is the only mandate
+// benchmarked to the S&P 500 (it runs at 1.0x against it); the sleeve is market-neutral against
+// cash, and the cash row is not a mandate at all — so for those two the contribution ALREADY is the
+// excess, and subtracting the index again would charge a market-neutral book for the market.
+//
+// That is not a convention picked for neatness: it is what keeps the excess column ADDITIVE. The
+// index is removed exactly once, so the engine rows still sum to the book row — and the book row's
+// excess is the active return printed in the stat band at the top of this section. The column
+// checks itself against a number the reader can already see.
+function EnginesTable({ eng }: { eng: PaperEngines }) {
+  const benchBps = eng.window?.bench_return != null ? eng.window.bench_return * 1e4 : null;
+  const navStart = eng.window?.nav_start ?? null;
+  // Only these rows carry the index. A Set rather than `=== 'core'` so the book row's identical
+  // treatment is stated once, where the rule is, instead of duplicated at the bottom of the table.
+  const CARRIES_INDEX = new Set(['core', 'book']);
+  const exBps = (mandate: string, contrib: number | null | undefined) =>
+    contrib == null ? null
+      : (CARRIES_INDEX.has(mandate) && benchBps != null ? contrib - benchBps : contrib);
+  const exUsd = (bp: number | null) =>
+    bp == null || navStart == null ? null : (bp / 1e4) * navStart;
+
+  // No benchmark for the window means no excess for ANY row — not a column of contributions
+  // relabelled "excess", which is what falling back row-by-row would quietly produce.
+  const showExcess = benchBps != null;
+  const WASH = { background: 'var(--panel2)' };
+
+  const rows = [
+    ...eng.by_mandate.map((m) => ({ key: m.mandate, pnl: m.pnl, bps: m.contrib_bps })),
+    { key: 'unattributed', pnl: eng.unattributed.pnl, bps: eng.unattributed.contrib_bps },
+    { key: 'cash_other', pnl: eng.cash_other.pnl ?? 0, bps: eng.cash_other.contrib_bps },
+  ];
+
+  const cells = (key: string, pnl: number | null, bps: number | null, bold: boolean) => {
+    const ex = exBps(key, bps);
+    const exu = exUsd(ex);
+    const w = bold ? 'font-bold' : '';
+    return (
+      <>
+        <td className={`text-right tabular-nums ${w}`} style={{ color: sign(pnl) }}>{usd(pnl)}</td>
+        <td className={`text-right tabular-nums ${bold ? 'font-bold' : 'font-semibold'}`}
+          style={{ color: sign(bps) }}>{bpsS(bps)} bp</td>
+        <td className="text-right tabular-nums" style={{ color: 'var(--tx-mut)' }}>
+          {eng.total.pnl ? `${(((pnl ?? 0) / eng.total.pnl) * 100).toFixed(0)}%` : '—'}
+        </td>
+        {showExcess && (
+          <>
+            <td className={`text-right tabular-nums pl-3 ${w}`} style={{ ...WASH, color: sign(exu) }}>
+              {usd(exu)}
+            </td>
+            <td className={`text-right tabular-nums pr-1 ${bold ? 'font-bold' : 'font-semibold'}`}
+              style={{ ...WASH, color: sign(ex) }}>{bpsS(ex)} bp</td>
+          </>
+        )}
+      </>
+    );
+  };
+
+  return (
+    <table className="w-full text-[11.5px]" style={{ borderCollapse: 'collapse' }}>
+      <thead>
+        {showExcess && (
+          <tr>
+            <th colSpan={4} />
+            {/* Said ONCE, over the block, rather than per column: "excess" is meaningless without
+                naming what it is against, and repeating it in two headers wastes the width. */}
+            <th colSpan={2} className="text-[9px] font-bold tracking-[1.2px] py-1 text-center"
+              style={{ ...WASH, color: 'var(--tx-dim)' }}>
+              EXCESS · VS S&amp;P 500 TR
+            </th>
+          </tr>
+        )}
+        <tr style={{ color: 'var(--tx-dim)' }}>
+          {['Engine', 'P&L', 'Contribution', 'Share of book'].map((h, i) => (
+            <th key={h} className="text-[9px] font-bold tracking-[1.2px] py-1"
+              style={{ textAlign: i === 0 ? 'left' : 'right' }}>{h.toUpperCase()}</th>
+          ))}
+          {showExcess && (
+            <>
+              <th className="text-[9px] font-bold tracking-[1.2px] py-1 text-right pl-3" style={WASH}>P&amp;L</th>
+              <th className="text-[9px] font-bold tracking-[1.2px] py-1 text-right pr-1" style={WASH}>BP</th>
+            </>
+          )}
+        </tr>
+      </thead>
+      <tbody>
+        {rows.map((r) => (
+          <tr key={r.key} style={{ borderTop: '1px solid var(--border-soft)' }}>
+            <td className="py-1.5 font-semibold" style={{ color: MANDATE_COLOR[r.key] ?? 'var(--tx)' }}>
+              {MANDATE_NAME[r.key] ?? r.key}
+            </td>
+            {cells(r.key, r.pnl, r.bps, false)}
+          </tr>
+        ))}
+        <tr style={{ borderTop: '1px solid var(--border)' }}>
+          <td className="py-1.5 font-bold" style={{ color: 'var(--tx)' }}>book</td>
+          {cells('book', eng.total.pnl, eng.total.contrib_bps, true)}
+        </tr>
+      </tbody>
+    </table>
   );
 }
 
