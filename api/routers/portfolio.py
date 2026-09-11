@@ -96,6 +96,7 @@ class BacktestRow(BaseModel):
     is_production: Optional[bool]
     is_legacy: Optional[bool]
     ab_twin: Optional[str]
+    smooth: Optional[str] = None       # [05-ASMO] alpha-smoothing token ('ewma60') or None
     # summary
     n_months: Optional[int]
     period_start: Optional[str]
@@ -325,7 +326,7 @@ class CreditedResponse(BaseModel):
 _ROW_COLS = """
     m.model_label, m.signal_model_id, m.universe, m.strategy, m.experiment, m.variant,
     m.lambda_risk, m.te_target, m.sector_tol, m.turnover_cap, m.benchmark_report,
-    m.is_hard, m.is_production, m.is_legacy, m.ab_twin,
+    m.is_hard, m.is_production, m.is_legacy, m.ab_twin, m.smooth,
     s.n_months, s.period_start::text AS period_start, s.period_end::text AS period_end,
     s.ann_active, s.ann_total_net, s.ir, s.sharpe_net, s.realized_te, s.pred_te,
     s.max_drawdown, s.avg_turnover, s.tc_drag_bps, s.avg_holdings,
@@ -349,6 +350,8 @@ def list_backtests(
     include_legacy: bool = Query(False, description="include the invalidated M-series"),
     production: bool = Query(False, description="only the is_production finalists (the Live/Portfolios pair)"),
     include_v1: bool = Query(False, description="include pre-v2 (v1 risk-model) labels; default = v2 only"),
+    smooth: Optional[str] = Query(None, description="alpha-smoothing twin filter: 'none' = unsmoothed only, "
+                                                    "'ewma60' = that twin set only; default = all"),
 ):
     """The full registry (meta + summary), filterable. Powers Browse, the Sweep Explorer, the frontier
     and the base-vs-hard A/B — all sliced client-side from this one list. `production=true` returns just
@@ -368,6 +371,11 @@ def list_backtests(
         # (they belong to the Portfolios tracking pages, fetched by label).
         conds.append(r"(m.model_label LIKE '%\_relcap\_%' ESCAPE '\' OR (m.model_label LIKE '%\_v2\_%' ESCAPE '\' AND m.universe <> 'sp500'))")
         conds.append(r"m.model_label NOT LIKE '%\_full%' ESCAPE '\'")
+    if smooth == "none":
+        conds.append("m.smooth IS NULL")
+    elif smooth:
+        conds.append("m.smooth = :smooth")
+        params["smooth"] = smooth
     for col, val in (("universe", universe), ("strategy", strategy), ("variant", variant),
                      ("experiment", experiment), ("signal_model_id", model)):
         if val:

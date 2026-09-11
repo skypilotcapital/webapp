@@ -7,8 +7,7 @@ import { fetchPortfolioBacktests, fetchPortfolioDetail, fetchModelScorecard } fr
 import {
   buildSweeps, buildABPairs, buildCompareConfigs, defaultCompareConfig,
   rollingIR, rollingBatting, rollingExcess,
-  pct, pctSign, num, fmtSector, fmtTurn, realizedMonth,
-} from '@/lib/portfolio';
+  pct, pctSign, num, fmtSector, fmtTurn, realizedMonth, buildSmoothPairs } from '@/lib/portfolio';
 import { FrontierChart, CumulativeChart, MultiLineChart, ScatterChart } from '@/components/portfolio/charts';
 import type { PortfolioBacktest } from '@/types/api';
 
@@ -44,7 +43,7 @@ type AxisKey = keyof typeof SCATTER_AXES;
 function shortDesc(r: PortfolioBacktest): string {
   const parts = [r.experiment, r.te_target != null ? `te${(r.te_target * 100).toFixed(0)}` : null,
     r.sector_tol != null ? `sec${fmtSector(r.sector_tol).replace('±', '').replace('%', '')}` : null,
-    r.turnover_cap != null ? `to${fmtTurn(r.turnover_cap)}` : null];
+    r.turnover_cap != null ? `to${fmtTurn(r.turnover_cap)}` : null, r.smooth ?? null];
   return parts.filter(Boolean).join(' · ');
 }
 
@@ -117,6 +116,7 @@ export default function PortfoliosPage() {
 function SweepExplorer({ rows, universe }: { rows: PortfolioBacktest[]; universe: string }) {
   const sweeps = useMemo(() => buildSweeps(rows, universe), [rows, universe]);
   const ab = useMemo(() => buildABPairs(rows).filter((p) => p.experiment === 'prod' || p.experiment === 'sweep').slice(0, 6), [rows]);
+  const smoothPairs = useMemo(() => buildSmoothPairs(rows), [rows]);
   const prod = rows.find((r) => r.is_production);
   const ls = rows.find((r) => r.experiment === 'ls' && r.variant === 'hard');
 
@@ -162,6 +162,30 @@ function SweepExplorer({ rows, universe }: { rows: PortfolioBacktest[]; universe
           <div className="takeaway">Hard is the <b>trustworthy</b> book; the base numbers were partly inflated by low-confidence solves. We decide on hard.</div>
         </div>
 
+        {/* Alpha-smoothing twins ([05-ASMO] / [05-EWMA]) */}
+        {smoothPairs.length > 0 && (
+          <div className="panel p-4">
+            <div className="panel-head">Alpha smoothing · base ▷ twin</div>
+            <div className="panel-sub mb-2">same book, alpha EWMA-smoothed — turnover, net active, IR</div>
+            <div className="overflow-x-auto" style={{ maxHeight: 260 }}>
+              <table className="dtable">
+                <thead><tr><th>Config</th><th>turn b→t</th><th>net b→t</th><th>IR b→t</th></tr></thead>
+                <tbody>
+                  {smoothPairs.slice(0, 12).map((p) => (
+                    <tr key={p.label}>
+                      <td>{p.model} {p.experiment} {p.variant !== 'bare' ? p.variant : ''} to{fmtTurn(p.to)} <span className="dim">{p.smooth}</span></td>
+                      <td className="mono">{pct(p.base.avg_turnover, 0)}→{pct(p.twin.avg_turnover, 0)}</td>
+                      <td className="mono">{pct(p.base.ann_active, 1)}→{pct(p.twin.ann_active, 1)}</td>
+                      <td><span className="dim">{num(dispIR(p.base))}</span>→<span style={{ color: (dispIR(p.twin) ?? 0) >= (dispIR(p.base) ?? 0) ? 'var(--pos)' : 'var(--neg)' }}>{num(dispIR(p.twin))}</span></td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+            <div className="takeaway">The signal informs <b>levels</b>, not monthly changes: an EWMA of the alpha (φ 0.6) is the evidence-based turnover brake. {smoothPairs.length} twin pairs; filter Browse by Smoothing for the full set.</div>
+          </div>
+        )}
+
         {/* LO vs L/S */}
         {ls && (
           <div className="panel p-4">
@@ -195,6 +219,7 @@ const BROWSE_COLS: BrowseCol[] = [
   { key: 'strategy', label: 'Str', kind: 'str', get: (r) => r.strategy ?? '', cell: (r) => <span className="dim">{r.strategy === 'long_short' ? 'L/S' : 'LO'}</span> },
   { key: 'variant', label: 'Var', kind: 'str', get: (r) => r.variant ?? '', cell: (r) => <span className="dim">{r.variant}</span> },
   { key: 'experiment', label: 'Exp', kind: 'str', get: (r) => r.experiment ?? '', cell: (r) => <span className="dim">{r.experiment}</span> },
+  { key: 'smooth', label: 'Smooth', kind: 'str', get: (r) => r.smooth ?? '', cell: (r) => r.smooth ? <span className="teal">{r.smooth}</span> : <span className="dim">—</span> },
   { key: 'te_target', label: 'TE', kind: 'num', get: (r) => r.te_target ?? Infinity, cell: (r) => r.te_target != null ? pct(r.te_target, 0) : <span className="dim">off</span> },
   { key: 'sector_tol', label: 'Sec', kind: 'num', get: (r) => r.sector_tol ?? Infinity, cell: (r) => fmtSector(r.sector_tol) },
   { key: 'turnover_cap', label: 'TO', kind: 'num', get: (r) => r.turnover_cap ?? Infinity, cell: (r) => fmtTurn(r.turnover_cap) },
@@ -212,6 +237,8 @@ function Browse({ rows }: { rows: PortfolioBacktest[] }) {
   const router = useRouter();
   const [variant, setVariant] = useState('hard');
   const [experiment, setExperiment] = useState('all');
+  const [smooth, setSmooth] = useState('all');
+  const smooths = useMemo(() => Array.from(new Set(rows.map((r) => r.smooth).filter(Boolean))) as string[], [rows]);
   const models = useMemo(() => Array.from(new Set(rows.map((r) => r.signal_model_id).filter(Boolean))) as string[], [rows]);
   const [model, setModel] = useState('all');
   const [sort, setSort] = useState<SortState>({ col: 'ir', dir: -1 });
@@ -222,13 +249,14 @@ function Browse({ rows }: { rows: PortfolioBacktest[] }) {
       .filter((r) =>
         (variant === 'all' || r.variant === variant) &&
         (experiment === 'all' || r.experiment === experiment) &&
+        (smooth === 'all' || (smooth === 'none' ? !r.smooth : r.smooth === smooth)) &&
         (model === 'all' || r.signal_model_id === model))
       .sort((a, b) => {
         const av = col.get(a), bv = col.get(b);
         const cmp = col.kind === 'num' ? (av as number) - (bv as number) : String(av).localeCompare(String(bv));
         return cmp * sort.dir;
       });
-  }, [rows, variant, experiment, model, sort]);
+  }, [rows, variant, experiment, smooth, model, sort]);
 
   const toggleSort = (c: BrowseCol) =>
     setSort((s) => s.col === c.key ? { col: c.key, dir: (s.dir === 1 ? -1 : 1) } : { col: c.key, dir: c.kind === 'num' ? -1 : 1 });
@@ -238,6 +266,7 @@ function Browse({ rows }: { rows: PortfolioBacktest[] }) {
       <div className="flex items-center gap-4 mb-3 flex-wrap">
         <FilterSelect label="Variant" v={variant} set={setVariant} opts={['hard', 'base', 'bare', 'all']} />
         <FilterSelect label="Experiment" v={experiment} set={setExperiment} opts={['all', 'prod', 'sweep', 'sector', 'te', 'phase5', 'ls']} />
+        <FilterSelect label="Smoothing" v={smooth} set={setSmooth} opts={['all', 'none', ...smooths]} />
         <FilterSelect label="Model" v={model} set={setModel} opts={['all', ...models]} />
         <span className="ml-auto text-[11px] dim">{filtered.length} configs · click a header to sort · click a row for the full report</span>
       </div>

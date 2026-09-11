@@ -356,6 +356,7 @@ export interface PortfolioBacktest {
   is_production: boolean | null;
   is_legacy: boolean | null;
   ab_twin: string | null;
+  smooth: string | null;       // [05-ASMO] alpha-smoothing token ('ewma60') or null = unsmoothed
   n_months: number | null;
   period_start: string | null;
   period_end: string | null;

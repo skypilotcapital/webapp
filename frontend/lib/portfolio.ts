@@ -105,7 +105,7 @@ export function buildABPairs(rows: PortfolioBacktest[]): ABPair[] {
   const byLabel = new Map(rows.map((r) => [r.model_label, r]));
   const pairs: ABPair[] = [];
   for (const r of rows) {
-    if (r.variant !== 'hard' || !r.ab_twin) continue;
+    if (r.variant !== 'hard' || !r.ab_twin || r.smooth) continue;   // smoothed twins pair via buildSmoothPairs
     const base = byLabel.get(r.ab_twin);
     if (!base) continue;
     pairs.push({
@@ -114,6 +114,31 @@ export function buildABPairs(rows: PortfolioBacktest[]): ABPair[] {
     });
   }
   return pairs;
+}
+
+// --------------------------------------------------------------- Alpha-smoothing twins ([05-ASMO] / [05-EWMA])
+// A smoothed twin's ab_twin is its UNSMOOTHED original (same book, same params, `signal.smooth` added).
+// Pair each twin with its base so the hub can show what the smoothing did to turnover, gross/net and IR.
+export interface SmoothPair {
+  label: string; model: string; experiment: string; variant: string; smooth: string;
+  te: number | null; sec: number | null; to: number | null;
+  base: PortfolioBacktest; twin: PortfolioBacktest;
+}
+export function buildSmoothPairs(rows: PortfolioBacktest[]): SmoothPair[] {
+  const byLabel = new Map(rows.map((r) => [r.model_label, r]));
+  const out: SmoothPair[] = [];
+  for (const r of rows) {
+    if (!r.smooth || !r.ab_twin) continue;
+    const base = byLabel.get(r.ab_twin);
+    if (!base) continue;
+    out.push({
+      label: r.model_label, model: r.signal_model_id ?? '', experiment: r.experiment ?? '',
+      variant: r.variant ?? '', smooth: r.smooth, te: r.te_target, sec: r.sector_tol, to: r.turnover_cap,
+      base, twin: r,
+    });
+  }
+  return out.sort((a, b) => a.model.localeCompare(b.model) || a.experiment.localeCompare(b.experiment)
+    || (a.variant === 'hard' ? 0 : 1) - (b.variant === 'hard' ? 0 : 1) || (a.to ?? 9) - (b.to ?? 9));
 }
 
 // --------------------------------------------------------------- Model comparison
@@ -132,7 +157,7 @@ export interface CompareConfig {
 }
 
 const cfgKey = (r: PortfolioBacktest) =>
-  [r.variant, r.strategy, r.te_target, r.sector_tol, r.turnover_cap].join('|');
+  [r.variant, r.strategy, r.te_target, r.sector_tol, r.turnover_cap, r.smooth ?? ''].join('|');
 
 // Group the (already universe-scoped, non-legacy) rows into configs run by >=2 distinct models.
 export function buildCompareConfigs(rows: PortfolioBacktest[]): CompareConfig[] {
