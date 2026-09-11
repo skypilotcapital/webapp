@@ -1206,11 +1206,18 @@ def _mandate_pnl_rows(conn, strategy: str | None, start: dt.date, end: dt.date) 
         if not claims:
             out.append({**base, "mandate": None, "pnl": pnl, "share": 1.0, "carried": False})
             continue
-        denom = qty if qty else sum(_f(c["attr_qty"]) or 0.0 for c in claims)
+        # ⚠️ A CARRIED CLAIM DESCRIBES THE SPLIT, NOT THE QUANTITY, so it must always normalise by
+        # its OWN sum. Dividing yesterday's shares by today's quantity only happens to give 1 when
+        # the two agree — true for an exit (qty = 0 takes the else branch) and true for a name that
+        # did not trade, and false for a name SOLD DOWN. SAN went 62 shares -> 1 on 2026-09-04 with
+        # the claim carried from the day before: denom = 1 distributed its P&L 62x, moving $603 of
+        # position P&L into the cash row across the window. Fixed 2026-09-11, [10-CARRY].
+        same_day = attr_date == r["date"]
+        denom = qty if (same_day and qty) else sum(_f(c["attr_qty"]) or 0.0 for c in claims)
         for c in claims:
             share = ((_f(c["attr_qty"]) or 0.0) / denom) if denom else 1.0 / len(claims)
             out.append({**base, "mandate": c["mandate"], "pnl": pnl * share, "share": share,
-                        "carried": attr_date != r["date"]})
+                        "carried": not same_day})
     return out
 
 
