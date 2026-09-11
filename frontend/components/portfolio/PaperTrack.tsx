@@ -51,7 +51,9 @@ import {
   type PaperEngines, type PaperNavResponse, type PaperBookResponse, type PaperFidelity,
   type PaperShortfall, type PaperRecon, type PaperCorporateActions,
 } from '@/lib/paper';
-import { CumulativeChart, MultiLineChart, BarSeriesChart } from '@/components/portfolio/charts';
+import {
+  CumulativeChart, MultiLineChart, BarSeriesChart, X_AXIS_PB, BARE_PB,
+} from '@/components/portfolio/charts';
 import { BookRisk } from '@/components/portfolio/BookRisk';
 
 // Break kinds, in the order a reader should scan them. `price` first because it is the expected
@@ -664,20 +666,26 @@ function DailyBars({ sl, eng }: {
   // it; the engines keep their own teal and amber. So the palette says the same thing in both
   // columns, and no bar shares a colour with a different series.
   const BOOK_COLOR = 'var(--tx)';
-  // Tuned so the two columns END level: left is 2 charts at 210, right is 3 at this plus one
-  // extra header. Both sides' charts scale with column width and the chrome does not, so the
-  // residual is width-dependent — measured within +/-2px across 1100-1920px at this value.
-  const H = 145;
+  // ONE X-AXIS, DRAWN ONCE, on the bottom chart. The three share dates exactly, so repeating the
+  // labels three times is noise — but dropping them shrinks that chart's bottom padding, so the
+  // labelled one is given back exactly that much height. Every plot area then stays identical,
+  // which is what makes the shared `domain` mean equal bar heights down the column.
+  const AXIS = X_AXIS_PB - BARE_PB;
+  // Tuned so the two columns END level: left is 2 charts at 210, right is 3 of these plus the
+  // axis allowance and one extra header. Both sides' charts scale with column width and the chrome
+  // does not, so the residual is width-dependent — measured within a few px across 1100-1920.
+  const H = 140;
 
-  const chart = (title: string, sub: string, color: string, values: (number | null)[]) => (
+  const chart = (title: string, sub: string, color: string, values: (number | null)[],
+                 last = false) => (
     <div>
       <div className="text-[10px] font-bold tracking-[1.5px] mb-1 flex items-center gap-1.5"
         style={{ color: 'var(--tx-dim)' }}>
         <span style={{ width: 8, height: 8, background: color, borderRadius: 2, display: 'inline-block' }} />
         {title}<span style={{ fontWeight: 400 }}>· {sub}</span>
       </div>
-      <BarSeriesChart dates={B.dates} yFmt={bp} height={H} yDomain={domain}
-        groups={[{ label: title, color, values }]} />
+      <BarSeriesChart dates={B.dates} yFmt={bp} height={last ? H + AXIS : H} yDomain={domain}
+        hideXAxis={!last} groups={[{ label: title, color, values }]} />
     </div>
   );
 
@@ -689,12 +697,12 @@ function DailyBars({ sl, eng }: {
   return (
     <>
     <div className="flex flex-col gap-3">
-      {chart(`${unit} EXCESS · WHOLE BOOK`, 'book − S&P 500 TR', BOOK_COLOR, bookV)}
+      {chart(`${unit} EXCESS · WHOLE BOOK`, 'book − S&P 500 TR', BOOK_COLOR, bookV, !eng?.series?.length)}
       {eng?.series?.length
         ? (
           <>
             {chart('LO CORE', 'its contribution − the index', MANDATE_COLOR.core, coreV)}
-            {chart('L/S SLEEVE', 'market-neutral, so vs cash', MANDATE_COLOR.sleeve, sleeveV)}
+            {chart('L/S SLEEVE', 'market-neutral, so vs cash', MANDATE_COLOR.sleeve, sleeveV, true)}
           </>
         )
         : <Muted>{eng?.note ?? 'loading…'}</Muted>}

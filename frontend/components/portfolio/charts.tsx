@@ -162,7 +162,11 @@ export function DrawdownChart({ dates, dd, height = 120, boundaryDate }: { dates
  *  marker per bar (a short horizontal tick at, say, the day's total). Positive parts stack upward from
  *  zero and negative parts downward, so a mixed day reads as what it is. Built for the paper track's
  *  "which days did it" row under the cumulative lines: half height, same x-ticks, one legend outside. */
-export function BarSeriesChart({ dates, groups, marker, height = 110, yFmt, markerColor = 'var(--tx)', grouped = false, yDomain }: {
+/** Bottom padding with and without the x-axis labels. Exported so a caller stacking these can
+ *  size the labelled chart taller by exactly the difference and keep every plot area equal. */
+export const X_AXIS_PB = 22, BARE_PB = 6;
+
+export function BarSeriesChart({ dates, groups, marker, height = 110, yFmt, markerColor = 'var(--tx)', grouped = false, yDomain, hideXAxis = false }: {
   dates: string[];
   groups: { label: string; color: string; values: (number | null)[] }[];
   marker?: { label: string; values: (number | null)[] };
@@ -173,8 +177,14 @@ export function BarSeriesChart({ dates, groups, marker, height = 110, yFmt, mark
    *  are stacked as small multiples: independently-fitted axes make a small series look like a
    *  large one, and a reader comparing bar heights down a column has no way to see it. */
   yDomain?: [number, number];
+  /** Drop the x labels — for all but the LAST of a stacked set that shares one axis.
+   *  ⚠️ This SHRINKS the bottom padding, so the plot area grows for the same `height`. Stacked
+   *  charts must therefore be given DIFFERENT heights (the labelled one taller by exactly
+   *  X_AXIS_PB − BARE_PB) or their plot areas differ and the shared `yDomain` stops meaning equal
+   *  bar heights — which is the whole reason the axis is shared. */
+  hideXAxis?: boolean;
 }) {
-  const W = 900, PL = 46, PR = 14, PT = 8, PB = 22;
+  const W = 900, PL = 46, PR = 14, PT = 8, PB = hideXAxis ? BARE_PB : X_AXIS_PB;
   const cw = W - PL - PR, ch = height - PT - PB;
   const n = dates.length;
   if (!n) return <div className="text-[11px] dim py-4 text-center">no data</div>;
@@ -224,7 +234,7 @@ export function BarSeriesChart({ dates, groups, marker, height = 110, yFmt, mark
           </g>
         );
       })}
-      {years.map(({ i, label }) => <text key={label + i} x={xAt(i) + bw / 2} y={height - 6} textAnchor="middle" fontSize="9" fill="var(--tx-dim)">{label}</text>)}
+      {!hideXAxis && years.map(({ i, label }) => <text key={label + i} x={xAt(i) + bw / 2} y={height - 6} textAnchor="middle" fontSize="9" fill="var(--tx-dim)">{label}</text>)}
     </svg>
   );
 }
