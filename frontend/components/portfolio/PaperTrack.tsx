@@ -41,7 +41,7 @@
 // (2026-07-30). Owner decision 2026-09-10: the eight cash days handed the benchmark a permanent
 // ~4-point head start that said nothing about the strategy. The funded date is still stated.
 
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import useSWR from 'swr';
 import Link from 'next/link';
 import {
@@ -83,13 +83,27 @@ const MANDATE_COLOR: Record<string, string> = { core: 'var(--teal)', sleeve: '#b
 // render greyed until the book is old enough. "Last day" = the latest marked book date.
 // 2026-09-10 (later): "last day" and "week to date" replaced by trailing 5 book dates — the same
 // shape every weekday; the day's own P&L stays in the Status band.
+// `custom` sits last and is the only key whose window is not trailing-from-latest: it carries its
+// own end. Everything else about it is ordinary — the server resolves it to the same (start, end]
+// BOOK dates, so every section below reads one window regardless of how it was chosen.
 const PERIODS: { key: PeriodKey; label: string }[] = [
   { key: '5d', label: 'Trailing 5D' },
   { key: 'mtd', label: 'Month to date' },
   { key: '1m', label: 'Trailing 1M' },
   { key: '3m', label: 'Trailing 3M' },
   { key: 'incep', label: 'Since inception' },
+  { key: 'custom', label: 'Custom' },
 ];
+
+const ISO_DATE = /^\d{4}-\d{2}-\d{2}$/;
+
+/** Why a custom range cannot be asked for yet, or null. Checked BEFORE the request so an
+ *  impossible window renders a sentence rather than a 400 the page would have to translate. */
+function customIssue(from: string, to: string): string | null {
+  if (!ISO_DATE.test(from) || !ISO_DATE.test(to)) return 'Pick both a From and a To date.';
+  if (from > to) return 'From is after To.';
+  return null;
+}
 
 const SECTIONS = [
   ['status', 'Status'], ['performance', 'Performance'], ['book', 'Book'],
@@ -100,6 +114,44 @@ export function PaperTrack({ strategy, slug, productName, topSlot }: {
   strategy?: string; slug?: string; productName?: string; topSlot?: React.ReactNode;
 }) {
   const [period, setPeriod] = useState<PeriodKey>('incep');
+  const [custom, setCustom] = useState<{ from: string; to: string }>({ from: '', to: '' });
+  // The selection lives in the URL so a window can be pasted into Slack. Read on mount and written
+  // with replaceState rather than `useSearchParams` + router: this page is one of the prerendered
+  // ones, and useSearchParams forces a Suspense boundary on it. replaceState also keeps a dozen
+  // date tweaks out of the back button, which is the behaviour we want for a scratch window.
+  const [urlRead, setUrlRead] = useState(false);
+
+  useEffect(() => {
+    const sp = new URLSearchParams(window.location.search);
+    const p = sp.get('period'), f = sp.get('from') ?? '', t = sp.get('to') ?? '';
+    if (ISO_DATE.test(f) && ISO_DATE.test(t)) setCustom({ from: f, to: t });
+    // `custom` is only honoured with a usable pair behind it — a bare ?period=custom would
+    // otherwise select a period the page cannot draw.
+    if (p && PERIODS.some((x) => x.key === p) && (p !== 'custom' || (ISO_DATE.test(f) && ISO_DATE.test(t)))) {
+      setPeriod(p as PeriodKey);
+    }
+    setUrlRead(true);
+  }, []);
+
+  useEffect(() => {
+    if (!urlRead) return;          // never write before the read, or we erase the incoming link
+    const sp = new URLSearchParams(window.location.search);
+    if (period === 'incep') sp.delete('period'); else sp.set('period', period);
+    if (period === 'custom' && custom.from) sp.set('from', custom.from); else sp.delete('from');
+    if (period === 'custom' && custom.to) sp.set('to', custom.to); else sp.delete('to');
+    const qs = sp.toString();
+    // The hash is carried through deliberately — the sub-nav scrolls by #anchor, and dropping it
+    // would jump the reader to the top of the page on every keystroke in a date field.
+    window.history.replaceState(null, '',
+      `${window.location.pathname}${qs ? `?${qs}` : ''}${window.location.hash}`);
+  }, [urlRead, period, custom.from, custom.to]);
+
+  const isCustom = period === 'custom';
+  const issue = isCustom ? customIssue(custom.from, custom.to) : null;
+  // A null SWR key is "do not fetch": an unusable range asks the server nothing.
+  const winKey = isCustom ? (issue ? null : `custom:${custom.from}:${custom.to}`) : period;
+  const cStart = isCustom && !issue ? custom.from : undefined;
+  const cEnd = isCustom && !issue ? custom.to : undefined;
 
   const { data: bk } = useSWR(['paper-book', strategy], () => fetchPaperBook('paper', strategy),
     { revalidateOnFocus: false });
@@ -112,10 +164,12 @@ export function PaperTrack({ strategy, slug, productName, topSlot }: {
   // what this page did until 2026-09-10 (fidelity #28, shortfall #13 — the establishment trade).
   const { data: sf } = useSWR(fid ? ['paper-sf', rid, strategy] : null,
     () => fetchPaperShortfall('paper', 8, rid, strategy), { revalidateOnFocus: false });
-  const { data: eng } = useSWR(['paper-eng', strategy, period],
-    () => fetchPaperEngines('paper', strategy, period), { revalidateOnFocus: false, keepPreviousData: true });
-  const { data: ctb } = useSWR(['paper-ctb', strategy, period],
-    () => fetchPaperContributors('paper', strategy, period, 8), { revalidateOnFocus: false, keepPreviousData: true });
+  const { data: eng } = useSWR(winKey ? ['paper-eng', strategy, winKey] : null,
+    () => fetchPaperEngines('paper', strategy, period, cStart, cEnd),
+    { revalidateOnFocus: false, keepPreviousData: true });
+  const { data: ctb } = useSWR(winKey ? ['paper-ctb', strategy, winKey] : null,
+    () => fetchPaperContributors('paper', strategy, period, 8, cStart, cEnd),
+    { revalidateOnFocus: false, keepPreviousData: true });
   const { data: rc } = useSWR(['paper-recon', strategy], () => fetchPaperRecon('paper', strategy, 10),
     { revalidateOnFocus: false });
   const { data: ca } = useSWR(['paper-ca', strategy], () => fetchPaperCorporateActions('paper', strategy, 30),
@@ -140,7 +194,8 @@ export function PaperTrack({ strategy, slug, productName, topSlot }: {
 
       <section id="status"><StatusBand bk={bk} nav={nav} fid={fid} slug={slug} name={productName} /></section>
       <section id="performance">
-        <PerformanceBand nav={nav} eng={eng} ctb={ctb} period={period} setPeriod={setPeriod} />
+        <PerformanceBand nav={nav} eng={eng} ctb={ctb} period={period} setPeriod={setPeriod}
+          custom={custom} setCustom={setCustom} issue={issue} />
       </section>
       <section id="book"><BookBand bk={bk} strategy={strategy} /></section>
       <section id="rebalance"><RebalanceBand fid={fid} sf={sf} slug={slug} /></section>
@@ -270,8 +325,8 @@ function StatusBand({ bk, nav, fid, slug, name }: {
 }
 
 /* ---------------------------------------------------------------------- performance ---- */
-function PeriodSelector({ period, setPeriod, periods }: {
-  period: PeriodKey; setPeriod: (p: PeriodKey) => void; periods?: PaperPeriods | null;
+function PeriodSelector({ period, onPick, periods }: {
+  period: PeriodKey; onPick: (p: PeriodKey) => void; periods?: PaperPeriods | null;
 }) {
   return (
     <div className="flex items-center gap-1 flex-wrap">
@@ -280,11 +335,14 @@ function PeriodSelector({ period, setPeriod, periods }: {
         const active = p.key === period;
         // A period the book is too young for collapses onto inception; label it so a "month to
         // date" that starts on the first traded day is not mistaken for a full month.
-        const start = periods?.[p.key];
-        const collapsed = !!periods && p.key !== 'incep' && start === periods.incep;
+        // `custom` has no entry in the preset map (that map is computed against the LATEST book
+        // date and a custom window need not end there), so it is never "collapsed".
+        const start = p.key === 'custom' ? undefined : periods?.[p.key];
+        const collapsed = !!periods && p.key !== 'incep' && p.key !== 'custom' && start === periods.incep;
         return (
-          <button key={p.key} onClick={() => setPeriod(p.key)}
-            title={start ? `from the ${start} close${collapsed ? ' — not yet a full window; same as since inception' : ''}` : undefined}
+          <button key={p.key} onClick={() => onPick(p.key)}
+            title={p.key === 'custom' ? 'Type any two dates'
+              : start ? `from the ${start} close${collapsed ? ' — not yet a full window; same as since inception' : ''}` : undefined}
             className="text-[11px] font-semibold px-2.5 py-1 rounded-md"
             style={active
               ? { background: 'var(--teal)', color: '#fffdf9' }
@@ -297,18 +355,105 @@ function PeriodSelector({ period, setPeriod, periods }: {
   );
 }
 
-function PerformanceBand({ nav, eng, ctb, period, setPeriod }: {
+/* --------------------------------------------------------------------- custom range ---- */
+// Two native date fields, nothing more. The chart is a stateless SVG renderer with no pointer
+// handling anywhere in `charts.tsx`, and on a book this short a drag could not land on a chosen
+// day anyway — it would need snapping to book dates, which is the date logic this already is.
+// A typed window is also the only one that can be stated, repeated and pasted into a link.
+//
+// `min`/`max` are the performance inception and the last marked book date, so the browser itself
+// refuses a window reaching into the funded-cash days or past the last close the book has. Book
+// date D is marked at 02:00 UTC on D+1: "today" is NOT a bound the reader should be offered.
+function CustomRange({ custom, setCustom, periods, issue, resolved }: {
+  custom: { from: string; to: string }; setCustom: (c: { from: string; to: string }) => void;
+  periods?: PaperPeriods | null; issue: string | null; resolved?: { start: string; end: string } | null;
+}) {
+  const min = periods?.incep, max = periods?.end;
+  const field = (k: 'from' | 'to') => (
+    <input type="date" value={custom[k]} min={min} max={max}
+      onChange={(e) => setCustom({ ...custom, [k]: e.target.value })}
+      className="text-[11px] font-semibold px-2 py-1 rounded-md tabular-nums"
+      style={{ background: 'var(--panel2)', color: 'var(--tx)', border: '1px solid var(--border-soft)',
+               colorScheme: 'light' }} />
+  );
+  return (
+    <div className="flex items-center gap-2 flex-wrap mb-3 pb-3"
+      style={{ borderBottom: '1px solid var(--border-soft)' }}>
+      <span className="text-[9px] font-bold tracking-[1.5px]" style={{ color: 'var(--tx-dim)' }}>FROM</span>
+      {field('from')}
+      <span className="text-[9px] font-bold tracking-[1.5px]" style={{ color: 'var(--tx-dim)' }}>TO</span>
+      {field('to')}
+      {issue
+        ? <span className="text-[11px]" style={{ color: 'var(--neg)' }}>{issue}</span>
+        : (
+          <span className="text-[10.5px]" style={{ color: 'var(--tx-dim)' }}>
+            Both days are included. Return is measured from the previous close
+            {resolved ? <> — this window runs <b>{resolved.start} close → {resolved.end}</b></> : null}
+            {/* Only a REAL clamp is called one. `resolved.start === min` also holds whenever the
+                previous close simply happens to be the first traded day (a From of the 10th
+                resolves to the 7th legitimately), and labelling that "clamped" would tell the
+                reader their window was moved when it was not. */}
+            {min && custom.from && custom.from <= min
+              ? <> · From is at or before the first traded day, so the window starts at inception ({min})</>
+              : null}
+          </span>
+        )}
+    </div>
+  );
+}
+
+function PerformanceBand({ nav, eng, ctb, period, setPeriod, custom, setCustom, issue }: {
   nav?: PaperNavResponse; eng?: PaperEngines; ctb?: PaperContributors;
   period: PeriodKey; setPeriod: (p: PeriodKey) => void;
+  custom: { from: string; to: string }; setCustom: (c: { from: string; to: string }) => void;
+  issue: string | null;
 }) {
   if (!nav) return null;
   if (!nav.series.length) return <Panel title="Performance"><Muted>no book yet</Muted></Panel>;
 
   const w = eng?.window;
-  const start = nav.periods?.[period] ?? nav.perf_inception ?? nav.series[0].date;
+  const isCustom = period === 'custom';
+  // A custom window carries its own END, so its bounds come from the RESOLVED window the server
+  // returned rather than from the preset map, which is always computed against the latest close.
+  const start = (isCustom ? w?.start : nav.periods?.[period])
+    ?? nav.perf_inception ?? nav.series[0].date;
+  const endBound = isCustom ? w?.end : undefined;
   // The chart is the NAV series from the window's start close, both lines rebased there.
   const i0 = Math.max(0, nav.series.findIndex((p) => p.date >= start));
-  const sl = nav.series.slice(i0);
+  const sl = endBound
+    ? nav.series.slice(i0).filter((p) => p.date <= endBound)
+    : nav.series.slice(i0);
+
+  const lastDate = nav.periods?.end ?? nav.series[nav.series.length - 1].date;
+  const pick = (k: PeriodKey) => {
+    // Clicking Custom seeds the fields with the window already on screen — its first INCLUDED day
+    // (series[0] is the anchor close, which the window measures from, not a day it earned)
+    // through the last marked book date. So the chart does not move until something is edited.
+    if (k === 'custom' && !custom.from && !custom.to) {
+      setCustom({ from: nav.series.find((p) => p.date > start)?.date ?? start, to: lastDate });
+    }
+    setPeriod(k);
+  };
+  const selector = <PeriodSelector period={period} onPick={pick} periods={nav.periods} />;
+  const range = (
+    <CustomRange custom={custom} setCustom={setCustom} periods={nav.periods} issue={issue}
+      resolved={w ? { start: w.start, end: w.end } : null} />
+  );
+
+  // An unusable range shows NOTHING below it. `keepPreviousData` would otherwise leave the last
+  // good window's numbers sitting under a pair of fields that no longer describe them.
+  if (issue) {
+    return (
+      <div className="panel p-4 mb-3">
+        <SectionHead title="Performance" sub="net · vs S&P 500 TR" right={selector} />
+        {range}
+        <div className="py-6 text-center text-[11.5px]" style={{ color: 'var(--tx-mut)' }}>
+          Nothing is drawn until the window is valid — the figures would describe a different
+          period from the one in the fields.
+        </div>
+      </div>
+    );
+  }
   const n0 = sl[0]?.nav_idx ?? 100, b0 = sl.find((p) => p.bench_idx != null)?.bench_idx ?? 100;
   const dates = sl.map((p) => p.date);
   const core = eng?.by_mandate.find((m) => m.mandate === 'core');
@@ -328,7 +473,8 @@ function PerformanceBand({ nav, eng, ctb, period, setPeriod }: {
     <div className="panel p-4 mb-3">
       <SectionHead title="Performance"
         sub={w ? `${w.start} close → ${w.end} · ${w.n_days} trading day${w.n_days === 1 ? '' : 's'}` : 'net · vs S&P 500 TR'}
-        right={<PeriodSelector period={period} setPeriod={setPeriod} periods={nav.periods} />} />
+        right={selector} />
+      {isCustom && range}
 
       <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-7 gap-3 mb-3">
         <Stat label="Book" value={pctS(w?.book_return)} color={sign(w?.book_return)} sub="net, NAV to NAV" />

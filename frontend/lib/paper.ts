@@ -78,10 +78,14 @@ export interface PaperNavPoint {
 /** Window boundaries every performance section shares. A window is `(start, end]` on BOOK dates:
  *  `start` is the close it is measured FROM. Resolved once, server-side, so the chart, the engine
  *  split and the contributor tables describe the same days. */
-export type PeriodKey = '1d' | '5d' | 'wtd' | 'mtd' | '1m' | '3m' | 'since_reb' | 'incep';
+export type PeriodKey = '1d' | '5d' | 'wtd' | 'mtd' | '1m' | '3m' | 'since_reb' | 'incep' | 'custom';
 export interface PaperPeriods {
   '1d': string; '5d': string; wtd: string; mtd: string; '1m': string; '3m': string; since_reb: string;
   incep: string; end: string;
+  /** Present only when the caller asked for `period=custom`: the resolved measured-from close for
+   *  the typed `from` day. The preset map is computed against the LATEST book date, so it does not
+   *  describe an end-bounded custom window — read `engines.window` for that, never this. */
+  custom?: string;
   last_rebalance_date: string | null;
 }
 
@@ -472,11 +476,16 @@ export const fetchPaperFidelity = (env = 'paper') =>
 export const fetchPaperPositions = (env = 'paper', top = 10) =>
   get<PaperPositionsResponse>(`/api/v1/paper/${env}/positions?top=${top}`);
 
-export const fetchPaperEngines = (env = 'paper', strategy?: string, period: PeriodKey = 'incep') =>
-  get<PaperEngines>(`/api/v1/paper/${env}/engines?${q({ strategy, period })}`);
+// `start`/`end` apply to `period='custom'` only and are ignored by every preset. `start` is the
+// first day the window should INCLUDE (the server resolves it to the close before, exactly as
+// month-to-date does), so a typed window and a preset spanning the same days agree to the digit.
+export const fetchPaperEngines = (env = 'paper', strategy?: string, period: PeriodKey = 'incep',
+                                  start?: string, end?: string) =>
+  get<PaperEngines>(`/api/v1/paper/${env}/engines?${q({ strategy, period, start, end })}`);
 
-export const fetchPaperContributors = (env = 'paper', strategy?: string, period: PeriodKey = 'incep', top = 8) =>
-  get<PaperContributors>(`/api/v1/paper/${env}/contributors?${q({ strategy, period, top })}`);
+export const fetchPaperContributors = (env = 'paper', strategy?: string, period: PeriodKey = 'incep',
+                                       top = 8, start?: string, end?: string) =>
+  get<PaperContributors>(`/api/v1/paper/${env}/contributors?${q({ strategy, period, top, start, end })}`);
 
 export const fetchPaperRecon = (env = 'paper', strategy?: string, days = 10) =>
   get<PaperRecon>(`/api/v1/paper/${env}/recon?${q({ strategy, days })}`);

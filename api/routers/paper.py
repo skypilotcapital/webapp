@@ -1022,7 +1022,7 @@ def exposures(env: str, strategy: str | None = None, date: str | None = None):
 # `(start, end]` convention as the monthly report: `start` is the close the window is measured
 # FROM, so a window's P&L is the sum of `pnl_d` on book dates strictly after it.
 
-PERIOD_KEYS = ("1d", "5d", "wtd", "mtd", "1m", "3m", "since_reb", "incep")
+PERIOD_KEYS = ("1d", "5d", "wtd", "mtd", "1m", "3m", "since_reb", "incep", "custom")
 
 
 def _months_back(d: dt.date, n: int) -> dt.date:
@@ -1034,7 +1034,8 @@ def _months_back(d: dt.date, n: int) -> dt.date:
     return d.replace(year=y, month=m, day=min(d.day, calendar.monthrange(y, m)[1]))
 
 
-def _period_starts(conn, strategy: str | None, end: dt.date, first_invested: dt.date | None) -> dict:
+def _period_starts(conn, strategy: str | None, end: dt.date, first_invested: dt.date | None,
+                   custom_from: dt.date | None = None) -> dict:
     """Window start (a BOOK date, the close measured from) for every period key, ending at `end`.
 
     Every start is clamped to `first_invested`: a window cannot reach into the cash days, because
@@ -1069,7 +1070,7 @@ def _period_starts(conn, strategy: str | None, end: dt.date, first_invested: dt.
         reb_start = max(on_or_before[-1], base) if on_or_before else base
 
     monday = end - dt.timedelta(days=end.weekday())
-    return {
+    out = {
         "1d": last_before(end).isoformat(),
         # Trailing 5 BOOK dates (owner, 2026-09-10): always five bars, unlike week-to-date, which is
         # one bar on a Monday and five on a Friday. The close five book dates back is the start.
@@ -1086,11 +1087,44 @@ def _period_starts(conn, strategy: str | None, end: dt.date, first_invested: dt.
         "end": end.isoformat(),
         "last_rebalance_date": reb.isoformat() if reb else None,
     }
+    # `custom_from` is the first day the caller wants the window to INCLUDE — the same reading as
+    # month-to-date, whose start is the close BEFORE the 1st precisely so the 1st's own move lands
+    # inside the month. Resolving it through the same `last_before` is what keeps a hand-typed
+    # window arithmetically identical to a preset covering the same days, rather than a day short.
+    # Clamps to `base` like every other key: a window cannot reach back into the cash days.
+    if custom_from is not None:
+        out["custom"] = last_before(custom_from).isoformat()
+    return out
 
 
-def _resolve_window(conn, strategy: str | None, period: str, end: str | None):
+def _iso(v: str, field: str) -> dt.date:
+    try:
+        return dt.date.fromisoformat(v)
+    except ValueError:
+        raise HTTPException(status_code=400, detail=f"{field} must be an ISO date (YYYY-MM-DD)")
+
+
+def _resolve_window(conn, strategy: str | None, period: str, end: str | None,
+                    start: str | None = None):
+    """Resolve a period key (or a hand-typed `start`/`end`) to BOOK dates.
+
+    `start` applies only to `period=custom` and is the first day the window should INCLUDE; it is
+    resolved through the same `last_before` every preset uses, so a typed window and a preset
+    covering the same days produce the same number. Both bounds are PARSED here rather than passed
+    into SQL as text: the date columns are compared against a cast, so a malformed string would
+    surface as a driver error at query time instead of a 400 naming the field.
+    """
     if period not in PERIOD_KEYS:
         raise HTTPException(status_code=400, detail=f"period must be one of {PERIOD_KEYS}")
+    custom_from = None
+    if period == "custom":
+        if not start:
+            raise HTTPException(
+                status_code=400,
+                detail="period=custom requires `start`: the first day the window should include")
+        custom_from = _iso(start, "start")
+    if end:
+        _iso(end, "end")
     d_end = conn.execute(text("""
         SELECT max(date) FROM trading.book_daily
         WHERE (CAST(:strat AS text) IS NULL OR strategy = :strat)
@@ -1098,12 +1132,18 @@ def _resolve_window(conn, strategy: str | None, period: str, end: str | None):
         {"strat": strategy, "d": end}).scalar()
     if d_end is None:
         return None, None, None
+    # An empty window is a 400, not a silently-clamped one: a caller who asked for August and is
+    # shown September would have no way to tell.
+    if custom_from is not None and custom_from > d_end:
+        raise HTTPException(
+            status_code=400,
+            detail=f"start {custom_from} is after the last book date in range ({d_end})")
     first_invested = conn.execute(text("""
         SELECT min(date) FROM trading.book_daily
         WHERE (CAST(:strat AS text) IS NULL OR strategy = :strat)
           AND (COALESCE(gross_long,0) <> 0 OR COALESCE(gross_short,0) <> 0)"""),
         {"strat": strategy}).scalar()
-    starts = _period_starts(conn, strategy, d_end, first_invested)
+    starts = _period_starts(conn, strategy, d_end, first_invested, custom_from)
     return dt.date.fromisoformat(starts[period]), d_end, starts
 
 
@@ -1175,7 +1215,8 @@ def _mandate_pnl_rows(conn, strategy: str | None, start: dt.date, end: dt.date) 
 
 
 @router.get("/{env}/engines")
-def engines(env: str, strategy: str | None = None, period: str = "incep", end: str | None = None):
+def engines(env: str, strategy: str | None = None, period: str = "incep",
+            start: str | None = None, end: str | None = None):
     """Core vs sleeve over a window, plus the daily cumulative series that draws it.
 
     Contribution is in basis points of the NAV at the window's START — one denominator for every
@@ -1184,7 +1225,7 @@ def engines(env: str, strategy: str | None = None, period: str = "incep", end: s
     """
     _env(env)
     with get_db() as conn:
-        start, d_end, starts = _resolve_window(conn, strategy, period, end)
+        start, d_end, starts = _resolve_window(conn, strategy, period, end, start)
         if start is None:
             return {"env": env, "window": None, "note": "no book yet"}
         navs = {r["date"]: _f(r["nav"]) for r in conn.execute(text("""
@@ -1271,7 +1312,8 @@ def engines(env: str, strategy: str | None = None, period: str = "incep", end: s
 
 @router.get("/{env}/contributors")
 def contributors(env: str, strategy: str | None = None, period: str = "incep",
-                 end: str | None = None, top: int = Query(8, ge=1, le=40)):
+                 start: str | None = None, end: str | None = None,
+                 top: int = Query(8, ge=1, le=40)):
     """Per-engine top contributors and detractors over a window, with what built the number.
 
     The contribution itself is EXACT — the sum of the mandate's share of daily P&L, in bps of the
@@ -1289,7 +1331,7 @@ def contributors(env: str, strategy: str | None = None, period: str = "incep",
     """
     _env(env)
     with get_db() as conn:
-        start, d_end, starts = _resolve_window(conn, strategy, period, end)
+        start, d_end, starts = _resolve_window(conn, strategy, period, end, start)
         if start is None:
             return {"env": env, "window": None, "note": "no book yet"}
         nav0 = _f(conn.execute(text("""
