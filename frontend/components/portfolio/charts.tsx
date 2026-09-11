@@ -145,6 +145,65 @@ export function DrawdownChart({ dates, dd, height = 120, boundaryDate }: { dates
   );
 }
 
+
+/** Per-period bars (daily or bucketed), stacked when more than one group is given, with an optional
+ *  marker per bar (a short horizontal tick at, say, the day's total). Positive parts stack upward from
+ *  zero and negative parts downward, so a mixed day reads as what it is. Built for the paper track's
+ *  "which days did it" row under the cumulative lines: half height, same x-ticks, one legend outside. */
+export function BarSeriesChart({ dates, groups, marker, height = 110, yFmt, markerColor = 'var(--tx)' }: {
+  dates: string[];
+  groups: { label: string; color: string; values: (number | null)[] }[];
+  marker?: { label: string; values: (number | null)[] };
+  height?: number; yFmt: (v: number) => string; markerColor?: string;
+}) {
+  const W = 900, PL = 46, PR = 14, PT = 8, PB = 22;
+  const cw = W - PL - PR, ch = height - PT - PB;
+  const n = dates.length;
+  if (!n) return <div className="text-[11px] dim py-4 text-center">no data</div>;
+  // extent from the stacked tops/bottoms and the marker
+  let mx = 0, mn = 0;
+  for (let i = 0; i < n; i++) {
+    let up = 0, dn = 0;
+    groups.forEach((g) => { const v = g.values[i]; if (v == null) return; if (v >= 0) up += v; else dn += v; });
+    mx = Math.max(mx, up, marker?.values[i] ?? 0); mn = Math.min(mn, dn, marker?.values[i] ?? 0);
+  }
+  if (mx === mn) { mx = 1; mn = -1; }
+  const pad = (mx - mn) * 0.08; mx += pad; mn -= pad;
+  const yAt = (v: number) => PT + ch - ((v - mn) / (mx - mn)) * ch;
+  const slot = cw / n, bw = Math.max(1.5, slot * 0.68);
+  const xAt = (i: number) => PL + slot * i + (slot - bw) / 2;
+  const ticks = Array.from({ length: 3 }, (_, k) => mn + (k / 2) * (mx - mn));
+  const years = xTicks(dates);
+  return (
+    <svg viewBox={`0 0 ${W} ${height}`} className="w-full h-auto">
+      {ticks.map((v, k) => (
+        <g key={k}>
+          <line x1={PL} y1={yAt(v).toFixed(1)} x2={W - PR} y2={yAt(v).toFixed(1)} stroke="var(--border-soft)" strokeWidth="1" />
+          <text x={PL - 6} y={yAt(v) + 3} textAnchor="end" fontSize="8.5" fill="var(--tx-dim)">{yFmt(v)}</text>
+        </g>
+      ))}
+      <line x1={PL} y1={yAt(0).toFixed(1)} x2={W - PR} y2={yAt(0).toFixed(1)} stroke="var(--tx-mut)" strokeWidth="1" opacity="0.7" />
+      {dates.map((d, i) => {
+        let up = 0, dn = 0;
+        return (
+          <g key={d}>
+            {groups.map((g) => {
+              const v = g.values[i]; if (v == null || v === 0) return null;
+              let y0: number, y1: number;
+              if (v >= 0) { y0 = yAt(up + v); y1 = yAt(up); up += v; } else { y0 = yAt(dn); y1 = yAt(dn + v); dn += v; }
+              return <rect key={g.label} x={xAt(i).toFixed(1)} y={y0.toFixed(1)} width={bw.toFixed(1)} height={Math.max(0.5, y1 - y0).toFixed(1)} fill={g.color} opacity={0.88} />;
+            })}
+            {marker && marker.values[i] != null && (
+              <line x1={xAt(i).toFixed(1)} y1={yAt(marker.values[i] as number).toFixed(1)} x2={(xAt(i) + bw).toFixed(1)} y2={yAt(marker.values[i] as number).toFixed(1)} stroke={markerColor} strokeWidth="1.6" />
+            )}
+          </g>
+        );
+      })}
+      {years.map(({ i, label }) => <text key={label + i} x={xAt(i) + bw / 2} y={height - 6} textAnchor="middle" fontSize="9" fill="var(--tx-dim)">{label}</text>)}
+    </svg>
+  );
+}
+
 interface LineSeries { label: string; color: string; values: (number | null)[]; dash?: boolean; }
 
 /** Generic multi-line time series with a horizontal reference line (rolling IR, batting avg, etc.). */

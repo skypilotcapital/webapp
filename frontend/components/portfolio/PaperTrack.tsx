@@ -51,7 +51,7 @@ import {
   type PaperEngines, type PaperNavResponse, type PaperBookResponse, type PaperFidelity,
   type PaperShortfall, type PaperRecon, type PaperCorporateActions,
 } from '@/lib/paper';
-import { CumulativeChart, MultiLineChart } from '@/components/portfolio/charts';
+import { CumulativeChart, MultiLineChart, BarSeriesChart } from '@/components/portfolio/charts';
 import { BookRisk } from '@/components/portfolio/BookRisk';
 
 // Break kinds, in the order a reader should scan them. `price` first because it is the expected
@@ -376,6 +376,9 @@ function PerformanceBand({ nav, eng, ctb, period, setPeriod }: {
         </div>
       </div>
 
+      {/* The "which days did it" row: same window, same x-axis, half the height. */}
+      <DailyBars sl={sl} eng={eng} mandates={eng?.by_mandate.map((m) => m.mandate) ?? []} />
+
       {nav.stats_suppressed && (
         <div className="text-[10.5px] mt-3 p-2 rounded" style={{ background: 'var(--panel2)', color: 'var(--tx-mut)' }}>
           <b>No ratio statistics.</b> {nav.reason}. Sharpe, information ratio and drawdown statistics
@@ -435,6 +438,96 @@ function PerformanceBand({ nav, eng, ctb, period, setPeriod }: {
 
       {/* ---- contributors ---- */}
       <Contributors ctb={ctb} />
+    </div>
+  );
+}
+
+/* ------------------------------------------------------------- per-period bars ---- */
+// Daily bars read well to about three months; past that, two hundred hairline bars are texture, not
+// information, so buckets become calendar weeks (labelled by the week's last book date) and the
+// caption says so. Values are basis points and are SUMMED within a bucket — arithmetic, not
+// compounded, which at daily magnitudes is a rounding difference and keeps stacks additive.
+const DAILY_MAX = 65;
+
+function bucketize(dates: string[], series: (number | null)[][]): { dates: string[]; series: (number | null)[][]; weekly: boolean } {
+  if (dates.length <= DAILY_MAX) return { dates, series, weekly: false };
+  const keyOf = (d: string) => {
+    const dt = new Date(d + 'T00:00:00Z');
+    const monday = new Date(dt); monday.setUTCDate(dt.getUTCDate() - ((dt.getUTCDay() + 6) % 7));
+    return monday.toISOString().slice(0, 10);
+  };
+  const outDates: string[] = []; const out: (number | null)[][] = series.map(() => []);
+  let cur = ''; let idx = -1;
+  dates.forEach((d, i) => {
+    const k = keyOf(d);
+    if (k !== cur) { cur = k; idx++; outDates.push(d); series.forEach((_, si) => out[si].push(null)); }
+    else outDates[idx] = d;
+    series.forEach((sv, si) => { const v = sv[i]; if (v != null) out[si][idx] = (out[si][idx] ?? 0) + v; });
+  });
+  return { dates: outDates, series: out, weekly: true };
+}
+
+function DailyBars({ sl, eng, mandates }: {
+  sl: { date: string; nav_idx: number | null; bench_idx: number | null }[];
+  eng?: PaperEngines; mandates: string[];
+}) {
+  // Left: daily ACTIVE return (book − index) as one series, the index's own move as a marker.
+  const dDates: string[] = [], active: (number | null)[] = [], index: (number | null)[] = [];
+  for (let i = 1; i < sl.length; i++) {
+    const a = sl[i - 1], b = sl[i];
+    const rb = a.nav_idx && b.nav_idx ? (b.nav_idx / a.nav_idx - 1) * 1e4 : null;
+    const ri = a.bench_idx && b.bench_idx ? (b.bench_idx / a.bench_idx - 1) * 1e4 : null;
+    dDates.push(b.date); index.push(ri); active.push(rb != null && ri != null ? rb - ri : null);
+  }
+  const L = bucketize(dDates, [active, index]);
+
+  // Right: the day's P&L by engine (diff of the cumulative series), stacked, book total as marker.
+  let R: { dates: string[]; series: (number | null)[][]; weekly: boolean } | null = null;
+  if (eng?.series?.length && eng.series.length > 1) {
+    const keys = [...mandates, 'cash_other'];
+    const eDates: string[] = []; const parts: (number | null)[][] = keys.map(() => []); const tot: (number | null)[] = [];
+    for (let i = 1; i < eng.series.length; i++) {
+      const a = eng.series[i - 1], b = eng.series[i];
+      eDates.push(b.date);
+      keys.forEach((k, ki) => {
+        const va = a[k] as number | null, vb = b[k] as number | null;
+        parts[ki].push(va != null && vb != null ? vb - va : null);
+      });
+      tot.push(a.book != null && b.book != null ? b.book - a.book : null);
+    }
+    R = bucketize(eDates, [...parts, tot]);
+  }
+  const bp = (v: number) => `${v >= 0 ? '+' : ''}${v.toFixed(0)}`;
+  const unit = L.weekly ? 'weekly' : 'daily';
+  return (
+    <div className="grid lg:grid-cols-2 gap-5 mt-2">
+      <div>
+        <div className="text-[10px] font-bold tracking-[1.5px] mb-1" style={{ color: 'var(--tx-dim)' }}>
+          {unit.toUpperCase()} ACTIVE RETURN · bp · bars = book − index · tick = the index&apos;s own move
+        </div>
+        <BarSeriesChart dates={L.dates} yFmt={bp}
+          groups={[{ label: 'active', color: 'var(--teal)', values: L.series[0] }]}
+          marker={{ label: 'S&P 500 TR', values: L.series[1] }} markerColor="var(--tx-dim)" />
+      </div>
+      <div>
+        <div className="text-[10px] font-bold tracking-[1.5px] mb-1" style={{ color: 'var(--tx-dim)' }}>
+          {unit.toUpperCase()} P&amp;L BY ENGINE · bp of start NAV · stacked · tick = book total
+        </div>
+        {R ? (
+          <BarSeriesChart dates={R.dates} yFmt={bp}
+            groups={[
+              ...mandates.map((m, i) => ({ label: MANDATE_NAME[m] ?? m, color: MANDATE_COLOR[m] ?? 'var(--tx)', values: R!.series[i] })),
+              { label: MANDATE_NAME.cash_other, color: 'var(--tx-dim)', values: R.series[mandates.length] },
+            ]}
+            marker={{ label: 'book', values: R.series[mandates.length + 1] }} />
+        ) : <Muted>loading…</Muted>}
+      </div>
+      <div className="lg:col-span-2 text-[10px] -mt-3" style={{ color: 'var(--tx-dim)' }}>
+        {L.weekly
+          ? 'Bucketed to calendar weeks (labelled by the week\'s last book date) because the window is longer than three months; bp summed within a week.'
+          : 'One bar per book date.'}{' '}
+        A single large bar on a book this young is a day, not a finding — the no-ratio-statistics rule above applies here too.
+      </div>
     </div>
   );
 }
