@@ -472,62 +472,69 @@ function DailyBars({ sl, eng, mandates }: {
   sl: { date: string; nav_idx: number | null; bench_idx: number | null }[];
   eng?: PaperEngines; mandates: string[];
 }) {
-  // Left: daily ACTIVE return (book − index) as one series, the index's own move as a marker.
-  const dDates: string[] = [], active: (number | null)[] = [], index: (number | null)[] = [];
+  // Left: the book's EXCESS return per period (book − index), one series, nothing else — the
+  // owner's read of the first version was that the index tick made it busy without adding a
+  // question the line chart above does not already answer.
+  const dDates: string[] = [], active: (number | null)[] = [];
   for (let i = 1; i < sl.length; i++) {
     const a = sl[i - 1], b = sl[i];
     const rb = a.nav_idx && b.nav_idx ? (b.nav_idx / a.nav_idx - 1) * 1e4 : null;
     const ri = a.bench_idx && b.bench_idx ? (b.bench_idx / a.bench_idx - 1) * 1e4 : null;
-    dDates.push(b.date); index.push(ri); active.push(rb != null && ri != null ? rb - ri : null);
+    dDates.push(b.date); active.push(rb != null && ri != null ? rb - ri : null);
   }
-  const L = bucketize(dDates, [active, index]);
+  const L = bucketize(dDates, [active]);
 
-  // Right: the day's P&L by engine (diff of the cumulative series), stacked, book total as marker.
+  // Right: each engine's EXCESS return, side by side. The core runs at 1.0× against the S&P 500,
+  // so its excess is its contribution minus the index's move; the sleeve is market-neutral
+  // against cash, so its excess is its own contribution. Grouped, not stacked: the two are not
+  // parts of one total once the index is taken out of only one of them.
   let R: { dates: string[]; series: (number | null)[][]; weekly: boolean } | null = null;
   if (eng?.series?.length && eng.series.length > 1) {
-    const keys = [...mandates, 'cash_other'];
-    const eDates: string[] = []; const parts: (number | null)[][] = keys.map(() => []); const tot: (number | null)[] = [];
+    const eDates: string[] = []; const core: (number | null)[] = []; const sleeve: (number | null)[] = [];
     for (let i = 1; i < eng.series.length; i++) {
       const a = eng.series[i - 1], b = eng.series[i];
       eDates.push(b.date);
-      keys.forEach((k, ki) => {
-        const va = a[k] as number | null, vb = b[k] as number | null;
-        parts[ki].push(va != null && vb != null ? vb - va : null);
-      });
-      tot.push(a.book != null && b.book != null ? b.book - a.book : null);
+      const dc = (a.core as number | null) != null && (b.core as number | null) != null ? (b.core as number) - (a.core as number) : null;
+      const db = a.bench != null && b.bench != null ? b.bench - a.bench : null;
+      const ds = (a.sleeve as number | null) != null && (b.sleeve as number | null) != null ? (b.sleeve as number) - (a.sleeve as number) : null;
+      core.push(dc != null && db != null ? dc - db : null);
+      sleeve.push(ds);
     }
-    R = bucketize(eDates, [...parts, tot]);
+    R = bucketize(eDates, [core, sleeve]);
   }
   const bp = (v: number) => `${v >= 0 ? '+' : ''}${v.toFixed(0)}`;
-  const unit = L.weekly ? 'weekly' : 'daily';
+  const unit = L.weekly ? 'WEEKLY' : 'DAILY';
   return (
     <div className="grid lg:grid-cols-2 gap-5 mt-2">
       <div>
         <div className="text-[10px] font-bold tracking-[1.5px] mb-1" style={{ color: 'var(--tx-dim)' }}>
-          {unit.toUpperCase()} ACTIVE RETURN · bp · bars = book − index · tick = the index&apos;s own move
+          {unit + ' EXCESS RETURN · bp · book − S&P 500 TR'}
         </div>
         <BarSeriesChart dates={L.dates} yFmt={bp}
-          groups={[{ label: 'active', color: 'var(--teal)', values: L.series[0] }]}
-          marker={{ label: 'S&P 500 TR', values: L.series[1] }} markerColor="var(--tx-dim)" />
+          groups={[{ label: 'excess', color: 'var(--teal)', values: L.series[0] }]} />
       </div>
       <div>
         <div className="text-[10px] font-bold tracking-[1.5px] mb-1" style={{ color: 'var(--tx-dim)' }}>
-          {unit.toUpperCase()} P&amp;L BY ENGINE · bp of start NAV · stacked · tick = book total
+          {unit + ' EXCESS RETURN BY ENGINE · bp of start NAV · side by side'}
         </div>
         {R ? (
-          <BarSeriesChart dates={R.dates} yFmt={bp}
-            groups={[
-              ...mandates.map((m, i) => ({ label: MANDATE_NAME[m] ?? m, color: MANDATE_COLOR[m] ?? 'var(--tx)', values: R!.series[i] })),
-              { label: MANDATE_NAME.cash_other, color: 'var(--tx-dim)', values: R.series[mandates.length] },
-            ]}
-            marker={{ label: 'book', values: R.series[mandates.length + 1] }} />
+          <>
+            <BarSeriesChart dates={R.dates} yFmt={bp} grouped
+              groups={[
+                { label: 'LO core − index', color: MANDATE_COLOR.core, values: R.series[0] },
+                { label: 'L/S sleeve (vs cash)', color: MANDATE_COLOR.sleeve, values: R.series[1] },
+              ]} />
+            <Legend items={[['LO core − index', MANDATE_COLOR.core], ['L/S sleeve (vs cash)', MANDATE_COLOR.sleeve]]} />
+          </>
         ) : <Muted>loading…</Muted>}
       </div>
       <div className="lg:col-span-2 text-[10px] -mt-3" style={{ color: 'var(--tx-dim)' }}>
         {L.weekly
           ? 'Bucketed to calendar weeks (labelled by the week\'s last book date) because the window is longer than three months; bp summed within a week.'
           : 'One bar per book date.'}{' '}
-        A single large bar on a book this young is a day, not a finding — the no-ratio-statistics rule above applies here too.
+        Core excess = its contribution minus the index (it runs at 1.0× against the S&P 500); sleeve excess = its
+        contribution (market-neutral against cash). Cash &amp; financing is not in either bar. A single large bar on a
+        book this young is a day, not a finding — the no-ratio-statistics rule above applies here too.
       </div>
     </div>
   );

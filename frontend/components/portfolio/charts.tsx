@@ -150,11 +150,13 @@ export function DrawdownChart({ dates, dd, height = 120, boundaryDate }: { dates
  *  marker per bar (a short horizontal tick at, say, the day's total). Positive parts stack upward from
  *  zero and negative parts downward, so a mixed day reads as what it is. Built for the paper track's
  *  "which days did it" row under the cumulative lines: half height, same x-ticks, one legend outside. */
-export function BarSeriesChart({ dates, groups, marker, height = 110, yFmt, markerColor = 'var(--tx)' }: {
+export function BarSeriesChart({ dates, groups, marker, height = 110, yFmt, markerColor = 'var(--tx)', grouped = false }: {
   dates: string[];
   groups: { label: string; color: string; values: (number | null)[] }[];
   marker?: { label: string; values: (number | null)[] };
   height?: number; yFmt: (v: number) => string; markerColor?: string;
+  /** Side-by-side bars per period instead of a stack — for series that are not parts of one total. */
+  grouped?: boolean;
 }) {
   const W = 900, PL = 46, PR = 14, PT = 8, PB = 22;
   const cw = W - PL - PR, ch = height - PT - PB;
@@ -164,7 +166,10 @@ export function BarSeriesChart({ dates, groups, marker, height = 110, yFmt, mark
   let mx = 0, mn = 0;
   for (let i = 0; i < n; i++) {
     let up = 0, dn = 0;
-    groups.forEach((g) => { const v = g.values[i]; if (v == null) return; if (v >= 0) up += v; else dn += v; });
+    groups.forEach((g) => {
+      const v = g.values[i]; if (v == null) return;
+      if (grouped) { up = Math.max(up, v); dn = Math.min(dn, v); } else if (v >= 0) up += v; else dn += v;
+    });
     mx = Math.max(mx, up, marker?.values[i] ?? 0); mn = Math.min(mn, dn, marker?.values[i] ?? 0);
   }
   if (mx === mn) { mx = 1; mn = -1; }
@@ -185,13 +190,16 @@ export function BarSeriesChart({ dates, groups, marker, height = 110, yFmt, mark
       <line x1={PL} y1={yAt(0).toFixed(1)} x2={W - PR} y2={yAt(0).toFixed(1)} stroke="var(--tx-mut)" strokeWidth="1" opacity="0.7" />
       {dates.map((d, i) => {
         let up = 0, dn = 0;
+        const gw = grouped ? bw / groups.length : bw;
         return (
           <g key={d}>
-            {groups.map((g) => {
+            {groups.map((g, gi) => {
               const v = g.values[i]; if (v == null || v === 0) return null;
               let y0: number, y1: number;
-              if (v >= 0) { y0 = yAt(up + v); y1 = yAt(up); up += v; } else { y0 = yAt(dn); y1 = yAt(dn + v); dn += v; }
-              return <rect key={g.label} x={xAt(i).toFixed(1)} y={y0.toFixed(1)} width={bw.toFixed(1)} height={Math.max(0.5, y1 - y0).toFixed(1)} fill={g.color} opacity={0.88} />;
+              if (grouped) { y0 = yAt(Math.max(v, 0)); y1 = yAt(Math.min(v, 0)); }
+              else if (v >= 0) { y0 = yAt(up + v); y1 = yAt(up); up += v; } else { y0 = yAt(dn); y1 = yAt(dn + v); dn += v; }
+              const x = grouped ? xAt(i) + gi * gw : xAt(i);
+              return <rect key={g.label} x={x.toFixed(1)} y={y0.toFixed(1)} width={Math.max(0.8, gw - (grouped ? 0.6 : 0)).toFixed(1)} height={Math.max(0.5, y1 - y0).toFixed(1)} fill={g.color} opacity={0.88} />;
             })}
             {marker && marker.values[i] != null && (
               <line x1={xAt(i).toFixed(1)} y1={yAt(marker.values[i] as number).toFixed(1)} x2={(xAt(i) + bw).toFixed(1)} y2={yAt(marker.values[i] as number).toFixed(1)} stroke={markerColor} strokeWidth="1.6" />
