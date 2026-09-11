@@ -81,9 +81,10 @@ const MANDATE_COLOR: Record<string, string> = { core: 'var(--teal)', sleeve: '#b
 // Owner's set (2026-09-10 review): "since rebalance" dropped (month-to-date covers it on a monthly
 // book); trailing windows added so the page grows into them — they collapse onto inception and
 // render greyed until the book is old enough. "Last day" = the latest marked book date.
+// 2026-09-10 (later): "last day" and "week to date" replaced by trailing 5 book dates — the same
+// shape every weekday; the day's own P&L stays in the Status band.
 const PERIODS: { key: PeriodKey; label: string }[] = [
-  { key: '1d', label: 'Last day' },
-  { key: 'wtd', label: 'Week to date' },
+  { key: '5d', label: 'Trailing 5D' },
   { key: 'mtd', label: 'Month to date' },
   { key: '1m', label: 'Trailing 1M' },
   { key: '3m', label: 'Trailing 3M' },

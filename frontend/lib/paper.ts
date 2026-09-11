@@ -78,9 +78,9 @@ export interface PaperNavPoint {
 /** Window boundaries every performance section shares. A window is `(start, end]` on BOOK dates:
  *  `start` is the close it is measured FROM. Resolved once, server-side, so the chart, the engine
  *  split and the contributor tables describe the same days. */
-export type PeriodKey = '1d' | 'wtd' | 'mtd' | '1m' | '3m' | 'since_reb' | 'incep';
+export type PeriodKey = '1d' | '5d' | 'wtd' | 'mtd' | '1m' | '3m' | 'since_reb' | 'incep';
 export interface PaperPeriods {
-  '1d': string; wtd: string; mtd: string; '1m': string; '3m': string; since_reb: string;
+  '1d': string; '5d': string; wtd: string; mtd: string; '1m': string; '3m': string; since_reb: string;
   incep: string; end: string;
   last_rebalance_date: string | null;
 }

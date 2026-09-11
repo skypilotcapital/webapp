@@ -1022,7 +1022,7 @@ def exposures(env: str, strategy: str | None = None, date: str | None = None):
 # `(start, end]` convention as the monthly report: `start` is the close the window is measured
 # FROM, so a window's P&L is the sum of `pnl_d` on book dates strictly after it.
 
-PERIOD_KEYS = ("1d", "wtd", "mtd", "1m", "3m", "since_reb", "incep")
+PERIOD_KEYS = ("1d", "5d", "wtd", "mtd", "1m", "3m", "since_reb", "incep")
 
 
 def _months_back(d: dt.date, n: int) -> dt.date:
@@ -1071,6 +1071,9 @@ def _period_starts(conn, strategy: str | None, end: dt.date, first_invested: dt.
     monday = end - dt.timedelta(days=end.weekday())
     return {
         "1d": last_before(end).isoformat(),
+        # Trailing 5 BOOK dates (owner, 2026-09-10): always five bars, unlike week-to-date, which is
+        # one bar on a Monday and five on a Friday. The close five book dates back is the start.
+        "5d": (max(dates[-6], base) if len(dates) >= 6 else base).isoformat(),
         "wtd": last_before(monday).isoformat(),
         "mtd": last_before(end.replace(day=1)).isoformat(),
         # Trailing windows: the close on (or the last one before) the same calendar day one / three
