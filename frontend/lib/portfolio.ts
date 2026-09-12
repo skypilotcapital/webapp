@@ -188,7 +188,8 @@ export function buildCompareConfigs(rows: PortfolioBacktest[]): CompareConfig[] 
       r0.te_target != null ? `TE ${(r0.te_target * 100).toFixed(0)}%` : 'no-TE',
       r0.sector_tol != null ? `sec ±${(r0.sector_tol * 100).toFixed(0)}%` : 'sec off',
       `turn ${fmtTurn(r0.turnover_cap)}`,
-    ].join(' · ');
+      r0.smooth ? `smoothed ${r0.smooth}` : null,
+    ].filter(Boolean).join(' · ');
     out.push({
       key, label, variant: r0.variant, strategy: r0.strategy,
       te: r0.te_target, sec: r0.sector_tol, to: r0.turnover_cap, rows: modelRows,
@@ -196,7 +197,8 @@ export function buildCompareConfigs(rows: PortfolioBacktest[]): CompareConfig[] 
   }
   const rank = (v: string | null) => (v === 'hard' ? 0 : v === 'base' ? 1 : 2);
   out.sort((a, b) =>
-    rank(a.variant) - rank(b.variant) || b.rows.length - a.rows.length || (a.to ?? 9) - (b.to ?? 9));
+    rank(a.variant) - rank(b.variant) || (a.rows[0].smooth ? 1 : 0) - (b.rows[0].smooth ? 1 : 0)
+    || b.rows.length - a.rows.length || (a.to ?? 9) - (b.to ?? 9));
   return out;
 }
 
