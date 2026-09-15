@@ -10,7 +10,10 @@ export const pctSign = (v: number | null | undefined, d = 1) =>
 export const num = (v: number | null | undefined, d = 2) =>
   v == null || isNaN(v) ? '—' : v.toFixed(d);
 
-export const PRIMARY_MODEL: Record<string, string> = { sp500: 'N014', r2500: 'NR002' };
+// The model whose turnover sweep the Explorer shows per universe. sp500 moved N014 -> N005 with
+// the 2026-09 core re-lock (`[05-EWMA]`): the production book's signal IS N005 now, and a sweep
+// keyed on the old blend would compare the live strategy against a family it no longer belongs to.
+export const PRIMARY_MODEL: Record<string, string> = { sp500: 'N005', r2500: 'NR002' };
 
 export function fmtSector(v: number | null): string {
   return v == null ? 'off' : `±${(v * 100).toFixed(0)}%`;
