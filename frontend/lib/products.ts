@@ -6,7 +6,7 @@
 //
 // PRODUCTION = THE BOOK WE HOLD, and nothing else (owner, 2026-08-02, `[10-OT7]`).
 // Exactly one label carries `is_production`: the te6-sleeve S&P 500 Extension, the book traded in
-// the IBKR paper account. Everything else here — including the N005 core and the te6 R2500 L/S
+// the IBKR paper account. Everything else here — including the N014 core and the te6 R2500 L/S
 // sleeve that the traded extension is BUILT FROM — is a production candidate. They are not lesser
 // books; the flag simply answers "what do we hold?", not "what have we locked". All of them
 // continue to rebuild monthly (`monthly_production_run.BOOKS` / `build_blend_portfolio.BLENDS`);
@@ -79,12 +79,13 @@ export const PRODUCTS: ProductDef[] = [
     // (`[10-OT7]`) — still config-locked, still rebuilt monthly, simply not a book we hold standalone.
     slug: 'sp500', name: 'S&P 500 · Long-Only', short: 'S&P 500 LO',
     universe: 'sp500', strategy: 'long_only', track: 'candidate',
-    // v4 (2026-09-15, `[05-EWMA]`): the signal became N005 ALONE + EWMA 0.6 alpha smoothing, and the
-    // interim spread pin came out. The v3 (N014 blend) labels stay browsable in Research but are no
+    // v4 (2026-09-15, `[05-EWMA]`): the book gained EWMA 0.6 alpha smoothing and lost the interim
+    // spread pin. The SIGNAL is unchanged — still the N014 70/30 blend. The v3 labels stay
+    // browsable in Research but are no
     // longer what we build. ⚠️ `_v4_full_rc5` is the canonical core; trading/config.py names the same
     // label — keep them equal, the freeze asserts against the DB row not against this file.
-    fullLabel: 'n005_sp500_LOCKED_relcap_ewma60_v4_full_rc5_lam0.5_te3_sec3_tonone',
-    blurb: 'The equity core of the S&P 500 Extension, tracked standalone. Cost-aware N005 with EWMA 0.6 alpha smoothing · TE 3% · sector ±3% · net of realistic cost @ $5M. The smoothing is the turnover brake: same economics as the blend it replaced, about a third less trading.',
+    fullLabel: 'n014_sp500_LOCKED_relcap_ewma60_v4_full_rc5_lam0.5_te3_sec3_tonone',
+    blurb: 'The equity core of the S&P 500 Extension, tracked standalone. Cost-aware N014 (70/30 1M/3M blend) with EWMA 0.6 alpha smoothing · TE 3% · sector ±3% · net of realistic cost @ $5M. The smoothing is the turnover brake: same economics as the blend it replaced, about a third less trading.',
   },
   {
     // The DRAWDOWN-MANAGED standalone market-neutral product. Same signal and construction as the
@@ -128,8 +129,8 @@ export const PRODUCTS: ProductDef[] = [
     // 15.4%/0.88) and losing that comparison would hide what the te6 choice actually costs.
     slug: 'sp500-ext', name: 'S&P 500 · Extension 150/50 (te8 sleeve)', short: 'S&P 500 Ext · te8',
     universe: 'sp500', strategy: 'ext', track: 'candidate',
-    fullLabel: 'ext_sp500_n005_te8_150_50_v4_full_rc1', costAum: 1,
-    blurb: 'Production candidate · te8 (8% vol) sleeve twin of the traded extension · same N005 core + 50% R2500 L/S overlay · benchmarked to S&P 500 TR · net of realistic cost @ $1M. Higher average return than the te6 book we trade, but more exposed to a 2025-style junk rally.',
+    fullLabel: 'ext_sp500_n014_te8_150_50_v4_full_rc1', costAum: 1,
+    blurb: 'Production candidate · te8 (8% vol) sleeve twin of the traded extension · same N014 core + 50% R2500 L/S overlay · benchmarked to S&P 500 TR · net of realistic cost @ $1M. Higher average return than the te6 book we trade, but more exposed to a 2025-style junk rally.',
   },
   {
     // ★ THE PRODUCTION BOOK — the portfolio held in the IBKR paper account, and the only label
@@ -142,10 +143,10 @@ export const PRODUCTS: ProductDef[] = [
     // through the one regime we know breaks it. See r2500_ls_extension.md §5c.
     slug: 'sp500-ext-te6', name: 'S&P 500 · Extension 150/50 (te6 sleeve)', short: 'S&P 500 Ext · te6',
     universe: 'sp500', strategy: 'ext', track: 'production',
-    fullLabel: 'ext_sp500_n005_te6_150_50_v4_full_rc1', costAum: 1,
+    fullLabel: 'ext_sp500_n014_te6_150_50_v4_full_rc1', costAum: 1,
     // The only product with an account behind it. First executed 2026-08-07 (rebalance 13).
     paperStrategy: 'sp500_ext_150_50_te6',
-    blurb: 'The book we trade · 150/50 extension: S&P 500 core (N005 + EWMA 0.6 smoothing) + 50% R2500 L/S sleeve at the te6 (6% vol, drawdown-managed) target as a portable-alpha overlay · benchmarked to S&P 500 TR · net of realistic cost @ $1M (the paper-account size). Enhanced-equity: full equity drawdowns, alpha layered on top.',
+    blurb: 'The book we trade · 150/50 extension: S&P 500 core (N014 + EWMA 0.6 smoothing) + 50% R2500 L/S sleeve at the te6 (6% vol, drawdown-managed) target as a portable-alpha overlay · benchmarked to S&P 500 TR · net of realistic cost @ $1M (the paper-account size). Enhanced-equity: full equity drawdowns, alpha layered on top.',
   },
   {
     // RESEARCH/PAPER — same-universe 130/30 extension: R2500 long-only core + a 50% R2500 L/S overlay.

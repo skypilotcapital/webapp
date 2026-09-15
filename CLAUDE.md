@@ -140,8 +140,8 @@ The `models/scorecard` universe filter: `russell2500` = NR* only, `sp500` = neit
 
 Strategy-centric **tracking** surface, separate from the in-sample Research hub (Research = choose ·
 Portfolios = track). New top-level sidebar item `/portfolios` → landing with one card per `is_production`
-finalist (SP500 N005 LO · R2500 NR012 L/S — the SP500 core's signal moved N014 -> N005 + EWMA 0.6
-on 2026-09-15, `[05-EWMA]`): in-sample 2005–2023 headline + labeled OOS live-to-date +
+finalist (SP500 N014 LO · R2500 NR012 L/S — the SP500 core gained EWMA 0.6 smoothing on
+2026-09-15, `[05-EWMA]`; the signal stayed the N014 blend): in-sample 2005–2023 headline + labeled OOS live-to-date +
 full-track spark with an in-sample/OOS boundary. Card → `/portfolios/[strategy]` (`sp500` | `r2500-ls`),
 which renders the **modeled-paper track** = the `*_LOCKED_v2_full` label (the book continued out-of-sample
 to 2026-03) with a track selector (Modeled paper now; IBKR paper / Live = "soon"). `lib/products.ts` = the
