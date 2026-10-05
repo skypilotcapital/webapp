@@ -248,7 +248,7 @@ export function RebalanceReview({ env, id }: { env: string; id: number }) {
           working surface: sortable, filterable by sleeve, carrying the company name so you are
           checking a business rather than a symbol. */}
       {plan && plan.plan.length > 0 && (
-        <TradePlanTable plan={plan} />
+        <TradePlanTable plan={plan} env={env} id={id} />
       )}
 
       {/* (e) What actually happened. Renders itself away when there are no orders — a rebalance

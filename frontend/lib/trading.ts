@@ -204,8 +204,15 @@ export const fetchSessions = (env: string, limit = 24) =>
 
 // A plain link, not a fetch: the browser should stream the download and honour the filename the
 // server sets, rather than us buffering a file in memory and re-inventing Content-Disposition.
+// ⚠️ THROUGH API_BASE like every fetch in this file. This href was a bare `/api/v1/...`, which no
+// route on the site serves — the blotter's "download CSV" link 404'd in production (found
+// 2026-10-05). The API lives behind the `/api-proxy` rewrite (next.config.ts).
 export const blotterCsvHref = (env: string, id: number) =>
-  `/api/v1/trading/${env}/rebalances/${id}/blotter.csv`;
+  `${API_BASE}/api/v1/trading/${env}/rebalances/${id}/blotter.csv`;
+
+/** The review page's trade table as CSV — same rows, holds included, plus a SEND/DUST/HOLD column. */
+export const planCsvHref = (env: string, id: number, kind: 'preview' | 'final' = 'preview') =>
+  `${API_BASE}/api/v1/trading/${env}/rebalances/${id}/plan.csv?kind=${kind}`;
 
 export const fetchBlotter = (env: string, id: number) =>
   get<Blotter>(`/api/v1/trading/${env}/rebalances/${id}/blotter`);

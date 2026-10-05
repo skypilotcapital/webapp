@@ -1,7 +1,7 @@
 'use client';
 
 import { useMemo, useState } from 'react';
-import type { PlanResponse, PlanRow } from '@/lib/trading';
+import { planCsvHref, type PlanResponse, type PlanRow } from '@/lib/trading';
 
 // The pre-trade working surface. It arrives sorted by size because that is what a PM checks first,
 // but every column sorts: "which names am I selling", "what is the biggest short", "is anything
@@ -75,7 +75,7 @@ const NEEDS_BORROW = new Set(['open_short', 'add_short', 'flip_short']);
 const inSleeve = (r: PlanRow, tag: 'core' | 'sleeve' | 'unknown') =>
   r.sleeve === tag || (r.sleeve === 'composite' && r.mandate_wt != null && tag in r.mandate_wt);
 
-export function TradePlanTable({ plan }: { plan: PlanResponse }) {
+export function TradePlanTable({ plan, env, id }: { plan: PlanResponse; env: string; id: number }) {
   const [sort, setSort] = useState<{ key: Key; dir: 1 | -1 }>({ key: 'est_notional', dir: -1 });
   const [only, setOnly] = useState<'all' | 'core' | 'sleeve'>('all');
   const [action, setAction] = useState<string | null>(null);
@@ -143,15 +143,24 @@ export function TradePlanTable({ plan }: { plan: PlanResponse }) {
             PREVIEW — recomputed at submission
           </span>
         </h2>
-        {/* The overlay switch. Labelled with the hold count so that turning it on is a decision
-            about a known quantity, not a guess at what is hidden. */}
-        <button onClick={() => setView((v) => (v === 'changes' ? 'book' : 'changes'))}
-                className="px-2 py-1 rounded text-[11px] border border-[var(--border-soft)]
-                           text-[var(--tx-mut)] hover:text-[var(--teal)]">
-          {view === 'changes'
-            ? `Show full book (+${nHold} held at target)`
-            : 'Show changes only'}
-        </button>
+        <div className="flex items-center gap-3">
+          {/* The whole plan, whatever the filters on screen say — a file that silently carried
+              only the current sleeve tab would be a different book from its own filename. */}
+          <a href={planCsvHref(env, id, plan.kind)}
+             className="text-[11px] font-semibold hover:underline" style={{ color: 'var(--teal)' }}
+             title="Every row of this plan, holds included, with a SEND / DUST / HOLD column">
+            Download trade list (CSV) ↓
+          </a>
+          {/* The overlay switch. Labelled with the hold count so that turning it on is a decision
+              about a known quantity, not a guess at what is hidden. */}
+          <button onClick={() => setView((v) => (v === 'changes' ? 'book' : 'changes'))}
+                  className="px-2 py-1 rounded text-[11px] border border-[var(--border-soft)]
+                             text-[var(--tx-mut)] hover:text-[var(--teal)]">
+            {view === 'changes'
+              ? `Show full book (+${nHold} held at target)`
+              : 'Show changes only'}
+          </button>
+        </div>
       </div>
 
       {/* Always open. This is the working surface — hiding it behind a toggle put a click between

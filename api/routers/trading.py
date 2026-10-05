@@ -356,6 +356,51 @@ def rebalance_plan(env: str, rebalance_id: int,
             }}
 
 
+# One row per plan row, in the screen's language. Built FROM `rebalance_plan` rather than a second
+# query, for the same reason as the blotter export: a download that can disagree with the table it
+# was downloaded from is worse than no download.
+_PLAN_CSV_COLS = ["status", "ticker", "company", "sector", "industry", "sleeve", "sleeve_src",
+                  "action", "side", "current_qty", "target_qty", "delta", "price", "price_src",
+                  "ref_price", "est_notional", "weight", "prior_wt", "prior_mandate", "note",
+                  "conid", "isin", "planned_at"]
+
+
+@router.get("/{env}/rebalances/{rebalance_id}/plan.csv")
+def rebalance_plan_csv(env: str, rebalance_id: int,
+                       kind: str = Query("preview", pattern="^(preview|final)$")):
+    """The trade table as CSV — every row the review page's table holds, holds included.
+
+    `status` is the one derived column, so a spreadsheet filter answers the first question without
+    decoding side/dust: SEND (an order), DUST (planned, below the minimum trade, not sent), HOLD.
+    `kind` is in the filename as well as the query: a preview is a rehearsal at the quotes of the
+    moment it was computed, the final plan is the contract — a file must not let one pass for the
+    other once it has left the page.
+    """
+    data = rebalance_plan(env, rebalance_id, kind)
+    rows = data["plan"]
+    if not rows:
+        raise HTTPException(status_code=404, detail=(
+            f"no {kind} plan for rebalance {rebalance_id} yet — the preview is stored by the "
+            f"pre-trade review, the final plan by the first --execute"))
+
+    def status(r):
+        if r.get("dust_filtered"):
+            return "DUST"
+        return "SEND" if r.get("side") and float(r.get("delta") or 0) != 0 else "HOLD"
+
+    order = {"SEND": 0, "DUST": 1, "HOLD": 2}
+    rows = sorted(rows, key=lambda r: (order[status(r)], -abs(float(r.get("est_notional") or 0))))
+    buf = io.StringIO()
+    w = csv.DictWriter(buf, fieldnames=_PLAN_CSV_COLS, extrasaction="ignore")
+    w.writeheader()
+    for r in rows:
+        w.writerow({**{k: r.get(k) for k in _PLAN_CSV_COLS}, "status": status(r)})
+    stamp = max((str(r["planned_at"])[:10] for r in rows if r.get("planned_at")), default="unknown")
+    name = f"trade_plan_{kind}_rebalance{rebalance_id}_{stamp}.csv"
+    return Response(content=buf.getvalue(), media_type="text/csv",
+                    headers={"Content-Disposition": f'attachment; filename="{name}"'})
+
+
 @router.get("/{env}/rebalances/{rebalance_id}/exposures")
 def rebalance_exposures(env: str, rebalance_id: int):
     """§3.9 — what the frozen book is BETTING ON, per sleeve, before you approve it.
