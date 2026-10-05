@@ -401,11 +401,13 @@ export const fetchGrossExposure = (env: string, id: number, history = 24) =>
 /** WHAT CHANGES IF I APPROVE THIS — the proposed book against the LAST FROZEN book of the same
  *  strategy (owner's call, 2026-09-04: not the drifted holdings, never the modeled track).
  *
- *  The comparator is named with its date, and `comparable` says whether the two books were frozen
- *  from the same component vintage — when they were not, the risk/exposure deltas are withheld
- *  rather than rendered under one heading. A sleeve whose exposures were never computed for one
- *  of the two months carries `exposures_note`; the column must SAY that, because an empty diff
- *  reads as "no change". */
+ *  The comparator is named with its date. The two books are paired BY ROLE (core↔core,
+ *  sleeve↔sleeve) and each is read under the label ITS freeze recorded, so a re-lock still gets a
+ *  comparison (owner, 2026-10-04) — `models_changed` + `note` say when the model behind a role
+ *  changed, and `label_changed` marks the sleeve it applies to. `comparable` is false only when a
+ *  role has no counterpart last month. A sleeve whose exposures were never computed for one of the
+ *  two months carries `exposures_note`; the column must SAY that, because an empty diff reads as
+ *  "no change". */
 export interface BookAgg {
   n: number; gross: number; net: number; long_gross: number; short_gross: number;
   n_long: number; n_short: number;
@@ -422,17 +424,18 @@ export interface DiffFactor {
 export interface BookDiff {
   rebalance_id: number; signal_date: string;
   comparator: { rebalance_id: number; signal_date: string; status: string;
-                comparable: boolean; note: string | null } | null;
+                comparable: boolean; models_changed?: boolean; note: string | null } | null;
   note?: string;
   books?: Record<'composite' | 'core' | 'sleeve',
     { now: BookAgg | null; prev: BookAgg | null; turnover: BookTurnover | null }>;
   sectors?: { sector: string; now: number; prev: number; delta: number }[];
   sleeves?: {
-    sleeve: string; label: string;
+    sleeve: string; label: string; prev_label?: string | null; label_changed?: boolean;
     risk?: { now: DiffRisk | null; prev: DiffRisk | null;
              now_is_current: boolean; prev_is_current: boolean };
     exposures?: {
       now_as_of: string; prev_as_of: string; now_is_current: boolean; prev_is_current: boolean;
+      factor_sets_match?: boolean; only_now?: string[]; only_prev?: string[];
       factors: DiffFactor[];
       pred_vol_now: number | null; pred_vol_prev: number | null;
       specific_share_now: number | null; specific_share_prev: number | null;

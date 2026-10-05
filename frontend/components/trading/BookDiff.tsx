@@ -25,8 +25,9 @@ import {
 //   1. The comparator is NAMED with its date. "Last month" is three different books.
 //   2. Absence is said out loud. When last month's exposures were never computed, the column says
 //      so — an empty diff reads as "no change", which is the one thing it must never imply.
-//   3. Vintage guard. When the two books were frozen from different component labels, no delta is
-//      drawn; the API says why.
+//   3. A model change is SAID, not hidden (owner, 2026-10-04 — was a vintage guard that withheld
+//      every delta). The API pairs the books by role and reads each under its own label; the
+//      header carries the note naming both labels and the affected column is tagged.
 //
 // Rows are in the SAME FIXED ORDER as the bars on the left (lib/exposureUnits), so the halves read
 // row for row. Numbers as last → now → Δ; bars for the deltas.
@@ -80,8 +81,13 @@ export function ProposedVsLast({ d, left, core, sleeve, foot }: {
             vs last frozen book · rebalance #{cmp.rebalance_id} · {cmp.signal_date} · {cmp.status}
           </Eyebrow>
         )}
-        {cmp && !cmp.comparable && (
-          <div className="text-[11px] text-[var(--amber)] mb-2">{cmp.note}</div>
+        {cmp?.note && (
+          <div className={`text-[11px] mb-2 ${cmp.comparable ? 'text-[var(--tx-mut)]' : 'text-[var(--amber)]'}`}>
+            {cmp.comparable && cmp.models_changed && (
+              <b className="text-[var(--amber)] font-semibold">Model changed · </b>
+            )}
+            {cmp.note}
+          </div>
         )}
         {cmp?.comparable && (
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-x-5 gap-y-3">
@@ -134,6 +140,18 @@ function ColHead() {
 
 const SLEEVE_TITLE: Record<string, string> = { core: 'LO core — S&P 500', sleeve: 'L/S sleeve — R2500' };
 
+/** Tags the column whose model changed between the two frozen books (see the header note). */
+function ModelChanged({ d, sleeve }: { d: BookDiff; sleeve: 'core' | 'sleeve' }) {
+  const s = d.sleeves?.find((x) => x.sleeve === sleeve);
+  if (!s?.label_changed) return null;
+  return (
+    <span className="ml-2 text-[9px] uppercase tracking-wider font-semibold text-[var(--amber)]"
+          title={`last: ${s.prev_label ?? '—'}\nnow: ${s.label}`}>
+      model changed
+    </span>
+  );
+}
+
 // ---------------------------------------------------------------------------------------------
 // GROSS EXPOSURE — per mandate: size rows + the risk chain at both dates; footer: whole book.
 // ---------------------------------------------------------------------------------------------
@@ -148,7 +166,7 @@ export function GrossDiffSleeve({ d, sleeve }: { d: BookDiff; sleeve: 'core' | '
   if (!bk && !r) return null;
   return (
     <div>
-      <div className="text-[12px] font-semibold">{SLEEVE_TITLE[sleeve]}</div>
+      <div className="text-[12px] font-semibold">{SLEEVE_TITLE[sleeve]}<ModelChanged d={d} sleeve={sleeve} /></div>
       {bk && (bk.now || bk.prev) && (
         <>
           <ul className="mt-1 space-y-0.5">
@@ -315,6 +333,7 @@ export function ExposureDiffSleeve({ d, sleeve }: { d: BookDiff; sleeve: 'core' 
     <div>
       <div className="text-[12px] font-semibold flex items-baseline gap-2 flex-wrap">
         {SLEEVE_TITLE[sleeve]}
+        <ModelChanged d={d} sleeve={sleeve} />
         {e ? (
           <span className="text-[10px] font-normal text-[var(--tx-dim)] tabular-nums">
             predicted {isLS ? 'vol' : 'TE'} {pct(e.pred_vol_prev, 2)} → {pct(e.pred_vol_now, 2)}
@@ -334,6 +353,13 @@ export function ExposureDiffSleeve({ d, sleeve }: { d: BookDiff; sleeve: 'core' 
       </div>
       {e && (
         <div className="mt-1 space-y-2">
+          {e.factor_sets_match === false && (
+            <div className="text-[10px] text-[var(--amber)]">
+              the two books use different factor sets — a factor on one side only is shown against 0
+              {e.only_prev?.length ? ` (last only: ${e.only_prev.join(', ')})` : ''}
+              {e.only_now?.length ? ` (now only: ${e.only_now.join(', ')})` : ''}
+            </div>
+          )}
           <DeltaGroup title="Style" kind="style" rows={e.factors.filter((f) => f.kind === 'style')} />
           <DeltaGroup title="Sector (net, vs benchmark)" kind="sector"
                       rows={e.factors.filter((f) => f.kind === 'sector')} />

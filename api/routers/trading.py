@@ -631,10 +631,20 @@ def rebalance_diff(env: str, rebalance_id: int):
       exposures  — per component book, active factor exposure at both dates and the delta, sorted
                    by the size of the move; plus predicted active variance and its specific share.
 
-    ⚠️ VINTAGE GUARD. Exposures and diagnostics are keyed by the component labels the freeze
-    recorded. When the two rebalances name different labels (the 2026-08-06 re-lock did exactly
-    this), the delta would compare two different books under one heading; the endpoint then
-    returns `comparable=False` with the reason instead of a number.
+    EACH BOOK IS READ UNDER ITS OWN LABEL. Exposures and diagnostics are keyed by the component
+    labels the freeze recorded, and the two rebalances are paired BY ROLE (core with core, sleeve
+    with sleeve), each side read under the label ITS freeze recorded. A re-lock changes a label
+    (2026-08-06 v2→v3; 2026-10 the core v3→v4 + EWMA) and the comparison still describes the two
+    books as frozen — which is exactly what an approver is deciding between. Owner, 2026-10-04:
+    "the models do not need to match for this comparison". The change is SAID, never hidden:
+    `models_changed` + a note naming both labels, and `label_changed` per sleeve.
+
+    ⚠️ This used to be a VINTAGE GUARD that withheld every delta when the labels differed. It also
+    read the PREVIOUS month under the CURRENT label, which after a re-lock is the new model's
+    backtest of last month — a book nobody froze or traded. Pairing by role fixes both.
+
+    `comparable=False` survives only for a book whose role has no counterpart last month (a
+    mandate added or dropped), where there is genuinely nothing to compare against.
 
     ⚠️ ABSENCE IS SAID OUT LOUD. When last month's exposures were never computed, the sleeve says
     so. An empty right-hand column reads as "no change", which is the wrong thing for it to say.
@@ -658,12 +668,28 @@ def rebalance_diff(env: str, rebalance_id: int):
                     "comparator": None, "note": "no earlier frozen book for this strategy"}
         psig = prev["signal_date"]
         plabels = ((prev["source"] or {}).get("component_labels") or [])
-        comparable = list(labels) == list(plabels)
+
+        def role(lbl: str) -> str:
+            return "sleeve" if "_ls_" in lbl else "core"
+
+        prev_by_role = {role(p): p for p in plabels}
+        pairs = [(lbl, prev_by_role.get(role(lbl))) for lbl in labels]
+        missing = [role(lbl) for lbl, p in pairs if p is None]
+        changed = [(role(lbl), p, lbl) for lbl, p in pairs if p is not None and p != lbl]
+        comparable = bool(labels) and not missing
+        if missing:
+            note = (f"last month's book has no {' / '.join(missing)} component to compare against "
+                    f"({plabels} vs {labels})")
+        elif changed:
+            note = ("the model changed since the last frozen book — "
+                    + "; ".join(f"{r}: {p} → {lbl}" for r, p, lbl in changed)
+                    + ". Each book is read under its own label at its own date, so the columns "
+                      "compare the two books as frozen.")
+        else:
+            note = None
         cmp = {"rebalance_id": prev["rebalance_id"], "signal_date": psig,
                "status": prev["status"], "comparable": comparable,
-               "note": None if comparable else (
-                   "the two books were frozen from different component vintages "
-                   f"({plabels} vs {labels}); risk and exposure deltas are not comparable")}
+               "models_changed": bool(changed), "note": note}
 
         # --- composite + mandates, and the cost of getting there --------------------------------
         books = {}
@@ -707,48 +733,50 @@ def rebalance_diff(env: str, rebalance_id: int):
                          key=lambda x: -abs(x["delta"]))
 
         # --- per component book: risk chain and factor exposures at both dates ------------------
+        def diag(lbl, d):
+            asof = conn.execute(text(
+                "SELECT max(date) FROM portfolio.risk_diagnostics "
+                "WHERE model_label = :l AND date <= :d"), {"l": lbl, "d": d}).scalar()
+            if asof is None:
+                return None
+            r = conn.execute(text("""
+                SELECT date, gross, net, n_names, n_long, n_short, n_at_floor, active_share,
+                       te_target, cap_calibration, cap_bound, vol_budget, pred_vol, sigma_eff,
+                       source
+                FROM portfolio.risk_diagnostics WHERE model_label = :l AND date = :d"""),
+                {"l": lbl, "d": asof}).mappings().first()
+            return dict(r) if r else None
+
+        def expo(lbl, d):
+            asof = conn.execute(text(
+                "SELECT max(date) FROM portfolio.attribution "
+                "WHERE model_label = :l AND date <= :d AND active_exposure IS NOT NULL"),
+                {"l": lbl, "d": d}).scalar()
+            if asof is None:
+                return None, None, None
+            rs = conn.execute(text("""
+                SELECT factor, active_exposure, risk_var_contrib FROM portfolio.attribution
+                WHERE model_label = :l AND date = :d"""), {"l": lbl, "d": asof}).mappings().all()
+            fx = {r["factor"]: float(r["active_exposure"]) for r in rs
+                  if r["factor"] not in ("total", "specific") and r["active_exposure"] is not None}
+            var = {r["factor"]: float(r["risk_var_contrib"]) for r in rs
+                   if r["factor"] in ("total", "specific") and r["risk_var_contrib"] is not None}
+            return asof, fx, var
+
         sleeves = []
         for lbl in labels:
-            tag = "sleeve" if "_ls_" in lbl else "core"
-            out = {"sleeve": tag, "label": lbl}
+            tag = role(lbl)
+            plbl = prev_by_role.get(tag)
+            out = {"sleeve": tag, "label": lbl, "prev_label": plbl,
+                   "label_changed": plbl is not None and plbl != lbl}
 
-            def diag(d):
-                asof = conn.execute(text(
-                    "SELECT max(date) FROM portfolio.risk_diagnostics "
-                    "WHERE model_label = :l AND date <= :d"), {"l": lbl, "d": d}).scalar()
-                if asof is None:
-                    return None
-                r = conn.execute(text("""
-                    SELECT date, gross, net, n_names, n_long, n_short, n_at_floor, active_share,
-                           te_target, cap_calibration, cap_bound, vol_budget, pred_vol, sigma_eff,
-                           source
-                    FROM portfolio.risk_diagnostics WHERE model_label = :l AND date = :d"""),
-                    {"l": lbl, "d": asof}).mappings().first()
-                return dict(r) if r else None
-
-            def expo(d):
-                asof = conn.execute(text(
-                    "SELECT max(date) FROM portfolio.attribution "
-                    "WHERE model_label = :l AND date <= :d AND active_exposure IS NOT NULL"),
-                    {"l": lbl, "d": d}).scalar()
-                if asof is None:
-                    return None, None, None
-                rs = conn.execute(text("""
-                    SELECT factor, active_exposure, risk_var_contrib FROM portfolio.attribution
-                    WHERE model_label = :l AND date = :d"""), {"l": lbl, "d": asof}).mappings().all()
-                fx = {r["factor"]: float(r["active_exposure"]) for r in rs
-                      if r["factor"] not in ("total", "specific") and r["active_exposure"] is not None}
-                var = {r["factor"]: float(r["risk_var_contrib"]) for r in rs
-                       if r["factor"] in ("total", "specific") and r["risk_var_contrib"] is not None}
-                return asof, fx, var
-
-            if comparable:
-                dn, dp = diag(sig), diag(psig)
+            if plbl is not None:
+                dn, dp = diag(lbl, sig), diag(plbl, psig)
                 out["risk"] = {"now": dn, "prev": dp,
                                "now_is_current": bool(dn and dn["date"] == sig),
                                "prev_is_current": bool(dp and dp["date"] == psig)}
-                an, fn, vn = expo(sig)
-                ap_, fp, vp = expo(psig)
+                an, fn, vn = expo(lbl, sig)
+                ap_, fp, vp = expo(plbl, psig)
                 if fn is None or fp is None:
                     out["exposures"] = None
                     out["exposures_note"] = ("exposures not computed for "
@@ -758,6 +786,12 @@ def rebalance_diff(env: str, rebalance_id: int):
                     out["exposures"] = {
                         "now_as_of": an, "prev_as_of": ap_,
                         "now_is_current": an == sig, "prev_is_current": ap_ == psig,
+                        # Two labels can sit on different risk models. A factor present on one
+                        # side only is drawn against 0, so say when that happened rather than
+                        # let a missing factor read as a real move.
+                        "factor_sets_match": set(fn) == set(fp),
+                        "only_now": sorted(set(fn) - set(fp)),
+                        "only_prev": sorted(set(fp) - set(fn)),
                         "factors": sorted([{
                             "factor": f,
                             "kind": ("sector" if f.startswith("sec_")
@@ -989,7 +1023,14 @@ def ledger(env: str, rebalance_id: int | None = None):
     # a drill that deliberately sent orders WITHOUT approval, whose approval row the inference
     # then described as "ran before this step had telemetry". Asserting that a human approved
     # something when `approved_at` is NULL is the worst thing this ledger could say.
-    done = [s["ord"] for s in out if s["state"] in ("ok", "warn", "failed", "awaiting")]
+    #
+    # ⚠️ AND NEVER INFER FROM ONE EITHER ([2026-10-04]). Evidence must be a DATA step that ran.
+    # Counting approval's `awaiting` — the state of every freshly frozen book, i.e. nothing has
+    # happened yet — made an un-run dry run read "ran before this step had telemetry" right after
+    # every freeze (rebalance 34). A human gate depends on no data step, so its state proves
+    # nothing about the steps before it.
+    done = [s["ord"] for s in out
+            if s["state"] in ("ok", "warn", "failed") and not s["manual_only"]]
     if done:
         furthest = max(done)
         for s in out:
