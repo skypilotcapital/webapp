@@ -14,6 +14,30 @@
   ```
 - If the site shows stale API behaviour or missing endpoints after a push, this is always the first thing to check.
 
+## Authentication ([08-APIAUTH], F-039 — 2026-10-06)
+
+- **The door is `frontend/proxy.ts` (Next 16 name for middleware).** Every path except static assets needs a valid login token —
+  INCLUDING `/api-proxy/*` (401 JSON without one). The old matcher excluded everything starting with
+  `api`, which left the proxy, and so the whole FastAPI, open with no cookie. There is no `app/api/` here,
+  so nothing legitimate needs that exclusion — do not re-add it.
+- **The token is signed and expires** (`lib/authToken.ts`: `<exp>.<HMAC-SHA256>`, key = `AUTH_SECRET`
+  or derived from `DASHBOARD_PASSWORD`). The old cookie was the fixed word `authenticated`, checked for
+  presence only — forgeable from memory. `verifyToken` never throws; unverifiable = logged out.
+- **The API trusts one header.** Middleware SETS `X-Skypilot-Proxy: $API_PROXY_SECRET` on forwarded
+  requests (overriding any client copy); `api/proxy_guard.py` is the OUTERMOST middleware and refuses
+  without it (401). With `PROXY_SECRET` empty it refuses everything except `/health` (503) — fail
+  closed on purpose; `/health` reports `proxy_guard` state. Keep it the LAST `add_middleware` call.
+- **Deploy order matters:** the frontend auto-deploys with no secret → header simply absent → old API
+  keeps working. Pull the API on the droplet ONLY after `PROXY_SECRET` is in `/root/webapp/api/.env`
+  (no inline comment — `EnvironmentFile=` does not strip them) AND `API_PROXY_SECRET` is in Vercel with
+  a redeploy. Then re-enable the three write logins (`HALT_/APPROVE_/REQUEST_DB_*`, commented out
+  2026-10-05 as the interim).
+- Verified locally end to end against an echo server (unauth 401 · forged legacy cookie 401 · header
+  forwarded through the rewrite on GET+POST, client copy overridden). Tests: `node
+  frontend/scripts/test-authToken.mts` (Node type stripping); `python -m api.tests.test_proxy_guard`.
+- Still paper-grade: per-user auth (Q1) and live access control (Q3) remain pre-live requirements;
+  approve/execute record the operator name as CLAIMED.
+
 ## Research Schema Access
 
 - DB user for the API: `skypilot_app` (not `skypilot_user`)

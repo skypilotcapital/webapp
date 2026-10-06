@@ -49,6 +49,15 @@ webapp/
 browser's mixed content block (HTTPS page → HTTP API). The env var `API_URL` on Vercel
 controls the rewrite destination.
 
+**Authentication ([08-APIAUTH], 2026-10-06):** one password, one signed cookie, one shared secret.
+`frontend/proxy.ts` (Next 16 name for middleware) requires a valid login token on EVERY path except static assets —
+including `/api-proxy/*`, which answers 401 JSON without one. The token (`lib/authToken.ts`) is
+`<expiry>.<HMAC-SHA256>` keyed on `AUTH_SECRET` (falls back to `DASHBOARD_PASSWORD`), so a cookie
+typed in by hand is not a login. Requests the middleware forwards to the API carry
+`X-Skypilot-Proxy: $API_PROXY_SECRET`; FastAPI (`api/proxy_guard.py`) refuses anything without it
+(401), or EVERYTHING except `/health` when its own `PROXY_SECRET` is unset (503, fail closed) —
+`/health` reports the guard state. Paper-grade: it proves "the website sent this", not who clicked.
+
 **Row counts:** Use `pg_stat_user_tables` estimates rather than `COUNT(*)` — returns
 instantly even on 40M+ row tables. Approximate but sufficient for a health dashboard.
 
@@ -110,7 +119,10 @@ Vercel auto-deploys on every push to `main`. Settings:
 - **Root Directory:** `frontend`
 - **Environment variables:**
   - `API_URL=http://165.22.47.36:8000` (server-side, no NEXT_PUBLIC_ prefix)
-  - `BASIC_AUTH_USER` and `BASIC_AUTH_PASSWORD` (team password protection)
+  - `DASHBOARD_PASSWORD` (the login), optionally `AUTH_SECRET` (≥16 chars; signs the login cookie —
+    otherwise derived from the password)
+  - `API_PROXY_SECRET` — MUST equal `PROXY_SECRET` in the droplet's `api/.env`; a Vercel env change
+    needs a redeploy to take effect
 
 ---
 

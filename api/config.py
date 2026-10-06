@@ -56,6 +56,11 @@ class Settings(BaseSettings):
     # Leave blank for local dev (reports list will return empty gracefully).
     reports_dir: str = ""
 
+    # [08-APIAUTH] Shared secret the website's proxy (proxy.ts) sends as X-Skypilot-Proxy. The
+    # guard in main.py REFUSES every request (except /health) when this is empty — fail closed,
+    # visibly, rather than serve an unauthenticated API because a variable was forgotten.
+    proxy_secret: str = ""
+
     # CORS — JSON-encoded list of allowed origins, e.g. '["https://app.vercel.app"]'
     cors_origins: List[str] = ["http://localhost:3000"]
 

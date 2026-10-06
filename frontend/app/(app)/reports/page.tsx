@@ -64,7 +64,10 @@ function groupByCategory(items: ReportItem[]): Record<string, ReportItem[]> {
 // Report card
 // ---------------------------------------------------------------------------
 function ReportCard({ item }: { item: ReportItem }) {
-  const apiBase = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:8000';
+  // Through the logged-in proxy, never straight at the API port: the port requires the proxy
+  // secret and the browser does not have it ([08-APIAUTH]). The old NEXT_PUBLIC_API_URL link
+  // also pointed at localhost:8000 whenever that variable was unset.
+  const apiBase = '/api-proxy';
   const htmlUrl = `${apiBase}/api/v1/reports/${encodeURIComponent(item.filename)}/html`;
 
   return (

@@ -16,6 +16,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from api.config import get_settings
+from api.proxy_guard import ProxySecretGuard
 from api.routers import (health, data_monitor, macro_beta, research, reports,
                          portfolio, trading, paper, report_archive)
 
@@ -33,6 +34,10 @@ app = FastAPI(
 #   CORS_ORIGINS=["https://your-app.vercel.app"]
 # ---------------------------------------------------------------------------
 settings = get_settings()
+# [08-APIAUTH] The shared-secret door. Added FIRST so it is OUTERMOST: a request without the
+# website's X-Skypilot-Proxy header is refused before CORS, routing or anything else sees it.
+# (Starlette applies add_middleware in reverse order of registration — the last added is the
+# outermost — so this must stay the LAST add_middleware call in this file.)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=settings.cors_origins,
@@ -43,6 +48,7 @@ app.add_middleware(
     allow_methods=["GET", "POST"],
     allow_headers=["*"],
 )
+app.add_middleware(ProxySecretGuard, secret=settings.proxy_secret)
 
 # ---------------------------------------------------------------------------
 # Routers
