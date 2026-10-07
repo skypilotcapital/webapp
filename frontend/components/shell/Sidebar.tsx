@@ -5,7 +5,16 @@ import { usePathname } from 'next/navigation';
 
 const NAV = [
   { href: '/monitor', label: 'Data Monitor', icon: '▤' },
+];
+const NAV_AFTER_MODEL_MONITOR = [
   { href: '/macro-beta', label: 'Macro Beta', icon: '∿' },
+];
+
+// Model Monitor ([08-FMON], owner 2026-10-07): its own top-level section beside Data Monitor, not a
+// research tab — it watches the PRODUCTION models' components. Factors is the first surface; model
+// health ([04-MH]) joins it as a second sub-item.
+const MODEL_MONITOR_SUB = [
+  { label: 'Factors', href: '/model-monitor/factors', match: ['/model-monitor/factors'] },
 ];
 
 // Trading gets sub-items for the same reason Research has them: the section is more than one
@@ -61,6 +70,31 @@ export function Sidebar() {
 
       <nav className="flex flex-col gap-0.5">
         {NAV.map((n) => {
+          const active = pathname === n.href || pathname.startsWith(n.href + '/');
+          return <NavLink key={n.href} href={n.href} label={n.label} icon={n.icon} active={active} />;
+        })}
+
+        <NavLink href="/model-monitor/factors" label="Model Monitor" icon="◎"
+                 active={pathname.startsWith('/model-monitor')} />
+        <div className="ml-3 pl-3 flex flex-col gap-px my-1" style={{ borderLeft: '1px solid var(--border-soft)' }}>
+          {MODEL_MONITOR_SUB.map((s) => {
+            const active = s.match.some((m) => pathname === m || pathname.startsWith(m + '/'));
+            return (
+              <Link
+                key={s.href}
+                href={s.href}
+                className="px-2.5 py-1.5 rounded-md text-[11.5px] font-semibold transition-colors"
+                style={active
+                  ? { color: 'var(--teal)', background: 'rgba(14,124,111,0.10)' }
+                  : { color: 'var(--tx-mut)' }}
+              >
+                {s.label}
+              </Link>
+            );
+          })}
+        </div>
+
+        {NAV_AFTER_MODEL_MONITOR.map((n) => {
           const active = pathname === n.href || pathname.startsWith(n.href + '/');
           return <NavLink key={n.href} href={n.href} label={n.label} icon={n.icon} active={active} />;
         })}

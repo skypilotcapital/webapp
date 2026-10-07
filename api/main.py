@@ -18,7 +18,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from api.config import get_settings
 from api.proxy_guard import ProxySecretGuard
 from api.routers import (health, data_monitor, macro_beta, research, reports,
-                         portfolio, trading, paper, report_archive)
+                         portfolio, trading, paper, report_archive, model_monitor)
 
 app = FastAPI(
     title="SkyPilot Capital API",
@@ -62,3 +62,4 @@ app.include_router(portfolio.router)
 app.include_router(trading.router)
 app.include_router(paper.router)
 app.include_router(report_archive.router)
+app.include_router(model_monitor.router)

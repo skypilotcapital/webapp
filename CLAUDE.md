@@ -224,3 +224,26 @@ SAME rebalance id, links to the post-rebalance report `reports/rebalance/r{id}`)
   when the requested rebalance has no window (never silently answers with a different trade).
 - Charts: `charts.tsx xTicks()` picks weekly / monthly / yearly x-labels by span (the old rule labelled
   only years divisible by 3 → a blank axis on a 5-week series).
+
+## Model Monitor › Factors — `/model-monitor/factors` ([08-FMON], 2026-10-07)
+
+Its own top-level section (sidebar, beside Data Monitor), internal, full history. Answers three
+DIFFERENT questions per production component model (N005/N010 = N014 the S&P 500 core's signal;
+NR002/NR010 = NR012 the R2500 sleeve's): what it leans on (RELIANCE), what each factor itself paid
+(FACTOR PAYOFF, P01 IC), what its use of each factor earned (CONTRIBUTION). Order is DIAGNOSIS FIRST:
+universe toggle + component tabs (each labelled with its blend weight) + three data edges → caveat
+strip → three percentile tiles → panel 5 (factor broken or our use?) → quadrant | named features →
+history 2015→now → per-family drill-down (≤14 features).
+
+- **API `api/routers/model_monitor.py`** (prefix `/api/v1/model-monitor`): `factors/models`,
+  `factors/{model}` (summary + families + history + movers), `factors/{model}/family/{family}`.
+  **It reads ONLY `research.fmon_*`** and does no arithmetic — the API has no pandas by design. The
+  tables are written monthly by the alpha chain step `fmon` (`alpha scripts/build_factor_monitor.py`,
+  which calls the reference implementation `research/shap/fmon_panels.py`). Grants are applied by the
+  builder.
+- **Contribution can be WITHHELD** (`contribution_valid=false`, NULL contribution everywhere, reason in
+  `contribution_note`). The 3M models are withheld until `[04-SWIN]` rebuilds the SHAP panel on
+  production's training window (the old window leaked the 3M label — shap_reliance_panel.md §9.9).
+  The page must never fill a withheld number from anything else.
+- Edges are monitored by the data repo's coverage check (`DERIVED_KEYED`): SHAP panel, P01 IC series,
+  and the fmon tables' own panel/payoff edges.
