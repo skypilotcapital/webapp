@@ -974,16 +974,27 @@ function RebalanceBand({ fid, sf, slug }: { fid?: PaperFidelity; sf?: PaperShort
 
 function Fidelity({ data }: { data: PaperFidelity }) {
   const { coverage: c, execution: e, cost, plan_drift: pd } = data;
-  const unfilled = c.n_planned - c.n_dust_filtered - c.n_filled_names;
+  // "Not filled" means ORDERS that did not fill — read from the order statuses, never derived by
+  // subtraction. The old `n_planned − dust − filled` arithmetic counted the plan rows that had
+  // nothing to trade (already at target) and printed them as "104 not filled" (2026-10-08).
+  const unfilled = Object.entries(c.orders ?? {})
+    .filter(([st]) => st !== 'filled').reduce((a, [, n]) => a + (n ?? 0), 0);
+  const atTarget = c.n_no_trade;
+  const exits = c.n_exits;
+  const planSub = [
+    `${num(c.n_planned)} plan rows`,
+    exits != null ? `${num(exits)} exits` : null,
+    atTarget != null ? `${num(atTarget)} already at target` : null,
+  ].filter(Boolean).join(' · ');
   return (
     <div>
       <div className="text-[10px] font-bold tracking-[1.5px] mb-2" style={{ color: 'var(--tx-dim)' }}>
         FIDELITY · did we build the book we approved?
       </div>
       <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3">
-        <Stat label="Target names" value={num(c.n_target)} sub="frozen book" />
+        <Stat label="Target names" value={num(c.n_target)} sub={`frozen book · ${planSub}`} />
         <Stat label="Orders filled" value={num(c.n_filled_names)}
-          sub={unfilled > 0 ? `${unfilled} not filled` : 'every order sent'}
+          sub={unfilled > 0 ? `${unfilled} not filled` : 'every order sent filled'}
           color={unfilled > 0 ? 'var(--neg)' : undefined} />
         <Stat label="Dust-filtered" value={num(c.n_dust_filtered)} sub="below min trade" />
         <Stat label="Traded" value={usd(e.filled_notional)} sub={`${e.n_fills} fills`} />

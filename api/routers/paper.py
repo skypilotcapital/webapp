@@ -290,6 +290,11 @@ def fidelity(env: str, rebalance_id: int | None = None):
         plan = conn.execute(text("""
             SELECT count(*) AS n,
                    count(*) FILTER (WHERE dust_filtered)          AS n_dust,
+                   -- already at target: a plan row with nothing to trade (delta 0). These are NOT
+                   -- unfilled orders — the page once printed them as "104 not filled" (2026-10-08).
+                   count(*) FILTER (WHERE NOT dust_filtered AND COALESCE(delta, 0) = 0) AS n_no_trade,
+                   -- names leaving the book: held, not in the frozen target (why plan rows > targets)
+                   count(*) FILTER (WHERE COALESCE(target_qty, 0) = 0 AND COALESCE(current_qty, 0) <> 0) AS n_exits,
                    count(*) FILTER (WHERE side = 'BUY')           AS n_buy,
                    count(*) FILTER (WHERE side = 'SELL')          AS n_sell,
                    sum(abs(est_notional))                         AS notional,
@@ -371,6 +376,8 @@ def fidelity(env: str, rebalance_id: int | None = None):
             "n_planned": int(plan["n"] or 0),
             "n_dust_filtered": int(plan["n_dust"] or 0),
             "n_filled_names": int(fills["n_names"] or 0),
+            "n_no_trade": int(plan["n_no_trade"] or 0),
+            "n_exits": int(plan["n_exits"] or 0),
             "n_buy": int(plan["n_buy"] or 0),
             "n_sell": int(plan["n_sell"] or 0),
             "orders": {r["status"]: int(r["n"]) for r in orders},

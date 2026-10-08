@@ -201,6 +201,10 @@ export interface PaperFidelity {
   coverage: {
     n_target: number; n_planned: number; n_dust_filtered: number;
     n_filled_names: number; n_buy: number; n_sell: number;
+    /** plan rows with nothing to trade (already at target) — not unfilled orders */
+    n_no_trade?: number;
+    /** held names not in the frozen target (exits) — why plan rows exceed target names */
+    n_exits?: number;
     orders: Record<string, number>;
   };
   execution: {
