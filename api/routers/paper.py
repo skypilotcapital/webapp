@@ -1214,7 +1214,11 @@ def engines(env: str, strategy: str | None = None, period: str = "incep",
     to_bps = (lambda v: v / nav0 * 1e4) if nav0 else (lambda v: None)
 
     dates = sorted({r["date"] for r in rows})
-    mandates = sorted({r["mandate"] for r in rows if r["mandate"]})
+    # The ledger stores a claimless row under the LITERAL 'unattributed' (see the docstring on the
+    # reader above), so it must be kept out of the engine list here — otherwise it is published
+    # twice, once as an "engine" and once as the dedicated remainder line below (the page showed two
+    # identical 'unattributed' rows until 2026-10-08).
+    mandates = sorted({r["mandate"] for r in rows if r["mandate"] and r["mandate"] != "unattributed"})
     keys = mandates + ["unattributed"]
     daily = {k: {d: 0.0 for d in dates} for k in keys}
     n_rows = {k: 0 for k in keys}
