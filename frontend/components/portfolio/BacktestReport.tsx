@@ -589,7 +589,7 @@ function SourceAttributionSection({ label }: { label: string }) {
 }
 
 // ------------------------------------------------------------ monthly attribution (the fund, by component)
-// Two shapes behind one table. mode 'ext': group 1 is the FUND (and holds Core α + Sleeve = Active
+// Two shapes behind one table. mode 'ext': group 1 is the FUND (and holds LO core + L/S sleeve = Active
 // exactly), group 2 is the L/S sleeve as a STANDALONE book on its own cost basis — context for the
 // Sleeve column, not a breakdown of it. mode 'ls': group 2 only, for a standalone long-short book.
 // ComponentAttrYear satisfies this shape too, so the monthly and annual tables share one renderer.
@@ -602,12 +602,15 @@ interface CACol {
   cost?: boolean;      // a positive DRAG — render neutral, never green
   div?: boolean;       // draw the group divider on this column's left edge
 }
-const CA_EXT_COLS: CACol[] = [
+// Column names (owner, 2026-10-08): 'LO core' = the long-only core's ACTIVE return (net minus
+// index), 'L/S sleeve (k%)' = the long/short sleeve already scaled to its fund weight — which is
+// what makes LO core + L/S sleeve = Active hold exactly. The sleeve weight is read from the data.
+const caExtCols = (kPct: number): CACol[] => [
   { key: 'total_net', label: 'Fund net' },
   { key: 'index_ret', label: 'Index' },
   { key: 'active', label: 'Active' },
-  { key: 'core_alpha', label: 'Core α' },
-  { key: 'sleeve_alpha', label: 'Sleeve' },
+  { key: 'core_alpha', label: 'LO core' },
+  { key: 'sleeve_alpha', label: `L/S sleeve (${kPct}%)` },
   { key: 'sleeve_net', label: 'Sleeve net', div: true },
   { key: 'sleeve_long_sel', label: 'Long sel' },
   { key: 'sleeve_short_sel', label: 'Short sel' },
@@ -682,10 +685,10 @@ function ComponentAttributionSection({ label }: { label: string }) {
   if (!data) return <div className="panel p-6 muted text-sm mt-5">Loading monthly attribution…</div>;
 
   const isExtMode = data.mode === 'ext';
-  const cols = isExtMode ? CA_EXT_COLS : CA_LS_COLS;
   const kPct = Math.round((data.monthly[0]?.k ?? 0.5) * 100);
+  const cols = isExtMode ? caExtCols(kPct) : CA_LS_COLS;
   const groups = isExtMode
-    ? [{ label: 'The fund · Core α + Sleeve = Active', span: 5 },
+    ? [{ label: 'The fund · LO core + L/S sleeve = Active', span: 5 },
        { label: `Sleeve book, standalone · full weight, own cost basis (enters the blend at ${kPct}%)`, span: 4 }]
     : [{ label: 'The long/short book · own cost basis', span: 5 }];
   // most recent first, in both tables
@@ -704,9 +707,11 @@ function ComponentAttributionSection({ label }: { label: string }) {
       </div>
       <div className="takeaway mb-3 text-[12px]">
         Months are labelled by the month the return was <b>earned</b> (the book is formed the month before).
-        {isExtMode && <> <b>Core α + Sleeve = Active</b>, exactly, every month. The right-hand group is the
-          L/S sleeve as a <b>standalone book at full weight on its own cost basis</b> — context for the
-          Sleeve column, not a breakdown of it, so it does not add up to it.</>}
+        {isExtMode && <> <b>LO core + L/S sleeve = Active</b>, exactly, every month: LO core is the long-only
+          core’s active return (net minus index) and L/S sleeve is the long/short sleeve at its {kPct}% fund
+          weight. The right-hand group is the same L/S sleeve as a <b>standalone book at full weight on its
+          own cost basis</b> — context for the L/S sleeve column, not a breakdown of it, so it does not add
+          up to it.</>}
         {' '}Long sel and Short sel are beta-adjusted against the equal-weight Russell 2500 universe, so
         <b> Short sel is positive when the shorts underperform</b> — on both, positive is good. Cost is shown
         as a positive drag (subtract it).
@@ -722,7 +727,7 @@ function ComponentAttributionSection({ label }: { label: string }) {
       <div className="panel p-4 mt-4">
         <div className="panel-head">Annual <span className="muted" style={{ fontWeight: 400 }}>· by the year the return was earned</span></div>
         <div className="panel-sub mb-2">arithmetic sums of the months, % · summing this way is what keeps
-          {isExtMode ? ' Core α + Sleeve = Active' : ' the columns'} true at the year level · full history, most recent first</div>
+          {isExtMode ? ' LO core + L/S sleeve = Active' : ' the columns'} true at the year level · full history, most recent first</div>
         <CATable cols={cols} groups={groups} firstHeader="Year"
           rows={annual.map((y) => ({
             key: String(y.year), label: String(y.year),
