@@ -72,7 +72,14 @@ All under `/api/v1/research/`:
 - `models/{id}/ic` — monthly IC series
 - `models/{id}/quintiles` — quintile returns
 - `models/{id}/stability` — rank autocorr + transition matrices
-- `models/{id}/feature-importance` — SHAP feature importance
+- `models/{id}/feature-importance` (+ `feature-importance-by-sector?sector=`) — what the model leans
+  on. Two sources, labelled per row by `method`: **`panel` / `panel_blend`** = the monthly SHAP record
+  (`research.fmon_feature_importance`: average share of attention 2015–2023, per sector; written by the
+  alpha chain step `fmon`) for the four production components and every ensemble built only from them
+  (N012–N015, NR012–NR015 — blended at registry weights); **`snapshots`** = the older six-snapshot
+  aggregate (`research.model_feature_importance[_by_sector]`) for every other model, which the page
+  shows under an "older method" warning (shap_reliance_panel.md §2.2 measured why it is weaker).
+  Quarantined features carry a `note` (shap_reliance_panel.md §2.3).
 - `models/{id}/sector-summary` — per-sector IC breakdown
 
 ### L2 Portfolios (optimized backtests) — router prefix `/api/v1/portfolio` (NOT `/research`)

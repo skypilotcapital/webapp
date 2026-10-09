@@ -8,6 +8,8 @@ import { Card, CardContent, CardHeader } from '@/components/ui/card';
 import { ModelRollingICChart } from './ModelRollingICChart';
 import { ModelQuintileChart } from './ModelQuintileChart';
 import { ModelSpreadChart } from './ModelSpreadChart';
+import Link from 'next/link';
+import { familyColor, monthLabel } from '@/lib/modelMonitor';
 
 // key = exact sector name stored in DB; label = display name on button
 const SECTORS: { key: string; label: string }[] = [
@@ -65,7 +67,7 @@ interface ModelDetailPanelProps {
   sectorStickyTop?: number;
 }
 
-function pct(v: number | null, decimals = 1) {
+function pct(v: number | null | undefined, decimals = 1) {
   return v != null ? `${(v * 100).toFixed(decimals)}%` : '—';
 }
 
@@ -174,14 +176,118 @@ function SectorBreakdownTable({ sectors }: { sectors: ModelSectorSummary[] }) {
   );
 }
 
+type ImportanceRow = ModelFeatureImportance | ModelFeatureImportanceBySector;
+
 function FeatureImportanceSection({
   features,
   sectorLabel,
 }: {
-  features: ModelFeatureImportance[] | ModelFeatureImportanceBySector[];
+  features: ImportanceRow[];
   sectorLabel: string;
 }) {
   if (features.length === 0) return null;
+  const method = features[0].method ?? 'snapshots';
+  return method === 'panel' || method === 'panel_blend'
+    ? <PanelImportanceSection features={features} sectorLabel={sectorLabel} />
+    : <SnapshotImportanceSection features={features} sectorLabel={sectorLabel} />;
+}
+
+// [08-FMON] The monthly SHAP record: each feature's average share of the model's attention over the
+// in-sample months (2015-2023). Bars are coloured by factor family, with a dark line where every
+// feature would sit if the model spread its attention evenly.
+function PanelImportanceSection({ features, sectorLabel }: { features: ImportanceRow[]; sectorLabel: string }) {
+  const top20 = features.slice(0, 20);
+  const first = features[0];
+  const maxShare = Math.max(...top20.map((f) => f.share ?? 0));
+  const even = 1 / features.length;                      // every feature equal
+  const evenPos = maxShare > 0 ? Math.min(100, (even / maxShare) * 100) : 0;
+  const families = Array.from(new Set(top20.map((f) => f.family ?? 'Unmapped')));
+  const flagged = top20.filter((f) => f.note);
+  const isBlend = first.method === 'panel_blend';
+  return (
+    <div>
+      <div className="border-t border-[var(--border-soft)] my-5" />
+      <div className="flex items-center justify-between mb-3 gap-3">
+        <h3 className="text-xs uppercase tracking-[0.2em] text-[var(--tx-dim)] font-bold">
+          What the model leans on (Top 20) — {sectorLabel}
+        </h3>
+        <p className="text-xs text-[var(--tx-dim)] text-right">
+          Share of attention · monthly average {monthLabel(first.window_from)}–{monthLabel(first.window_to)}
+          {first.n_months ? ` (${first.n_months} months)` : ''}
+        </p>
+      </div>
+      <div className="mb-2.5 rounded-lg border border-[var(--border-soft)] bg-[var(--bg2)] px-4 py-3 text-xs text-[var(--tx-mut)] space-y-2">
+        <p>
+          Every month we measure how much each feature moves the model&apos;s forecasts (mean |SHAP|) and
+          turn that into its <strong className="text-[var(--tx)]">share of the month&apos;s total</strong>.
+          The bar is that share averaged over every month from {monthLabel(first.window_from)} to{' '}
+          {monthLabel(first.window_to)}, the in-sample years (2024 onward is held out). The dark line is
+          where each feature would sit if the model spread its attention evenly across all{' '}
+          {features.length}.
+        </p>
+        {isBlend && (
+          <p>
+            This model is a blend ({first.components}). Its chart is the same blend of its components&apos;
+            monthly records: a close approximation, because the blend averages the components&apos; rankings
+            rather than their raw forecasts.
+          </p>
+        )}
+        <p>
+          For how this has moved since 2023, and whether leaning on each factor actually paid off, see{' '}
+          <Link href="/model-monitor/factors" className="text-[var(--teal)] underline underline-offset-2">
+            Model Monitor › Factors
+          </Link>.
+          {sectorLabel !== 'All Sectors' && ' This view is the sector’s own sub-model.'}
+        </p>
+      </div>
+      <div className="space-y-1.5">
+        {top20.map((f) => {
+          const w = maxShare > 0 ? ((f.share ?? 0) / maxShare) * 100 : 0;
+          return (
+            <div key={f.feature} className="flex items-center gap-3 text-xs">
+              <span className="w-6 text-right text-[var(--tx-dim)] font-mono shrink-0">{f.shap_rank}</span>
+              <span className="w-44 truncate text-[var(--tx-mut)] font-mono shrink-0" title={f.note ?? f.feature}>
+                {f.feature}{f.note ? ' ⚠' : ''}
+              </span>
+              <div className="flex-1 relative h-5 bg-[var(--bg2)] rounded overflow-hidden">
+                <div
+                  className="absolute inset-y-0 left-0 rounded opacity-80"
+                  style={{ width: `${w}%`, background: familyColor(f.family ?? '') }}
+                />
+                <div
+                  className="absolute inset-y-0 w-[2px] bg-[var(--tx)]"
+                  style={{ left: `${evenPos}%`, boxShadow: '0 0 0 1px var(--panel)' }}
+                />
+              </div>
+              <span className="w-14 text-right font-mono text-[var(--tx-mut)] shrink-0">{pct(f.share, 1)}</span>
+            </div>
+          );
+        })}
+      </div>
+      <div className="mt-3 flex flex-wrap gap-x-4 gap-y-1 text-xs text-[var(--tx-dim)]">
+        {families.map((fam) => (
+          <div key={fam} className="flex items-center gap-2">
+            <span className="inline-block w-3 h-3 rounded" style={{ background: familyColor(fam) }} />
+            <span>{fam}</span>
+          </div>
+        ))}
+        <div className="flex items-center gap-2">
+          <span className="inline-block w-[2px] h-3 bg-[var(--tx)]" />
+          <span>even share ({pct(even, 1)})</span>
+        </div>
+      </div>
+      {flagged.length > 0 && (
+        <div className="mt-2 space-y-0.5 text-xs text-[var(--amber)]">
+          {flagged.map((f) => (
+            <p key={f.feature}>⚠ <span className="font-mono">{f.feature}</span>: {f.note}</p>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function SnapshotImportanceSection({ features, sectorLabel }: { features: ImportanceRow[]; sectorLabel: string }) {
   const top20 = features.slice(0, 20);
   const maxShap = Math.max(...top20.map((f) => f.mean_shap ?? 0));
   return (
@@ -192,6 +298,13 @@ function FeatureImportanceSection({
           Feature Importance (Top 20) — {sectorLabel}
         </h3>
         <p className="text-xs text-[var(--tx-dim)]">Mean |SHAP| · bar = relative contribution</p>
+      </div>
+      <div className="mb-2.5 rounded-lg border border-[var(--amber)] bg-[var(--bg2)] px-4 py-3 text-xs text-[var(--tx-mut)]">
+        <strong className="text-[var(--amber)]">Older method. Read the order as rough.</strong>{' '}This model
+        isn&apos;t covered by the monthly SHAP record, which covers only the production components and their
+        blends. These figures average six retraining snapshots spread across 2005–2023. Three of them come
+        from before some data sources existed, which makes the newer data features (ownership, short
+        interest, fails-to-deliver) look less important than they are.
       </div>
       <div className="mb-2.5 rounded-lg border border-[var(--border-soft)] bg-[var(--bg2)] px-4 py-3 text-xs text-[var(--tx-mut)] space-y-2">
         <p>
@@ -493,10 +606,10 @@ export function ModelDetailPanel({ row, sectorStickyTop }: ModelDetailPanelProps
         )}
 
         {(() => {
-          const displayFeatures = sector !== 'ALL' && sectorImportanceData && sectorImportanceData.length > 0
-            ? sectorImportanceData
-            : importanceData;
-          const label = sector !== 'ALL' ? sectorLabel : 'All Sectors';
+          const bySector = sector !== 'ALL' && sectorImportanceData && sectorImportanceData.length > 0;
+          const displayFeatures = bySector ? sectorImportanceData : importanceData;
+          // label what is actually shown: a sector with no rows falls back to the all-sector chart
+          const label = bySector ? sectorLabel : 'All Sectors';
           return displayFeatures && displayFeatures.length > 0
             ? <FeatureImportanceSection features={displayFeatures} sectorLabel={label} />
             : null;

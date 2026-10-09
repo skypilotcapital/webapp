@@ -392,9 +392,41 @@ class ModelSignalStability(BaseModel):
 class ModelFeatureImportance(BaseModel):
     model_id: str
     feature: str
-    mean_gini: Optional[float]
-    mean_shap: Optional[float]
-    shap_rank: Optional[int]
+    mean_gini: Optional[float] = None
+    mean_shap: Optional[float] = None
+    shap_rank: Optional[int] = None
+    # [08-FMON] the monthly SHAP record (research.fmon_feature_importance). `method` says which
+    # record a row came from: 'panel' (the model's own monthly record), 'panel_blend' (an ensemble,
+    # the weighted blend of its components' records) or 'snapshots' (the older six-snapshot
+    # aggregate, served only for models the monthly record does not cover).
+    share: Optional[float] = None
+    family: Optional[str] = None
+    method: Optional[str] = None
+    n_months: Optional[int] = None
+    window_from: Optional[str] = None
+    window_to: Optional[str] = None
+    components: Optional[str] = None
+    note: Optional[str] = None
+
+
+_PANEL_IMPORTANCE_SQL = text("""
+    SELECT model_id, sector, feature, family, share, share_rank AS shap_rank, n_months,
+           window_from::text AS window_from, window_to::text AS window_to,
+           method, components, note
+    FROM research.fmon_feature_importance
+    WHERE model_id = :mid AND sector = :sector
+    ORDER BY share_rank
+""")
+
+
+def _panel_importance(model_id: str, sector: str) -> list[dict]:
+    """The monthly-record importance for a model, or [] when the model is not covered by it."""
+    try:
+        with get_db() as conn:
+            rows = conn.execute(_PANEL_IMPORTANCE_SQL, {"mid": model_id, "sector": sector}).fetchall()
+    except Exception:
+        return []
+    return [_clean(r) for r in rows]
 
 
 @router.get("/models/{model_id}/stability", response_model=List[ModelSignalStability])
@@ -429,9 +461,14 @@ def get_model_signal_stability(model_id: str):
 @router.get("/models/{model_id}/feature-importance", response_model=List[ModelFeatureImportance])
 def get_model_feature_importance(model_id: str):
     """
-    Return aggregated feature importance (mean Gini + mean |SHAP|) for a model,
-    ranked by SHAP descending.  Run compute_feature_importance.py to populate.
+    Feature importance for a model, ranked. Served from the monthly SHAP record (2015-2023 average
+    share of the model's attention; alpha scripts/build_factor_monitor.py) when the model is covered
+    by it; otherwise from the older six-snapshot aggregate (mean Gini + mean |SHAP|), with
+    method='snapshots' so the page can say which it is showing.
     """
+    panel = _panel_importance(model_id, "ALL")
+    if panel:
+        return [ModelFeatureImportance(**{k: v for k, v in r.items() if k != "sector"}) for r in panel]
     try:
         with get_db() as conn:
             rows = conn.execute(text("""
@@ -444,7 +481,7 @@ def get_model_feature_importance(model_id: str):
         return []
     if not rows:
         return []
-    return [ModelFeatureImportance(**_clean(r)) for r in rows]
+    return [ModelFeatureImportance(**_clean(r), method="snapshots") for r in rows]
 
 
 class ModelSectorSummary(BaseModel):
@@ -491,13 +528,8 @@ def get_model_sector_summary(model_id: str):
     return [ModelSectorSummary(**_clean(r)) for r in rows]
 
 
-class ModelFeatureImportanceBySector(BaseModel):
-    model_id: str
+class ModelFeatureImportanceBySector(ModelFeatureImportance):
     sector: str
-    feature: str
-    mean_gini: Optional[float]
-    mean_shap: Optional[float]
-    shap_rank: Optional[int]
 
 
 @router.get("/models/{model_id}/feature-importance-by-sector",
@@ -506,8 +538,11 @@ def get_model_feature_importance_by_sector(model_id: str, sector: str = "ALL"):
     """
     Return per-sector feature importance (mean Gini + mean |SHAP|) for a model.
     Pass sector='ALL' to get the cross-sector aggregate (same as /feature-importance).
-    Run compute_feature_importance.py to populate.
+    Same two sources, same precedence, as /feature-importance.
     """
+    panel = _panel_importance(model_id, sector)
+    if panel:
+        return [ModelFeatureImportanceBySector(**r) for r in panel]
     try:
         with get_db() as conn:
             rows = conn.execute(text("""
@@ -520,4 +555,4 @@ def get_model_feature_importance_by_sector(model_id: str, sector: str = "ALL"):
         return []
     if not rows:
         return []
-    return [ModelFeatureImportanceBySector(**_clean(r)) for r in rows]
+    return [ModelFeatureImportanceBySector(**_clean(r), method="snapshots") for r in rows]

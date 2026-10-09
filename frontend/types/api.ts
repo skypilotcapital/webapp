@@ -264,6 +264,17 @@ export interface ModelFeatureImportance {
   mean_gini: number | null;
   mean_shap: number | null;
   shap_rank: number | null;
+  // [08-FMON] which record a row came from: 'panel' = the model's own monthly SHAP record,
+  // 'panel_blend' = an ensemble as the weighted blend of its components' records, 'snapshots' = the
+  // older six-snapshot aggregate (models the monthly record does not cover).
+  method?: 'panel' | 'panel_blend' | 'snapshots' | null;
+  share?: number | null;          // average share of the model's attention, 2015-2023
+  family?: string | null;
+  n_months?: number | null;
+  window_from?: string | null;
+  window_to?: string | null;
+  components?: string | null;     // e.g. "N005 70% · N010 30%"
+  note?: string | null;           // why this feature's average is understated
 }
 
 export interface ModelSectorSummary {
@@ -276,13 +287,8 @@ export interface ModelSectorSummary {
   hit_rate: number | null;
 }
 
-export interface ModelFeatureImportanceBySector {
-  model_id: string;
+export interface ModelFeatureImportanceBySector extends ModelFeatureImportance {
   sector: string;
-  feature: string;
-  mean_gini: number | null;
-  mean_shap: number | null;
-  shap_rank: number | null;
 }
 
 export interface ModelICCorrelationEntry {
