@@ -267,9 +267,9 @@ function Row({ label, children }: { label: string; children: React.ReactNode }) 
 // ⚠️ Expected MAY SIT OUTSIDE THIS BAND. That is the finding — the correction is at a historical
 // extreme — and it is stated in words rather than left for a reader to spot and mistrust the panel.
 // Nothing here clamps the point or widens the band.
-function RegimeBand({ r }: { r: BookRisk }) {
+function RegimeBand({ r, plain = false }: { r: BookRisk; plain?: boolean }) {
   if (r.te_expected_lo == null || r.te_expected_hi == null) return null;
-  const extreme = r.bias_pctile != null && (r.bias_pctile >= 90 || r.bias_pctile <= 10);
+  const extreme = !plain && r.bias_pctile != null && (r.bias_pctile >= 90 || r.bias_pctile <= 10);
   return (
     <span style={{ color: 'var(--tx-mut)' }}>
       <b style={{ color: 'var(--tx)' }}>Regime</b>{' '}
@@ -285,7 +285,7 @@ function RegimeBand({ r }: { r: BookRisk }) {
 
 // The sentence that explains the band. Separate from the band itself so the numbers can sit on the
 // metric line while the explanation sits with the other footnotes.
-function RegimeNote({ r }: { r: BookRisk }) {
+function RegimeNote({ r, plain = false }: { r: BookRisk; plain?: boolean }) {
   if (r.te_expected_lo == null || r.te_expected_hi == null) return null;
   const p = r.bias_pctile;
   const extreme = p != null && (p >= 90 || p <= 10);
@@ -307,7 +307,7 @@ function RegimeNote({ r }: { r: BookRisk }) {
       {': roughly half to four-fifths of its variance is explained by which regime the market is '}
       {'in.'}
       {extreme && (
-        <span style={{ color: 'var(--amber)' }}>
+        <span style={{ color: plain ? undefined : 'var(--amber)' }}>
           {' It currently sits at the '}
           <b>{p! >= 90 ? 'extreme' : 'low extreme'}</b>
           {` of its own history (p${p!.toFixed(0)}), which is why Expected falls `}
@@ -320,7 +320,12 @@ function RegimeNote({ r }: { r: BookRisk }) {
   );
 }
 
-function RiskRow({ m }: { m: BookExposureMandate }) {
+// Exported for the Portfolio Monitor ([08-PMON]). `plain` drops the colour cues (amber on an
+// off-target Expected, on an extreme regime percentile) — that page presents numbers side by side and
+// flags nothing (owner, 2026-10-12). The words stay: they explain the number, they do not judge it.
+export function RiskRow({ m, plain = false }: {
+  m: Pick<BookExposureMandate, 'mandate' | 'risk'>; plain?: boolean;
+}) {
   if (!m.risk) {
     return (
       <Row label="RISK">
@@ -357,7 +362,7 @@ function RiskRow({ m }: { m: BookExposureMandate }) {
           <span style={{
             // Off-target by more than the estimate's own uncertainty is the finding this row
             // exists for; inside it, the difference is not distinguishable from noise.
-            color: (r.te_expected != null && r.te_target != null
+            color: (!plain && r.te_expected != null && r.te_target != null
                     && Math.abs(r.te_expected - (capped ? r.te_budget ?? r.te_target : r.te_target))
                        > (r.te_expected_se ?? 0)) ? 'var(--amber)' : 'var(--tx)',
             fontWeight: 600,
@@ -368,7 +373,7 @@ function RiskRow({ m }: { m: BookExposureMandate }) {
             <span style={{ color: 'var(--tx-mut)' }}> ± {pct1(r.te_expected_se)}</span>
           )}
         </span>
-        <RegimeBand r={r} />
+        <RegimeBand r={r} plain={plain} />
         <span>
           <b>Realized</b>{' '}
           {r.publishable && r.te_realized != null ? (
@@ -400,7 +405,7 @@ function RiskRow({ m }: { m: BookExposureMandate }) {
         . The model under-predicts consistently, so the correction is baked in rather than left as a
         factor to multiply by — and it carries its own ±20%, which is where Expected&rsquo;s error
         bar comes from. Realized is a <b>trailing</b> window: it is the audit, not the drift signal.
-        <RegimeNote r={r} />
+        <RegimeNote r={r} plain={plain} />
         {capped && (
           <> The <b>budget</b> is what the optimiser actually spent — the vol cap&rsquo;s dial sat
           at {r.cap_calibration?.toFixed(2)} — against a nominal target of {pct1(r.te_target)}.</>
@@ -465,11 +470,11 @@ function BandsRow({ m, historyDays, historyStart }: {
 // targets imply once you fix the S&P 500 as the benchmark — core 1.0×3% combined in VARIANCE with
 // sleeve 0.5×6% — not a limit anyone enforced. The word is the whole safeguard: put this number
 // under a column headed "target" and within a month someone will treat it as a breach when it moves.
-function FundLine({ r }: { r: BookRisk }) {
+export function FundLine({ r, plain = false }: { r: BookRisk; plain?: boolean }) {
   const implied = r.target_source === 'implied';
   // Off the implied level by more than the estimate's own uncertainty is a finding; inside it, the
   // gap is not distinguishable from noise. Same rule as the per-mandate row.
-  const off = r.te_expected != null && r.te_target != null
+  const off = !plain && r.te_expected != null && r.te_target != null
     && Math.abs(r.te_expected - r.te_target) > (r.te_expected_se ?? 0);
   return (
     <div className="mt-3 mb-1 p-3 rounded"
@@ -493,7 +498,7 @@ function FundLine({ r }: { r: BookRisk }) {
             <span style={{ color: 'var(--tx-mut)' }}> ± {pct1(r.te_expected_se)}</span>
           )}
         </span>
-        <RegimeBand r={r} />
+        <RegimeBand r={r} plain={plain} />
         <span style={{ color: 'var(--tx-dim)' }}>{r.n_obs > 0 ? '' : 'realized: not yet'}</span>
       </div>
       <div className="text-[10.5px] mt-1" style={{ color: 'var(--tx-dim)' }}>
@@ -504,7 +509,7 @@ function FundLine({ r }: { r: BookRisk }) {
         {implied && <>, which <b>no optimizer was given</b> — a blend runs none, so this is what the
         design implies rather than a limit anything enforces</>}. It assumes the two are
         uncorrelated, which is why it is the secondary number.
-        <RegimeNote r={r} />
+        <RegimeNote r={r} plain={plain} />
         {r.te_expected_lo != null && (
           <> The fund&rsquo;s band blends the two mandates&rsquo; corrections as if they moved
           together; they were measured to be essentially <b>uncorrelated</b>, so the true band is

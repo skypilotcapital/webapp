@@ -17,6 +17,16 @@ const MODEL_MONITOR_SUB = [
   { label: 'Factors', href: '/model-monitor/factors', match: ['/model-monitor/factors'] },
 ];
 
+// Portfolio Monitor ([08-PMON], owner 2026-10-12): the STATE of the book we hold — beside Data Monitor
+// and Model Monitor, which watch the inputs. Two pages, not tabs on one: each carries too much to share
+// a screen. `/portfolio-monitor/paper` is hardcoded for the same reason Trading's is.
+const PORTFOLIO_MONITOR_SUB = [
+  { label: 'Holdings', href: '/portfolio-monitor/paper/holdings',
+    match: ['/portfolio-monitor/paper/holdings'] },
+  { label: 'Exposures', href: '/portfolio-monitor/paper/exposures',
+    match: ['/portfolio-monitor/paper/exposures'] },
+];
+
 // Trading gets sub-items for the same reason Research has them: the section is more than one
 // surface and the blotter is watched on its own, not scrolled to past an approval panel.
 // `/trading/paper` is hardcoded because paper is the only configured env (the live route 404s);
@@ -78,6 +88,26 @@ export function Sidebar() {
                  active={pathname.startsWith('/model-monitor')} />
         <div className="ml-3 pl-3 flex flex-col gap-px my-1" style={{ borderLeft: '1px solid var(--border-soft)' }}>
           {MODEL_MONITOR_SUB.map((s) => {
+            const active = s.match.some((m) => pathname === m || pathname.startsWith(m + '/'));
+            return (
+              <Link
+                key={s.href}
+                href={s.href}
+                className="px-2.5 py-1.5 rounded-md text-[11.5px] font-semibold transition-colors"
+                style={active
+                  ? { color: 'var(--teal)', background: 'rgba(14,124,111,0.10)' }
+                  : { color: 'var(--tx-mut)' }}
+              >
+                {s.label}
+              </Link>
+            );
+          })}
+        </div>
+
+        <NavLink href="/portfolio-monitor/paper/holdings" label="Portfolio Monitor" icon="◫"
+                 active={pathname.startsWith('/portfolio-monitor')} />
+        <div className="ml-3 pl-3 flex flex-col gap-px my-1" style={{ borderLeft: '1px solid var(--border-soft)' }}>
+          {PORTFOLIO_MONITOR_SUB.map((s) => {
             const active = s.match.some((m) => pathname === m || pathname.startsWith(m + '/'));
             return (
               <Link
