@@ -232,6 +232,30 @@ SAME rebalance id, links to the post-rebalance report `reports/rebalance/r{id}`)
 - Charts: `charts.tsx xTicks()` picks weekly / monthly / yearly x-labels by span (the old rule labelled
   only years divisible by 3 → a blank axis on a 5-week series).
 
+## Portfolio Monitor — `/portfolio-monitor/paper/{holdings,exposures}` ([08-PMON], 2026-10-12)
+
+Top-level section (sidebar, under Model Monitor): the STATE of the book we hold on the live IBKR paper
+account (Portfolios = performance; this = state). Design: `Main/Planning/08_website_and_tooling/
+portfolio_monitor_IA.md`. Two pages (owner: too much for tabs), `[env]` is a route (`live` 404s).
+
+- **API `api/routers/portfolio_monitor.py`** (prefix `/api/v1/portfolio-monitor/{env}`): `holdings`,
+  `holdings.csv?side=&mandate=&sector=`, `exposures`. Reads only. `exposures` CALLS `paper.exposures()`
+  for the held side + risk rows and merges `trading.book_exposure_refs(_factors)` (Target + Benchmark,
+  written nightly by the trading repo's `jobs.book_exposures`); `holdings` reuses `paper._period_starts`
+  for the since-rebalance window.
+- **Target = the LIVE book** (frozen Track B target of the rebalance the ledger recorded in
+  `position_attribution.rebalance_id` for that date) — never the research `*_full` book, and never
+  re-derived from today's rebalance statuses (that claims the days before a rebalance traded).
+- **No flags** (owner): the payload has no `breach`/`headroom`; nothing on either page is coloured by
+  drift or band distance. The risk lines reuse `RiskRow`/`FundLine` from `BookRisk.tsx` with
+  `plain` (drops their amber cues); the paper page is unchanged.
+- Holdings rows = held ∪ target joined on `conid`; `target_positions` read with `mandate='composite'`
+  for weights and `core`/`sleeve` only for a target-only name's mandate. Borrow = latest row with
+  `available_date <= book date` (`DISTINCT ON (isin)`), never joined on `date`.
+- Local check needs a proxy secret on BOTH sides: the API fails closed without `PROXY_SECRET`, and the
+  local frontend has no `API_PROXY_SECRET`. Add the same throwaway value to `api/.env` and
+  `frontend/.env.local` (+ `API_URL=http://localhost:8000`), back both files up first, restore by checksum.
+
 ## Model Monitor › Factors — `/model-monitor/factors` ([08-FMON], 2026-10-07)
 
 Its own top-level section (sidebar, beside Data Monitor), internal, full history. Answers three
