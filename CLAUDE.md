@@ -38,6 +38,29 @@
 - Still paper-grade: per-user auth (Q1) and live access control (Q3) remain pre-live requirements;
   approve/execute record the operator name as CLAIMED.
 
+## Navigation — `frontend/lib/nav.ts` is the ONE menu definition (reorganised 2026-10-16, owner)
+
+- Four groups in workflow order, named for the THING each is about: **Strategy** (Factors · Alpha Models ·
+  Backtests · Macro Overlay) · **Portfolio** (Overview · Paper Account · Holdings · Exposures · Reports) ·
+  **Trading** (Rebalance · Trade Blotter) · **System Health** (Data Pipeline · Model Health). Flat within a
+  group; Settings pinned at the bottom, disabled.
+- The sidebar (`components/shell/Sidebar.tsx`) and the home page (`app/(app)/page.tsx`, one card per item
+  with its `blurb`) BOTH render `NAV_GROUPS`. Add a page by adding an item there — never hand-write a
+  card or a link in either file (the old home cards described "two production finalists" months after
+  one book went to production).
+- Rules: one word, one meaning ("Portfolio" = the book we hold; research books are "Backtests";
+  "Factors" is research, the live model's view is "Model Health"); no internal codes in labels (P01 /
+  P02 / L2 / te6 / N014 stay inside the pages); routes UNCHANGED (phase 1 was labels + grouping only).
+- `activeHref()` picks the MOST SPECIFIC matching item so exactly one lights up where prefixes overlap
+  (Overview `/portfolios` is `exact`; Rebalance matches `/trading/paper` but Trade Blotter wins under
+  `/orders`). Verified on `/portfolios/sp500-ext-te6/ibkr`, `/trading/paper/orders`,
+  `/research/r2500-models`.
+- Still hard-coded to `paper` in the Portfolio and Trading routes (the only configured env; `live`
+  404s). Phase 2 = one account selector per group. Phase 3 (optional) = move holdings/exposures under
+  `/portfolios/...` with redirects and retire the unlinked legacy `/reports` + `/backtests` routes.
+- In-page tabs keep their own vocabulary where it is the page's (the research layer switch still
+  says P01 / P02 / L2 as tags).
+
 ## Research Schema Access
 
 - DB user for the API: `skypilot_app` (not `skypilot_user`)

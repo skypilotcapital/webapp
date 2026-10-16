@@ -3,69 +3,20 @@
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 
-const NAV = [
-  { href: '/monitor', label: 'Data Monitor', icon: '▤' },
-];
-const NAV_AFTER_MODEL_MONITOR = [
-  { href: '/macro-beta', label: 'Macro Beta', icon: '∿' },
-];
+import { HOME, NAV_GROUPS, activeHref } from '@/lib/nav';
 
-// Model Monitor ([08-FMON], owner 2026-10-07): its own top-level section beside Data Monitor, not a
-// research tab — it watches the PRODUCTION models' components. Factors is the first surface; model
-// health ([04-MH]) joins it as a second sub-item.
-const MODEL_MONITOR_SUB = [
-  { label: 'Factors', href: '/model-monitor/factors', match: ['/model-monitor/factors'] },
-];
-
-// Portfolio Monitor ([08-PMON], owner 2026-10-12): the STATE of the book we hold — beside Data Monitor
-// and Model Monitor, which watch the inputs. Two pages, not tabs on one: each carries too much to share
-// a screen. `/portfolio-monitor/paper` is hardcoded for the same reason Trading's is.
-const PORTFOLIO_MONITOR_SUB = [
-  { label: 'Holdings', href: '/portfolio-monitor/paper/holdings',
-    match: ['/portfolio-monitor/paper/holdings'] },
-  { label: 'Exposures', href: '/portfolio-monitor/paper/exposures',
-    match: ['/portfolio-monitor/paper/exposures'] },
-];
-
-// Trading gets sub-items for the same reason Research has them: the section is more than one
-// surface and the blotter is watched on its own, not scrolled to past an approval panel.
-// `/trading/paper` is hardcoded because paper is the only configured env (the live route 404s);
-// when live exists this becomes env-aware rather than a second copy of the list.
-const TRADING_SUB = [
-  { label: 'Rebalance', href: '/trading/paper/rebalance', match: ['/trading/paper/rebalance'] },
-  // Route is `orders/` because trading_ui_IA.md §2.2 says so (S4). The LABEL stays "Trade
-  // blotter" — that is the domain word and what the screen calls itself; the IA governs the URL.
-  { label: 'Trade blotter', href: '/trading/paper/orders', match: ['/trading/paper/orders'] },
-];
-
-// Portfolios gains sub-items for the same reason Trading has them, and for one more: since
-// 2026-08-07 one of the tracked strategies is a book we actually own, and burying it as a pill on
-// a strategy page reads as "the real portfolio is the greyed-out middle option" ([08-PTRK] §X.3).
-// This is a SECOND DOOR onto the same route, not a second surface — deep-linking the track keeps
-// the modeled-vs-actual comparison on one page, which is why IBKR was made a track and not a
-// section in the first place.
-const PORTFOLIO_SUB = [
-  { label: 'All portfolios', href: '/portfolios', match: ['/portfolios'], exact: true },
-  { label: 'Paper book', href: '/portfolios/sp500-ext-te6/ibkr',
-    match: ['/portfolios/sp500-ext-te6/ibkr'] },
-];
-
-const RESEARCH_SUB = [
-  { label: 'Factors · P01', href: '/research/factors', match: ['/research/factors', '/research/r2500-factors'] },
-  { label: 'Alpha Models · P02', href: '/research/models', match: ['/research/models', '/research/r2500-models'] },
-  { label: 'Portfolios · L2', href: '/research/portfolios', match: ['/research/portfolios'] },
-];
-
+// The sidebar renders `lib/nav.ts` and nothing else — the menu is defined once and shared with the
+// home page. Four groups in workflow order; flat within a group. See lib/nav.ts for the rules.
 export function Sidebar() {
   const pathname = usePathname() || '';
-  const inResearch = pathname.startsWith('/research');
+  const active = activeHref(pathname);
 
   return (
     <aside
-      className="w-[212px] flex-none sticky top-0 h-screen px-3 py-4 overflow-y-auto"
+      className="w-[212px] flex-none sticky top-0 h-screen px-3 py-4 overflow-y-auto flex flex-col"
       style={{ background: 'var(--panel)', borderRight: '1px solid var(--border-soft)' }}
     >
-      <Link href="/" className="flex items-center gap-3 px-2 pb-5">
+      <Link href="/" className="flex items-center gap-3 px-2 pb-4">
         <div
           className="w-9 h-9 rounded-[10px] flex items-center justify-center font-black text-[18px]"
           style={{ background: 'linear-gradient(135deg,var(--teal),#0b6055)', color: '#fffdf9' }}
@@ -78,122 +29,27 @@ export function Sidebar() {
         </div>
       </Link>
 
-      <nav className="flex flex-col gap-0.5">
-        {NAV.map((n) => {
-          const active = pathname === n.href || pathname.startsWith(n.href + '/');
-          return <NavLink key={n.href} href={n.href} label={n.label} icon={n.icon} active={active} />;
-        })}
+      <nav className="flex flex-col gap-0.5 flex-1">
+        <NavLink href={HOME.href} label={HOME.label} icon={HOME.icon} active={active === HOME.href} />
 
-        <NavLink href="/model-monitor/factors" label="Model Monitor" icon="◎"
-                 active={pathname.startsWith('/model-monitor')} />
-        <div className="ml-3 pl-3 flex flex-col gap-px my-1" style={{ borderLeft: '1px solid var(--border-soft)' }}>
-          {MODEL_MONITOR_SUB.map((s) => {
-            const active = s.match.some((m) => pathname === m || pathname.startsWith(m + '/'));
-            return (
-              <Link
-                key={s.href}
-                href={s.href}
-                className="px-2.5 py-1.5 rounded-md text-[11.5px] font-semibold transition-colors"
-                style={active
-                  ? { color: 'var(--teal)', background: 'rgba(14,124,111,0.10)' }
-                  : { color: 'var(--tx-mut)' }}
-              >
-                {s.label}
-              </Link>
-            );
-          })}
-        </div>
-
-        <NavLink href="/portfolio-monitor/paper/holdings" label="Portfolio Monitor" icon="◫"
-                 active={pathname.startsWith('/portfolio-monitor')} />
-        <div className="ml-3 pl-3 flex flex-col gap-px my-1" style={{ borderLeft: '1px solid var(--border-soft)' }}>
-          {PORTFOLIO_MONITOR_SUB.map((s) => {
-            const active = s.match.some((m) => pathname === m || pathname.startsWith(m + '/'));
-            return (
-              <Link
-                key={s.href}
-                href={s.href}
-                className="px-2.5 py-1.5 rounded-md text-[11.5px] font-semibold transition-colors"
-                style={active
-                  ? { color: 'var(--teal)', background: 'rgba(14,124,111,0.10)' }
-                  : { color: 'var(--tx-mut)' }}
-              >
-                {s.label}
-              </Link>
-            );
-          })}
-        </div>
-
-        {NAV_AFTER_MODEL_MONITOR.map((n) => {
-          const active = pathname === n.href || pathname.startsWith(n.href + '/');
-          return <NavLink key={n.href} href={n.href} label={n.label} icon={n.icon} active={active} />;
-        })}
-
-        {/* Research (section with sub-items) */}
-        <NavLink href="/research/factors" label="Research" icon="◔" active={inResearch} />
-        <div className="ml-3 pl-3 flex flex-col gap-px my-1" style={{ borderLeft: '1px solid var(--border-soft)' }}>
-          {RESEARCH_SUB.map((s) => {
-            const active = s.match.some((m) => pathname === m || pathname.startsWith(m + '/') || pathname.startsWith(m + '?'));
-            return (
-              <Link
-                key={s.href}
-                href={s.href}
-                className="px-2.5 py-1.5 rounded-md text-[11.5px] font-semibold transition-colors"
-                style={active
-                  ? { color: 'var(--teal)', background: 'rgba(14,124,111,0.10)' }
-                  : { color: 'var(--tx-mut)' }}
-              >
-                {s.label}
-              </Link>
-            );
-          })}
-        </div>
-
-        <div className="text-[9px] font-bold tracking-[1.5px] px-2.5 pt-3.5 pb-1.5" style={{ color: 'var(--tx-dim)' }}>
-          PRODUCTION
-        </div>
-        <NavLink href="/trading/paper" label="Trading" icon="⌁"
-                 active={pathname.startsWith('/trading')} />
-        <div className="ml-3 pl-3 flex flex-col gap-px my-1" style={{ borderLeft: '1px solid var(--border-soft)' }}>
-          {TRADING_SUB.map((s) => {
-            const active = s.match.some((m) => pathname === m || pathname.startsWith(m + '/'));
-            return (
-              <Link
-                key={s.href}
-                href={s.href}
-                className="px-2.5 py-1.5 rounded-md text-[11.5px] font-semibold transition-colors"
-                style={active
-                  ? { color: 'var(--teal)', background: 'rgba(14,124,111,0.10)' }
-                  : { color: 'var(--tx-mut)' }}
-              >
-                {s.label}
-              </Link>
-            );
-          })}
-        </div>
-        <NavLink href="/portfolios" label="Portfolios" icon="◈"
-          active={pathname === '/portfolios' || pathname.startsWith('/portfolios/')} />
-        <div className="ml-3 pl-3 flex flex-col gap-px my-1" style={{ borderLeft: '1px solid var(--border-soft)' }}>
-          {PORTFOLIO_SUB.map((s) => {
-            const active = s.exact
-              ? pathname === s.href
-              : s.match.some((m) => pathname === m || pathname.startsWith(m + '/'));
-            return (
-              <Link
-                key={s.href}
-                href={s.href}
-                className="px-2.5 py-1.5 rounded-md text-[11.5px] font-semibold transition-colors"
-                style={active
-                  ? { color: 'var(--teal)', background: 'rgba(14,124,111,0.10)' }
-                  : { color: 'var(--tx-mut)' }}
-              >
-                {s.label}
-              </Link>
-            );
-          })}
-        </div>
-        <DisabledLink label="Settings" icon="⚙" />
+        {NAV_GROUPS.map((g) => (
+          <div key={g.key} className="flex flex-col gap-0.5">
+            <div
+              className="text-[9px] font-bold tracking-[1.5px] px-2.5 pt-2.5 pb-1 uppercase"
+              style={{ color: 'var(--tx-dim)' }}
+            >
+              {g.label}
+            </div>
+            {g.items.map((it) => (
+              <NavLink key={it.href} href={it.href} label={it.label} icon={it.icon} active={active === it.href} />
+            ))}
+          </div>
+        ))}
       </nav>
+
+      <div className="pt-3 mt-2" style={{ borderTop: '1px solid var(--border-soft)' }}>
+        <DisabledLink label="Settings" icon="⚙" />
+      </div>
     </aside>
   );
 }
@@ -202,7 +58,7 @@ function NavLink({ href, label, icon, active }: { href: string; label: string; i
   return (
     <Link
       href={href}
-      className="flex items-center gap-3 px-2.5 py-2 rounded-[9px] text-[12.5px] font-semibold transition-colors"
+      className="flex items-center gap-3 px-2.5 py-[5px] rounded-[9px] text-[12.5px] font-semibold transition-colors"
       style={active
         ? { background: 'linear-gradient(90deg,rgba(14,124,111,0.13),rgba(14,124,111,0.02))', color: 'var(--teal)', boxShadow: 'inset 2px 0 0 var(--teal)' }
         : { color: 'var(--tx-mut)' }}
@@ -213,16 +69,15 @@ function NavLink({ href, label, icon, active }: { href: string; label: string; i
   );
 }
 
-function DisabledLink({ label, icon, badge }: { label: string; icon: string; badge?: string }) {
+function DisabledLink({ label, icon }: { label: string; icon: string }) {
   return (
-    <div className="flex items-center gap-3 px-2.5 py-2 rounded-[9px] text-[12.5px] font-semibold cursor-not-allowed" style={{ color: 'var(--tx-dim)' }}>
+    <div
+      className="flex items-center gap-3 px-2.5 py-2 rounded-[9px] text-[12.5px] font-semibold cursor-not-allowed"
+      style={{ color: 'var(--tx-dim)' }}
+      title="Not built yet"
+    >
       <span className="w-[17px] text-center text-[14px]">{icon}</span>
       {label}
-      {badge && (
-        <span className="ml-auto text-[8px] font-bold px-1.5 py-px rounded" style={{ background: 'rgba(124,139,161,0.18)', color: 'var(--tx-dim)' }}>
-          {badge}
-        </span>
-      )}
     </div>
   );
 }
