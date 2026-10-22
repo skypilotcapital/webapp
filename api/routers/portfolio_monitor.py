@@ -459,3 +459,300 @@ def exposures(env: str, date: str | None = None, strategy: str | None = None):
                                "net (it is measured against cash). Month-end weights, not moved "
                                "with prices since."},
     }
+
+
+# ================================================================================== today ====
+#
+# [08-TODAY] — the book TODAY. Design: `08_website_and_tooling/today_page.md` (CANONICAL).
+#
+# The droplet job `jobs/intraday_poll.py` reads the account every 15 minutes during US hours into
+# `trading.intraday_polls` / `intraday_positions`, and computes every number there (rule 1 above
+# holds: this section sums and divides stored rows, it never re-derives a P&L). The API never calls
+# the broker.
+#
+# ONE NUMBER PER DAY. `phase` decides which source is the headline:
+#   open                — market open: the latest poll (broker marks, delayed)
+#   closed_preliminary  — after the closing poll, before the official book exists: the last poll
+#   closed_official     — `trading.book_daily` for today exists (02:00 UTC next morning): the same
+#                         number as the Paper Account page and the daily report; the polls become
+#                         the intraday PATH under it, never a second headline
+#   preopen             — no poll yet today (before the open, a weekend, a holiday): the last
+#                         official day
+# The 22:15 UTC snapshot is never a headline (today_page.md D4).
+
+_SESSION_LAST = dt.time(16, 15)
+_TOP = 5
+
+
+def _iso(v):
+    return v.isoformat() if v is not None else None
+
+
+def _ny_now(conn) -> dt.datetime:
+    """New York wall-clock time, from Postgres. Asked of the database rather than `zoneinfo`
+    because the API also runs on Windows for local checks, where Python ships no tz database; the
+    database's answer is the same everywhere and carries DST correctly."""
+    return conn.execute(text("SELECT (now() AT TIME ZONE 'America/New_York')")).scalar()
+
+
+def _ratio(a, b):
+    a, b = _f(a), _f(b)
+    return (a / b - 1.0) if a and b else None
+
+
+def _today_mandates_official(conn, strat: str, d: dt.date, pnl_total) -> dict:
+    """The official day's split, from `trading.mandate_pnl_daily` (the ledger's own application of
+    position_attribution). The sleeve leg is the sign of the sleeve's claim that day."""
+    rows = conn.execute(text("""
+        SELECT m.mandate,
+               CASE WHEN m.mandate <> 'sleeve' THEN NULL
+                    WHEN pa.attr_qty < 0 THEN 'short' ELSE 'long' END AS leg,
+               SUM(m.pnl) AS pnl
+        FROM trading.mandate_pnl_daily m
+        LEFT JOIN trading.position_attribution pa
+               ON pa.strategy = m.strategy AND pa.date = m.attr_date AND pa.conid = m.conid
+              AND pa.mandate = 'sleeve' AND m.mandate = 'sleeve'
+        WHERE m.strategy = :s AND m.date = :d
+        GROUP BY 1, 2"""), {"s": strat, "d": d}).mappings().all()
+    if not rows:
+        return {"available": False, "note": "the mandate split for this date has not been built"}
+    out = {"core": 0.0, "sleeve_long": 0.0, "sleeve_short": 0.0, "unattributed": 0.0}
+    for r in rows:
+        key = r["mandate"] if r["mandate"] != "sleeve" else f"sleeve_{r['leg']}"
+        out[key] = out.get(key, 0.0) + (_f(r["pnl"]) or 0.0)
+    out["other"] = (pnl_total - sum(out.values())) if pnl_total is not None else None
+    out["n_uncaptured"] = None
+    out["available"] = True
+    return out
+
+
+def _today_movers(conn, rows, nav) -> dict:
+    out = []
+    for r in rows:
+        price, prev = _f(r["price"]), _f(r["prev_close"])
+        out.append({"conid": int(r["conid"]), "ticker": r["ticker"], "qty": _f(r["qty"]),
+                    "price": price, "prev_close": prev,
+                    "move": (price / prev - 1.0) if price and prev else None,
+                    "weight": (_f(r["mkt_value"]) / nav) if nav and r["mkt_value"] is not None else None,
+                    "pnl": _f(r["pnl"])})
+    out = [x for x in out if x["pnl"] is not None]
+    out.sort(key=lambda x: x["pnl"])
+    return {"top": [x for x in reversed(out[-_TOP:]) if x["pnl"] > 0],
+            "bottom": [x for x in out[:_TOP] if x["pnl"] < 0]}
+
+
+def _exposure(gl, gs, nav, n_long, n_short) -> dict:
+    gl, gs = _f(gl) or 0.0, _f(gs) or 0.0
+    return {"gross": (gl + gs) / nav if nav else None, "net": (gl - gs) / nav if nav else None,
+            "gross_long": gl, "gross_short": gs, "n_long": n_long, "n_short": n_short}
+
+
+def _target(conn, rid) -> dict | None:
+    if rid is None:
+        return None
+    t = conn.execute(text("""
+        SELECT SUM(ABS(target_wt)) AS g, SUM(target_wt) AS n,
+               COUNT(*) FILTER (WHERE target_wt > 0) AS nl,
+               COUNT(*) FILTER (WHERE target_wt < 0) AS ns
+        FROM trading.target_positions WHERE rebalance_id = :r AND mandate = 'composite'"""),
+        {"r": int(rid)}).mappings().first()
+    return {"rebalance_id": int(rid), "gross": _f(t["g"]), "net": _f(t["n"]),
+            "n_long": t["nl"], "n_short": t["ns"]}
+
+
+def _today_status(conn, strat: str, account) -> dict:
+    last = conn.execute(text("""
+        SELECT poll_ts, status, detail FROM trading.intraday_polls WHERE strategy = :s
+        ORDER BY poll_ts DESC LIMIT 1"""), {"s": strat}).mappings().first()
+    last_ok = conn.execute(text("""
+        SELECT max(poll_ts) FROM trading.intraday_polls WHERE strategy = :s AND status = 'ok'"""),
+        {"s": strat}).scalar()
+    snap = conn.execute(text("""
+        SELECT max(snap_ts) FROM ibkr.account_snapshots
+        WHERE CAST(:a AS text) IS NULL OR account_id = :a"""), {"a": account}).scalar()
+    book = conn.execute(text("""
+        SELECT date, built_at FROM trading.book_daily WHERE strategy = :s
+        ORDER BY date DESC LIMIT 1"""), {"s": strat}).mappings().first()
+    return {
+        "last_poll_ts": _iso(last["poll_ts"]) if last else None,
+        "last_poll_status": last["status"] if last else None,
+        "last_poll_detail": last["detail"] if last else None,
+        "last_ok_poll_ts": _iso(last_ok),
+        # The session as the LAST POLL found it — the poll never logs in; keepalive owns recovery.
+        "session_up_at_last_poll": (last["status"] != "session_down") if last else None,
+        "last_official_snapshot_ts": _iso(snap),
+        "last_official_book_date": _iso(book["date"]) if book else None,
+        "last_official_book_built_at": _iso(book["built_at"]) if book else None,
+    }
+
+
+def _today(env: str, strategy: str | None) -> dict:
+    _env(env)
+    now = dt.datetime.now(dt.timezone.utc)
+    with get_db() as conn:
+        ny = _ny_now(conn)
+        d_ny = ny.date()
+        latest_book, strat = _book_date(conn, None, strategy)
+        if strat is None:
+            return {"env": env, "phase": None, "note": "no book yet"}
+        account = conn.execute(text("""
+            SELECT account_id FROM trading.book_daily WHERE strategy = :s
+            ORDER BY date DESC LIMIT 1"""), {"s": strat}).scalar()
+        n_polls_today = conn.execute(text("""
+            SELECT count(*) FROM trading.intraday_polls
+            WHERE strategy = :s AND ny_date = :d AND status = 'ok'"""),
+            {"s": strat, "d": d_ny}).scalar() or 0
+
+        if latest_book == d_ny:
+            phase, day = "closed_official", d_ny
+        elif n_polls_today:
+            phase = "closed_preliminary" if ny.time() > _SESSION_LAST else "open"
+            day = d_ny
+        else:
+            phase, day = "preopen", latest_book
+
+        series = [{"ts": _iso(r["poll_ts"]), "nav": _f(r["nav"]), "pnl": _f(r["pnl"]),
+                   "pnl_pct": (_f(r["pnl"]) / _f(r["prev_nav"]))
+                   if r["pnl"] is not None and r["prev_nav"] else None,
+                   "index_move": _ratio(r["spy_last"], r["spy_prev_close"])}
+                  for r in conn.execute(text("""
+                      SELECT poll_ts, nav, pnl, prev_nav, spy_last, spy_prev_close
+                      FROM trading.intraday_polls
+                      WHERE strategy = :s AND ny_date = :d AND status = 'ok' ORDER BY poll_ts"""),
+                      {"s": strat, "d": day}).mappings()]
+
+        if phase in ("open", "closed_preliminary"):
+            p = conn.execute(text("""
+                SELECT * FROM trading.intraday_polls
+                WHERE strategy = :s AND ny_date = :d AND status = 'ok'
+                ORDER BY poll_ts DESC LIMIT 1"""), {"s": strat, "d": d_ny}).mappings().first()
+            nav, pnl, prev_nav = _f(p["nav"]), _f(p["pnl"]), _f(p["prev_nav"])
+            as_of = _iso(p["poll_ts"])
+            headline = {
+                "source": "poll", "as_of": as_of, "date": d_ny.isoformat(),
+                "prev_date": _iso(p["prev_date"]), "nav": nav, "pnl": pnl,
+                "pnl_pct": (pnl / prev_nav) if pnl is not None and prev_nav else None,
+                "pnl_broker": _f(p["pnl_broker"]), "broker_prev_ts": _iso(p["broker_prev_ts"]),
+                "n_moved": p["n_moved"], "n_names": p["n_names"],
+                "index": {"name": "SPY (price)", "move": _ratio(p["spy_last"], p["spy_prev_close"]),
+                          "last": _f(p["spy_last"]), "as_of": _iso(p["spy_ts"]),
+                          "availability": p["spy_avail"]},
+            }
+            mandates = {"available": True, "as_of": as_of, "source": "poll",
+                        "shares_from": _iso(p["prev_date"]),
+                        "core": _f(p["pnl_core"]), "sleeve_long": _f(p["pnl_sleeve_long"]),
+                        "sleeve_short": _f(p["pnl_sleeve_short"]),
+                        "unattributed": _f(p["pnl_unattributed"]), "other": _f(p["pnl_other"]),
+                        "n_uncaptured": p["n_uncaptured"]}
+            mover_rows = conn.execute(text("""
+                SELECT conid, ticker, qty, mkt_price AS price, prev_close, mkt_value, pnl
+                FROM trading.intraday_positions WHERE poll_ts = :k"""),
+                {"k": p["poll_ts"]}).mappings().all()
+            exposure = {"as_of": as_of,
+                        "now": _exposure(p["gross_long"], p["gross_short"], nav,
+                                         p["n_long"], p["n_short"]),
+                        "target": _target(conn, p["target_rebalance_id"]),
+                        "trading_rebalance_id": p["trading_rebalance_id"]}
+        else:
+            b = conn.execute(text("""
+                SELECT * FROM trading.book_daily WHERE strategy = :s AND date = :d"""),
+                {"s": strat, "d": day}).mappings().first()
+            nav, pnl = _f(b["nav"]), _f(b["pnl_d"])
+            prev_nav = (nav - pnl) if nav is not None and pnl is not None else None
+            lv = {r["date"]: r["tr_level"] for r in conn.execute(text("""
+                SELECT date, tr_level FROM clean.beta_sp500_daily WHERE date IN (:a, :b)"""),
+                {"a": b["prev_date"] or day, "b": day}).mappings()}
+            headline = {
+                "source": "official", "as_of": _iso(b["snap_ts"]), "date": day.isoformat(),
+                "prev_date": _iso(b["prev_date"]), "built_at": _iso(b["built_at"]),
+                "nav": nav, "pnl": pnl,
+                "pnl_pct": (pnl / prev_nav) if pnl is not None and prev_nav else None,
+                "pnl_broker": None, "mark_quality": b["mark_quality"],
+                "index": {"name": "S&P 500 (total return)",
+                          "move": _ratio(lv.get(day), lv.get(b["prev_date"])),
+                          "as_of": day.isoformat()},
+            }
+            mandates = dict(_today_mandates_official(conn, strat, day, pnl),
+                            as_of=day.isoformat(), source="official")
+            mover_rows = conn.execute(text("""
+                SELECT conid, ticker, qty, price,
+                       CASE WHEN prev_qty <> 0 THEN prev_mkt_value / prev_qty END AS prev_close,
+                       mkt_value, pnl_d AS pnl
+                FROM trading.book_daily_positions WHERE strategy = :s AND date = :d"""),
+                {"s": strat, "d": day}).mappings().all()
+            gov = _governing(conn, strat, day)
+            exposure = {"as_of": day.isoformat(),
+                        "now": _exposure(b["gross_long"], b["gross_short"], nav,
+                                         b["n_long"], b["n_short"]),
+                        "target": _target(conn, gov["rebalance_id"] if gov else None),
+                        "trading_rebalance_id": None}
+
+        movers = dict(_today_movers(conn, mover_rows, nav), as_of=headline["as_of"])
+        n_orders = conn.execute(text("""
+            SELECT count(*) FROM ibkr.orders
+            WHERE (submitted_at AT TIME ZONE 'America/New_York')::date = :d"""),
+            {"d": day}).scalar() or 0
+        status = _today_status(conn, strat, account)
+
+    return {"env": env, "strategy": strat, "phase": phase, "now": now.isoformat(),
+            "date": day.isoformat() if day else None, "headline": headline, "series": series,
+            "mandates": mandates, "movers": movers, "exposure": exposure,
+            "trade_day": n_orders > 0, "status": status}
+
+
+@router.get("/{env}/today")
+def today(env: str, strategy: str | None = None):
+    """The book today: headline, intraday path, core vs sleeve, movers, exposure vs the frozen live
+    target, and the poll's own status. The section comment above says which number leads when."""
+    return _today(env, strategy)
+
+
+@router.get("/{env}/today/orders")
+def today_orders(env: str, date: str | None = None):
+    """A day's orders, fills and broker cancellations as the executor and the capture jobs recorded
+    them (`ibkr.orders` / `ibkr.executions`). The API never calls the broker, so a status is only
+    as fresh as the last capture — `as_of` says when that was."""
+    _env(env)
+    with get_db() as conn:
+        d = dt.date.fromisoformat(date) if date else _ny_now(conn).date()
+        orders = conn.execute(text("""
+            SELECT o.internal_order_id, o.rebalance_id, o.conid, c.ticker, o.side, o.qty,
+                   o.order_type, o.limit_px, o.status, o.submitted_at, o.last_status_at,
+                   f.filled, f.avg_px,
+                   (SELECT e.detail FROM ibkr.order_events e
+                    WHERE e.internal_order_id = o.internal_order_id
+                    ORDER BY e.event_ts DESC LIMIT 1) AS last_event
+            FROM ibkr.orders o
+            LEFT JOIN ibkr.contracts c ON c.conid = o.conid
+            LEFT JOIN (SELECT internal_order_id, SUM(ABS(qty)) AS filled,
+                              SUM(ABS(qty) * price) / NULLIF(SUM(ABS(qty)), 0) AS avg_px
+                       FROM ibkr.executions WHERE internal_order_id IS NOT NULL GROUP BY 1) f
+                   ON f.internal_order_id = o.internal_order_id
+            WHERE (o.submitted_at AT TIME ZONE 'America/New_York')::date = :d
+            ORDER BY o.submitted_at"""), {"d": d}).mappings().all()
+        fills = conn.execute(text("""
+            SELECT x.exec_ts, x.conid, c.ticker, x.qty, x.price, x.commission, x.order_ref
+            FROM ibkr.executions x LEFT JOIN ibkr.contracts c ON c.conid = x.conid
+            WHERE (x.exec_ts AT TIME ZONE 'America/New_York')::date = :d
+            ORDER BY x.exec_ts"""), {"d": d}).mappings().all()
+        captured = conn.execute(text("""
+            SELECT max(last_status_at) FROM ibkr.orders
+            WHERE (submitted_at AT TIME ZONE 'America/New_York')::date = :d"""), {"d": d}).scalar()
+    rows = [{"internal_order_id": int(o["internal_order_id"]), "rebalance_id": o["rebalance_id"],
+             "conid": int(o["conid"]) if o["conid"] is not None else None, "ticker": o["ticker"],
+             "side": o["side"], "qty": _f(o["qty"]), "order_type": o["order_type"],
+             "limit_px": _f(o["limit_px"]), "status": o["status"],
+             "submitted_at": _iso(o["submitted_at"]), "last_status_at": _iso(o["last_status_at"]),
+             "filled_qty": _f(o["filled"]) or 0.0, "avg_px": _f(o["avg_px"]),
+             "last_event": o["last_event"]} for o in orders]
+    ended = ("filled", "cancelled", "rejected")
+    return {
+        "env": env, "date": d.isoformat(), "as_of": _iso(captured),
+        "n_orders": len(rows), "n_filled": sum(1 for r in rows if r["status"] == "filled"),
+        "working": [r for r in rows if r["status"] not in ended],
+        "cancelled": [r for r in rows if r["status"] in ("cancelled", "rejected")],
+        "fills": [{"exec_ts": _iso(f["exec_ts"]), "conid": int(f["conid"]), "ticker": f["ticker"],
+                   "qty": _f(f["qty"]), "price": _f(f["price"]),
+                   "commission": _f(f["commission"]), "order_ref": f["order_ref"]}
+                  for f in fills],
+    }

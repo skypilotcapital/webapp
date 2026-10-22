@@ -65,6 +65,9 @@ export const NAV_GROUPS: NavGroup[] = [
     label: 'Portfolio',
     question: 'What we hold, and how it is doing',
     items: [
+      { label: 'Today', href: '/portfolio-monitor/paper/today', icon: '◷',
+        match: ['/portfolio-monitor/paper/today'],
+        blurb: 'The paper book during the trading day: P&L so far, core vs sleeve, biggest movers, exposure now, and a rebalance as it trades.' },
       { label: 'Overview', href: '/portfolios', exact: true, icon: '◈',
         blurb: 'Every tracked strategy: the production book, the candidates, and the research tracks, with their records.' },
       { label: 'Paper Account', href: '/portfolios/sp500-ext-te6/ibkr', icon: '◧',

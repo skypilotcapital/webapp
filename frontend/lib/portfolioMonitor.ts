@@ -219,3 +219,100 @@ export function dayLabel(iso: string | null | undefined): string {
 export const MANDATE_LABEL: Record<string, string> = {
   core: 'Core', sleeve: 'Sleeve', split: 'Split', unattributed: 'Unattributed',
 };
+
+/* ------------------------------------------------------------------------------- today ---- */
+// [08-TODAY] The book TODAY. Design: `08_website_and_tooling/today_page.md`. The droplet polls the
+// account every 15 minutes in US hours; the page reads those rows. ONE NUMBER PER DAY: `phase`
+// says whether the headline is the latest poll or the official day (book_daily), never both.
+
+export type TodayPhase = 'open' | 'closed_preliminary' | 'closed_official' | 'preopen';
+
+export interface TodayMover {
+  conid: number; ticker: string | null; qty: number | null; price: number | null;
+  prev_close: number | null; move: number | null; weight: number | null; pnl: number;
+}
+
+export interface TodayData {
+  env: string;
+  strategy: string;
+  phase: TodayPhase | null;
+  note?: string;
+  now: string;
+  date: string | null;
+  headline: {
+    source: 'poll' | 'official';
+    as_of: string | null;
+    date: string;
+    prev_date: string | null;
+    built_at?: string | null;
+    nav: number | null;
+    pnl: number | null;
+    pnl_pct: number | null;
+    pnl_broker: number | null;
+    broker_prev_ts?: string | null;
+    mark_quality?: string | null;
+    n_moved?: number | null;
+    n_names?: number | null;
+    index: { name: string; move: number | null; last?: number | null; as_of: string | null;
+             availability?: string | null };
+  };
+  series: { ts: string; nav: number | null; pnl: number | null; pnl_pct: number | null;
+            index_move: number | null }[];
+  mandates: {
+    available: boolean; note?: string; as_of: string; source: 'poll' | 'official';
+    shares_from?: string | null;
+    core?: number | null; sleeve_long?: number | null; sleeve_short?: number | null;
+    unattributed?: number | null; other?: number | null; n_uncaptured?: number | null;
+  };
+  movers: { top: TodayMover[]; bottom: TodayMover[]; as_of: string | null };
+  exposure: {
+    as_of: string;
+    now: { gross: number | null; net: number | null; gross_long: number; gross_short: number;
+           n_long: number | null; n_short: number | null };
+    target: { rebalance_id: number; gross: number | null; net: number | null;
+              n_long: number | null; n_short: number | null } | null;
+    trading_rebalance_id: number | null;
+  };
+  trade_day: boolean;
+  status: {
+    last_poll_ts: string | null; last_poll_status: string | null; last_poll_detail: string | null;
+    last_ok_poll_ts: string | null; session_up_at_last_poll: boolean | null;
+    last_official_snapshot_ts: string | null; last_official_book_date: string | null;
+    last_official_book_built_at: string | null;
+  };
+}
+
+export interface TodayOrder {
+  internal_order_id: number; rebalance_id: number | null; conid: number | null;
+  ticker: string | null; side: string; qty: number | null; order_type: string | null;
+  limit_px: number | null; status: string; submitted_at: string | null;
+  last_status_at: string | null; filled_qty: number; avg_px: number | null;
+  last_event: string | null;
+}
+
+export interface TodayOrders {
+  env: string; date: string; as_of: string | null; n_orders: number; n_filled: number;
+  working: TodayOrder[]; cancelled: TodayOrder[];
+  fills: { exec_ts: string; conid: number; ticker: string | null; qty: number; price: number;
+           commission: number | null; order_ref: string | null }[];
+}
+
+export const fetchToday = (env = 'paper') =>
+  get<TodayData>(`/api/v1/portfolio-monitor/${env}/today`);
+export const fetchTodayOrders = (env = 'paper', date?: string) =>
+  get<TodayOrders>(`/api/v1/portfolio-monitor/${env}/today/orders${date ? `?date=${date}` : ''}`);
+
+/** A timestamp as New York time with UTC beside it: "14:30 ET (18:30 UTC)". */
+export function clock(iso: string | null | undefined): string {
+  if (!iso) return '—';
+  const d = new Date(iso);
+  const f = (tz: string) => d.toLocaleTimeString('en-US',
+    { hour: '2-digit', minute: '2-digit', hour12: false, timeZone: tz });
+  return `${f('America/New_York')} ET (${f('UTC')} UTC)`;
+}
+
+/** A signed percent, for P&L and price moves. */
+export function pctSigned(v: number | null | undefined, d = 2): string {
+  if (v == null || Number.isNaN(v)) return '—';
+  return `${v < 0 ? MINUS : '+'}${(Math.abs(v) * 100).toFixed(d)}%`;
+}

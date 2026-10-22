@@ -8,6 +8,7 @@ import { usePathname } from 'next/navigation';
 export function MonitorTabs({ env }: { env: string }) {
   const pathname = usePathname() || '';
   const items = [
+    { label: 'Today', href: `/portfolio-monitor/${env}/today` },
     { label: 'Holdings', href: `/portfolio-monitor/${env}/holdings` },
     { label: 'Exposures', href: `/portfolio-monitor/${env}/exposures` },
   ];
