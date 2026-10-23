@@ -41,7 +41,7 @@
 ## Navigation — `frontend/lib/nav.ts` is the ONE menu definition (reorganised 2026-10-16, owner)
 
 - Four groups in workflow order, named for the THING each is about: **Strategy** (Factors · Alpha Models ·
-  Backtests · Macro Overlay) · **Portfolio** (Overview · Paper Account · Holdings · Exposures · Reports) ·
+  Backtests · Macro Overlay) · **Portfolio** (Today · Overview · Paper Account · Holdings · Exposures · Reports) ·
   **Trading** (Rebalance · Trade Blotter) · **System Health** (Data Pipeline · Model Health). Flat within a
   group; Settings pinned at the bottom, disabled.
 - The sidebar (`components/shell/Sidebar.tsx`) and the home page (`app/(app)/page.tsx`, one card per item
@@ -301,3 +301,29 @@ history 2015→now → per-family drill-down (≤14 features).
   The page must never fill a withheld number from anything else.
 - Edges are monitored by the data repo's coverage check (`DERIVED_KEYED`): SHAP panel, P01 IC series,
   and the fmon tables' own panel/payoff edges.
+
+## Portfolio › Today — `/portfolio-monitor/paper/today` ([08-TODAY], 2026-10-22)
+
+The paper book DURING the trading day. Design: `Main/Planning/08_website_and_tooling/today_page.md`.
+First item of the Portfolio group; also a tab beside Holdings/Exposures (`MonitorTabs`).
+
+- **Data:** the trading repo's `jobs.intraday_poll` (droplet timer, every 15 min in US hours) writes
+  `trading.intraday_polls` / `intraday_positions` and computes every P&L figure there. The API
+  (`/api/v1/portfolio-monitor/{env}/today`, `/today/orders`) only sums and divides stored rows and
+  NEVER calls the broker.
+- **One number per day:** `phase` = `open` / `closed_preliminary` (latest poll) → `closed_official`
+  (book_daily for today exists, ~02:00 UTC) → `preopen` (no poll yet: last official day). Never two
+  headlines; after the close the polls are only the intraday path.
+- **"Now" comes from Postgres** (`now() AT TIME ZONE 'America/New_York'`), not `zoneinfo`: Windows
+  Python has no tz database, so `ZoneInfo('America/New_York')` crashes the router on import locally.
+- Headline P&L is always ours (`nav − book_daily.nav`), correct in total even before a trade day's
+  fills are captured; uncaptured names sit in "cash and other" with their count (D3, amended).
+- **Relative to the S&P 500** (added 2026-10-23): `relative` in the `/today` payload, computed in the API
+  by `_relative` for BOTH phases from stored per-name rows — by ACTIVE weight `(w − b)(r − r_b)`, never
+  "P&L minus the market move" (gets the sign of large index names wrong). Rows: core held-name
+  over/underweights · S&P names we don't hold (implied, = NAV₀·Σ_held b(r − r_b)) · core invested level ·
+  sleeve legs + cash/other at full P&L. Publishes `residual` (must be ~0). `b` = month-end
+  `optimizer.benchmark_weights`, not drifted.
+- No colour flags; every block prints its data time (ET with UTC beside it, `clock()` in
+  `lib/portfolioMonitor.ts`). Auto-refreshes every 60 s only while `phase === 'open'`.
+
