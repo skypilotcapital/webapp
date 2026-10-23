@@ -653,6 +653,11 @@ def _today(env: str, strategy: str | None) -> dict:
                                          p["n_long"], p["n_short"]),
                         "target": _target(conn, p["target_rebalance_id"]),
                         "trading_rebalance_id": p["trading_rebalance_id"]}
+            bw_date, bw = _bench_weights(conn, d_ny)
+            relative = _relative(_names_poll(conn, p["poll_ts"], p["prev_date"], strat, prev_nav),
+                                 prev_nav, pnl, _ratio(p["spy_last"], p["spy_prev_close"]),
+                                 _f(p["pnl_other"]), bw, bw_date)
+            relative.update(as_of=as_of, index_name="SPY (price)")
         else:
             b = conn.execute(text("""
                 SELECT * FROM trading.book_daily WHERE strategy = :s AND date = :d"""),
@@ -686,6 +691,10 @@ def _today(env: str, strategy: str | None) -> dict:
                                          b["n_long"], b["n_short"]),
                         "target": _target(conn, gov["rebalance_id"] if gov else None),
                         "trading_rebalance_id": None}
+            bw_date, bw = _bench_weights(conn, day)
+            relative = _relative(_names_official(conn, strat, day, prev_nav), prev_nav, pnl,
+                                 headline["index"]["move"], mandates.get("other"), bw, bw_date)
+            relative.update(as_of=day.isoformat(), index_name="S&P 500 (total return)")
 
         movers = dict(_today_movers(conn, mover_rows, nav), as_of=headline["as_of"])
         n_orders = conn.execute(text("""
@@ -696,7 +705,7 @@ def _today(env: str, strategy: str | None) -> dict:
 
     return {"env": env, "strategy": strat, "phase": phase, "now": now.isoformat(),
             "date": day.isoformat() if day else None, "headline": headline, "series": series,
-            "mandates": mandates, "movers": movers, "exposure": exposure,
+            "mandates": mandates, "movers": movers, "exposure": exposure, "relative": relative,
             "trade_day": n_orders > 0, "status": status}
 
 
@@ -756,3 +765,166 @@ def today_orders(env: str, date: str | None = None):
                    "commission": _f(f["commission"]), "order_ref": f["order_ref"]}
                   for f in fills],
     }
+
+
+# ------------------------------------------------------------------- today: vs the S&P 500 ----
+#
+# RELATIVE PERFORMANCE (owner, 2026-10-23: "hard to see the performance versus benchmark and the
+# contribution to relative performance"). The fund's benchmark is the S&P 500 on the starting NAV
+# (the extension's benchmark is its core's index; the sleeve is market-neutral against cash).
+#
+#     active $ = P&L − NAV0 · r_b                      (r_b = SPY while open, S&P 500 TR when official)
+#
+# EXACT decomposition, by ACTIVE WEIGHT — not by "each name's P&L minus the market move". The second
+# looks simpler and gets the sign of the biggest names wrong: NVDA held at 6.9% against an index
+# weight of ~7.5% on a day it falls 4% is a GAIN relative to the index (we were underweight a faller),
+# yet it is the day's largest dollar loss. A name held at its index weight is a zero bet.
+#
+#   core, name i       sel_i = core_pnl_i − NAV0·[ w0_i·r_b + b_i·(r_i − r_b) ]
+#                            = NAV0·(w0_i − b_i)·(r_i − r_b)   for a name not traded today
+#   core, names we do not hold
+#                      not_held = NAV0 · Σ_held b_i·(r_i − r_b)   ( = −Σ_not-held b_j·(r_j − r_b),
+#                      because Σ_all b·(r − r_b) = 0; computed from the names we DO price — the
+#                      account has no prices for the rest)
+#   core, invested level
+#                      invest = NAV0 · r_b · (Σ w0_i − 1)
+#   sleeve legs, unattributed, cash/other: their own P&L (benchmark = cash)
+#
+#   Σ sel + not_held + invest = core_pnl − NAV0·r_b, so the rows add to `active` with no residual.
+#
+# Two approximations, both stated on the page: SPY's price move stands in for the index while open,
+# and b_i are the MONTH-END index weights, not drifted since (the Portfolio Monitor caveat, [10-BDRF]).
+# A name with no return (bought today, no prior close) has b·(r − r_b) unknown: it is left in sel_i
+# and out of not_held, which keeps the identity exact.
+
+def _bench_weights(conn, d: dt.date) -> tuple:
+    bw_date = conn.execute(text(
+        "SELECT max(date) FROM optimizer.benchmark_weights WHERE universe = 'sp500' AND date <= :d"),
+        {"d": d}).scalar()
+    if not bw_date:
+        return None, {}
+    return bw_date, {r["isin"]: _f(r["weight"]) for r in conn.execute(text(
+        "SELECT isin, weight FROM optimizer.benchmark_weights WHERE universe = 'sp500' AND date = :d"),
+        {"d": bw_date}).mappings()}
+
+
+def _relative(names: list, nav0, pnl, r_b, other, bw: dict, bw_date) -> dict:
+    """`names`: one dict per conid with conid, ticker, isin, ret (r_i or None), w0_core, w0 (held
+    weight at the start, signed, fraction of NAV0), core_pnl, sleeve_pnl, sleeve_leg,
+    unattr_pnl. Returns the bridge rows and per-name contributions, in $ and bp of NAV0."""
+    if not nav0 or r_b is None or pnl is None:
+        return {"available": False,
+                "note": "no index move or starting NAV for this day — relative figures not computed"}
+    sel_tot = not_held = 0.0
+    sleeve_long = sleeve_short = unattr = 0.0
+    w0_core_sum = 0.0
+    rows = []
+    for n in names:
+        b = bw.get(n["isin"], 0.0) if n.get("isin") else 0.0
+        r = n["ret"]
+        w0c = n["w0_core"] or 0.0
+        core_pnl = n["core_pnl"] or 0.0
+        w0_core_sum += w0c
+        sel = core_pnl - nav0 * w0c * r_b
+        if r is not None:
+            sel -= nav0 * b * (r - r_b)
+            not_held += nav0 * b * (r - r_b)
+        sel_tot += sel
+        sp = n["sleeve_pnl"] or 0.0
+        if n["sleeve_leg"] == "short":
+            sleeve_short += sp
+        else:
+            sleeve_long += sp
+        up = n["unattr_pnl"] or 0.0
+        unattr += up
+        rows.append({"conid": n["conid"], "ticker": n["ticker"], "move": r,
+                     "move_vs_index": (r - r_b) if r is not None else None,
+                     "weight": n["w0"], "weight_core": w0c, "index_weight": b,
+                     "active_weight": (w0c - b) if (w0c or b) else None,
+                     "contribution": sel + sp + up,
+                     "contribution_bp": (sel + sp + up) / nav0 * 1e4})
+    invest = nav0 * r_b * (w0_core_sum - 1.0)
+    active = pnl - nav0 * r_b
+    parts = {"core_selection": sel_tot, "core_not_held": not_held, "core_invested": invest,
+             "sleeve_long": sleeve_long, "sleeve_short": sleeve_short,
+             "unattributed": unattr, "other": other or 0.0}
+    residual = active - sum(parts.values())
+    rows = [x for x in rows if x["contribution"] is not None]
+    rows.sort(key=lambda x: x["contribution"])
+    bp = lambda v: v / nav0 * 1e4  # noqa: E731
+    return {
+        "available": True, "index_move": r_b, "book_return": pnl / nav0,
+        "active": active, "active_bp": bp(active), "benchmark_pnl": nav0 * r_b,
+        "core_weight": w0_core_sum,
+        "parts": {k: {"usd": v, "bp": bp(v)} for k, v in parts.items()},
+        # Must be ~0 by construction; published so the page can show the bridge closes.
+        "residual": residual,
+        "benchmark_weights_asof": _iso(bw_date),
+        "top": [x for x in reversed(rows[-_TOP:]) if x["contribution"] > 0],
+        "bottom": [x for x in rows[:_TOP] if x["contribution"] < 0],
+    }
+
+
+def _names_poll(conn, poll_ts, prev_date, strat: str, nav0) -> list:
+    """Per-name inputs from a poll. conid → isin from yesterday's book row, else the pinned bridge."""
+    rows = conn.execute(text("""
+        SELECT p.conid, p.ticker, p.pnl, p.prev_mkt_value, p.mkt_price, p.prev_close,
+               p.share_core, p.share_sleeve, p.sleeve_leg,
+               COALESCE(bdp.isin, br.isin) AS isin
+        FROM trading.intraday_positions p
+        LEFT JOIN trading.book_daily_positions bdp
+               ON bdp.strategy = :s AND bdp.date = :pd AND bdp.conid = p.conid
+        LEFT JOIN LATERAL (SELECT isin FROM secmaster.ibkr_contracts c
+                           WHERE c.conid = p.conid ORDER BY last_seen DESC LIMIT 1) br ON true
+        WHERE p.poll_ts = :t AND p.pnl IS NOT NULL"""),
+        {"t": poll_ts, "pd": prev_date, "s": strat}).mappings().all()
+    out = []
+    for r in rows:
+        pnl, pmv = _f(r["pnl"]) or 0.0, _f(r["prev_mkt_value"]) or 0.0
+        sc, ss = _f(r["share_core"]), _f(r["share_sleeve"])
+        claimed = sc is not None and ss is not None
+        px, prev = _f(r["mkt_price"]), _f(r["prev_close"])
+        out.append({"conid": int(r["conid"]), "ticker": r["ticker"], "isin": r["isin"],
+                    "ret": (px / prev - 1.0) if px and prev else None,
+                    "w0": pmv / nav0, "w0_core": (sc or 0.0) * pmv / nav0,
+                    "core_pnl": pnl * sc if claimed else 0.0,
+                    "sleeve_pnl": pnl * ss if claimed else 0.0, "sleeve_leg": r["sleeve_leg"],
+                    "unattr_pnl": pnl * (1.0 - sc - ss) if claimed else pnl})
+    return out
+
+
+def _names_official(conn, strat: str, d: dt.date, nav0) -> list:
+    """Per-name inputs from the official day: book_daily_positions + the ledger's mandate split."""
+    pos = {r["conid"]: r for r in conn.execute(text("""
+        SELECT conid, ticker, isin, price, prev_qty, prev_mkt_value
+        FROM trading.book_daily_positions WHERE strategy = :s AND date = :d"""),
+        {"s": strat, "d": d}).mappings()}
+    acc: dict = {}
+    for r in conn.execute(text("""
+        SELECT m.conid, m.mandate, m.pnl, m.share,
+               CASE WHEN pa.attr_qty < 0 THEN 'short' ELSE 'long' END AS leg
+        FROM trading.mandate_pnl_daily m
+        LEFT JOIN trading.position_attribution pa
+               ON pa.strategy = m.strategy AND pa.date = m.attr_date AND pa.conid = m.conid
+              AND pa.mandate = 'sleeve' AND m.mandate = 'sleeve'
+        WHERE m.strategy = :s AND m.date = :d"""), {"s": strat, "d": d}).mappings():
+        a = acc.setdefault(r["conid"], {"core_pnl": 0.0, "sleeve_pnl": 0.0, "unattr_pnl": 0.0,
+                                         "share_core": 0.0, "sleeve_leg": None})
+        if r["mandate"] == "core":
+            a["core_pnl"] += _f(r["pnl"]) or 0.0
+            a["share_core"] += _f(r["share"]) or 0.0
+        elif r["mandate"] == "sleeve":
+            a["sleeve_pnl"] += _f(r["pnl"]) or 0.0
+            a["sleeve_leg"] = r["leg"]
+        else:
+            a["unattr_pnl"] += _f(r["pnl"]) or 0.0
+    out = []
+    for cid, a in acc.items():
+        p = pos.get(cid, {})
+        pmv = _f(p.get("prev_mkt_value")) or 0.0
+        pq, px = _f(p.get("prev_qty")), _f(p.get("price"))
+        prev = (pmv / pq) if pq else None
+        out.append({"conid": int(cid), "ticker": p.get("ticker"), "isin": p.get("isin"),
+                    "ret": (px / prev - 1.0) if px and prev else None,
+                    "w0": pmv / nav0, "w0_core": a["share_core"] * pmv / nav0, **a})
+    return out

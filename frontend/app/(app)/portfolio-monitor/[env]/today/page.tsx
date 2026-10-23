@@ -14,8 +14,8 @@
 import { use } from 'react';
 import useSWR from 'swr';
 import {
-  clock, dayLabel, fetchToday, fetchTodayOrders, pct, pctSigned, shares, usd, usdSigned,
-  type TodayData, type TodayMover, type TodayPhase,
+  bpSigned, clock, dayLabel, fetchToday, fetchTodayOrders, pct, pctSigned, shares, usd, usdSigned,
+  type TodayData, type TodayMover, type TodayPhase, type TodayRelativeMover,
 } from '@/lib/portfolioMonitor';
 
 const PHASE_LABEL: Record<TodayPhase, string> = {
@@ -55,45 +55,155 @@ function Stat({ label, value, sub }: { label: string; value: React.ReactNode; su
   );
 }
 
-/** Intraday path: the book's P&L % and the index move %, one point per poll. Neutral strokes only. */
-function PathChart({ series }: { series: TodayData['series'] }) {
+type Line = { values: (number | null)[]; dashed?: boolean };
+
+/** One small intraday chart, one point per poll. Neutral strokes only — nothing coloured by sign. */
+function PathChart({ ts, lines, fmt, caption }: {
+  ts: string[]; lines: Line[]; fmt: (v: number) => string; caption: string;
+}) {
+  const W = 720, H = 150, L = 60, R = 12, T = 10, B = 22;
+  const t0 = new Date(ts[0]).getTime(), t1 = new Date(ts[ts.length - 1]).getTime();
+  const vals = lines.flatMap((l) => l.values.filter((v): v is number => v != null)).concat([0]);
+  let lo = Math.min(...vals), hi = Math.max(...vals);
+  if (hi - lo < 1e-9) { hi += 1; lo -= 1; }
+  const pad = (hi - lo) * 0.1; lo -= pad; hi += pad;
+  const x = (i: number) => L + ((new Date(ts[i]).getTime() - t0) / Math.max(t1 - t0, 1)) * (W - L - R);
+  const y = (v: number) => T + (1 - (v - lo) / (hi - lo)) * (H - T - B);
+  const path = (l: Line) => l.values
+    .map((v, i) => [v, i] as const)
+    .filter(([v]) => v != null)
+    .map(([v, i], k) => `${k ? 'L' : 'M'}${x(i).toFixed(1)},${y(v as number).toFixed(1)}`)
+    .join(' ');
+  const ticks = [hi - pad, (hi + lo) / 2, lo + pad];
+  return (
+    <div className="flex-1 min-w-[300px]">
+      <svg viewBox={`0 0 ${W} ${H}`} className="w-full" role="img" aria-label={caption}>
+        <line x1={L} x2={W - R} y1={y(0)} y2={y(0)} stroke="var(--border-soft)" />
+        {ticks.map((v) => (
+          <text key={v} x={L - 6} y={y(v) + 3} textAnchor="end" fontSize="10" fill="var(--tx-dim)">{fmt(v)}</text>
+        ))}
+        {lines.map((l, i) => (
+          <path key={i} d={path(l)} fill="none" stroke={l.dashed ? 'var(--tx-dim)' : 'var(--tx)'}
+            strokeWidth={l.dashed ? 1.5 : 2} strokeDasharray={l.dashed ? '4 3' : undefined} />
+        ))}
+        <text x={L} y={H - 6} fontSize="10" fill="var(--tx-dim)">{clock(ts[0])}</text>
+        <text x={W - R} y={H - 6} fontSize="10" fill="var(--tx-dim)" textAnchor="end">{clock(ts[ts.length - 1])}</text>
+      </svg>
+      <div className="text-[11px] text-[var(--tx-mut)]">{caption}</div>
+    </div>
+  );
+}
+
+/** The day's path: the book against SPY, and the gap between them. */
+function PathCharts({ series }: { series: TodayData['series'] }) {
   const pts = series.filter((s) => s.pnl_pct != null);
   if (pts.length < 2) {
     return <div className="text-xs text-[var(--tx-dim)] mt-3">
-      {pts.length ? 'One poll so far — the line starts at the second.' : 'No intraday polls for this day.'}
+      {pts.length ? 'One poll so far — the lines start at the second.' : 'No intraday polls for this day.'}
     </div>;
   }
-  const W = 720, H = 160, L = 48, R = 12, T = 10, B = 22;
-  const t0 = new Date(pts[0].ts).getTime(), t1 = new Date(pts[pts.length - 1].ts).getTime();
-  const vals = pts.flatMap((p) => [p.pnl_pct ?? 0, p.index_move ?? p.pnl_pct ?? 0, 0]);
-  let lo = Math.min(...vals), hi = Math.max(...vals);
-  if (hi - lo < 1e-4) { hi += 5e-4; lo -= 5e-4; }
-  const pad = (hi - lo) * 0.1; lo -= pad; hi += pad;
-  const x = (ts: string) => L + ((new Date(ts).getTime() - t0) / Math.max(t1 - t0, 1)) * (W - L - R);
-  const y = (v: number) => T + (1 - (v - lo) / (hi - lo)) * (H - T - B);
-  const path = (k: 'pnl_pct' | 'index_move') => pts.filter((p) => p[k] != null)
-    .map((p, i) => `${i ? 'L' : 'M'}${x(p.ts).toFixed(1)},${y(p[k] as number).toFixed(1)}`).join(' ');
-  const ticks = [hi - pad, (hi + lo) / 2, lo + pad];
+  const ts = pts.map((p) => p.ts);
+  const gap = pts.map((p) => (p.index_move == null ? null : ((p.pnl_pct as number) - p.index_move) * 1e4));
   return (
-    <div className="mt-3">
-      <svg viewBox={`0 0 ${W} ${H}`} className="w-full max-w-[760px]" role="img"
-        aria-label="Intraday P&L percent and index move percent">
-        <line x1={L} x2={W - R} y1={y(0)} y2={y(0)} stroke="var(--border-soft)" />
-        {ticks.map((v) => (
-          <text key={v} x={L - 6} y={y(v) + 3} textAnchor="end" fontSize="10" fill="var(--tx-dim)">
-            {pctSigned(v, 2)}
-          </text>
-        ))}
-        <path d={path('index_move')} fill="none" stroke="var(--tx-dim)" strokeWidth="1.5" strokeDasharray="4 3" />
-        <path d={path('pnl_pct')} fill="none" stroke="var(--tx)" strokeWidth="2" />
-        <text x={L} y={H - 6} fontSize="10" fill="var(--tx-dim)">{clock(pts[0].ts)}</text>
-        <text x={W - R} y={H - 6} fontSize="10" fill="var(--tx-dim)" textAnchor="end">
-          {clock(pts[pts.length - 1].ts)}
-        </text>
-      </svg>
-      <div className="text-[11px] text-[var(--tx-mut)]">
-        Solid: the book&apos;s P&amp;L, % of yesterday&apos;s NAV. Dashed: SPY&apos;s move (price). One point per poll.
+    <div className="flex flex-wrap gap-6 mt-3">
+      <PathChart ts={ts} fmt={(v) => pctSigned(v, 2)}
+        lines={[{ values: pts.map((p) => p.index_move), dashed: true }, { values: pts.map((p) => p.pnl_pct) }]}
+        caption="Solid: the book's return today (P&L ÷ yesterday's NAV). Dashed: SPY's price move." />
+      <PathChart ts={ts} fmt={(v) => bpSigned(v, 0)} lines={[{ values: gap }]}
+        caption="The gap: the book minus SPY, in basis points of yesterday's NAV." />
+    </div>
+  );
+}
+
+type RelPart = 'core_selection' | 'core_not_held' | 'core_invested' | 'sleeve_long' | 'sleeve_short'
+  | 'unattributed' | 'other';
+
+const REL_ROWS: [RelPart, string, string][] = [
+  ['core_selection', 'Core — over/underweights of the names we hold',
+    'each held name: (our weight − its index weight) × (its move − the index move)'],
+  ['core_not_held', 'Core — S&P 500 names we do not hold',
+    'the rest of the index, implied from the index move (the account has no prices for them)'],
+  ['core_invested', 'Core — invested level',
+    'the core held this share of NAV against 100% in the index'],
+  ['sleeve_long', 'Sleeve — long leg', 'measured against cash, so its whole P&L'],
+  ['sleeve_short', 'Sleeve — short leg', 'measured against cash, so its whole P&L'],
+  ['unattributed', 'Unattributed', 'names no mandate claims'],
+  ['other', 'Cash and other', 'interest, commissions, fills not yet captured'],
+];
+
+function RelativeBand({ d }: { d: TodayData }) {
+  const r = d.relative;
+  if (!r.available || !r.parts) return <div className="text-sm text-[var(--tx-mut)]">{r.note}</div>;
+  const parts = r.parts;
+  const open = d.headline.source === 'poll';
+  return (
+    <>
+      <div className="flex flex-wrap gap-x-8 gap-y-3 mt-2">
+        <Stat label="Book" value={pctSigned(r.book_return, 2)} sub={usdSigned(d.headline.pnl)} />
+        <Stat label={r.index_name ?? 'Index'} value={pctSigned(r.index_move, 2)}
+          sub={`${usdSigned(r.benchmark_pnl)} on yesterday's NAV`} />
+        <Stat label="Difference" value={bpSigned(r.active_bp)} sub={usdSigned(r.active)} />
       </div>
+      <table className="dtable mt-3">
+        <thead><tr><th style={{ textAlign: 'left' }}>Where the difference came from</th><th>bp of NAV</th><th>$</th>
+          <th style={{ textAlign: 'left' }}>How it is measured</th></tr></thead>
+        <tbody>
+          {REL_ROWS.map(([k, label, how]) => (
+            <tr key={k}>
+              <td style={{ textAlign: 'left', fontFamily: 'inherit' }}>{label}</td>
+              <td>{bpSigned(parts[k].bp)}</td>
+              <td>{usdSigned(parts[k].usd)}</td>
+              <td style={{ textAlign: 'left', fontFamily: 'inherit' }} className="text-[var(--tx-mut)]">
+                {k === 'core_invested' ? `${how} (${pct(r.core_weight, 1)})` : how}
+              </td>
+            </tr>
+          ))}
+          <tr>
+            <td style={{ textAlign: 'left', fontFamily: 'inherit' }}><b>Difference vs the index</b></td>
+            <td><b>{bpSigned(r.active_bp)}</b></td>
+            <td><b>{usdSigned(r.active)}</b></td>
+            <td />
+          </tr>
+        </tbody>
+      </table>
+      <div className="flex flex-wrap gap-6 mt-4">
+        <RelMoverTable title="Helped most against the index" rows={r.top ?? []} />
+        <RelMoverTable title="Hurt most against the index" rows={r.bottom ?? []} />
+      </div>
+      <div className="text-[11px] text-[var(--tx-mut)] mt-2">
+        Measured by ACTIVE weight: a name held at its index weight contributes nothing, and being underweight a
+        falling stock helps. Sleeve names count in full (the sleeve is measured against cash). Index weights are
+        the month-end S&amp;P 500 weights ({r.benchmark_weights_asof ?? '—'}), not moved with prices since
+        {open ? "; SPY's price move stands in for the index while the market is open" : ''}. The rows add up to
+        the difference exactly. As of {open ? clock(r.as_of) : dayLabel(r.as_of)}.
+      </div>
+    </>
+  );
+}
+
+function RelMoverTable({ title, rows }: { title: string; rows: TodayRelativeMover[] }) {
+  return (
+    <div className="min-w-[420px] flex-1">
+      <div className="text-xs font-bold text-[var(--tx)] mb-1">{title}</div>
+      {rows.length === 0 ? <div className="text-xs text-[var(--tx-dim)]">none</div> : (
+        <table className="dtable">
+          <thead><tr><th style={{ textAlign: 'left' }}>Name</th><th>Move</th><th>vs index</th>
+            <th>Our weight</th><th>Index weight</th><th>bp of NAV</th><th>$</th></tr></thead>
+          <tbody>
+            {rows.map((m) => (
+              <tr key={m.conid}>
+                <td style={{ textAlign: 'left', fontFamily: 'inherit' }}><b>{m.ticker ?? m.conid}</b></td>
+                <td>{pctSigned(m.move)}</td>
+                <td>{pctSigned(m.move_vs_index)}</td>
+                <td>{pct(m.weight)}</td>
+                <td>{m.index_weight ? pct(m.index_weight) : '—'}</td>
+                <td>{bpSigned(m.contribution_bp)}</td>
+                <td>{usdSigned(m.contribution)}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      )}
     </div>
   );
 }
@@ -272,6 +382,9 @@ export default function TodayPage({ params }: { params: Promise<{ env: string }>
         <div className="flex flex-wrap gap-x-8 gap-y-3 mt-3">
           <Stat label="NAV" value={usd(h.nav)} />
           <Stat label="P&L" value={usdSigned(h.pnl)} sub={pctSigned(h.pnl_pct, 3) + ' of the starting NAV'} />
+          <Stat label="vs S&P 500" value={bpSigned(data.relative.active_bp)}
+            sub={data.relative.available ? `${usdSigned(data.relative.active)} against the index on the same NAV`
+              : data.relative.note} />
           <Stat label={h.index.name} value={pctSigned(h.index.move)}
             sub={h.index.as_of ? (h.source === 'poll' ? `quote ${clock(h.index.as_of)}` : dayLabel(h.index.as_of)) : undefined} />
           {h.source === 'poll' && (
@@ -284,17 +397,22 @@ export default function TodayPage({ params }: { params: Promise<{ env: string }>
             Only {h.n_moved} of {h.n_names} prices have moved since yesterday&apos;s close — the market may be shut today.
           </div>
         )}
-        <PathChart series={data.series} />
+        <PathCharts series={data.series} />
       </section>
 
       <section className="panel p-4">
-        <h2 className="text-lg font-bold text-[var(--tx)] tracking-tight">Core vs sleeve</h2>
+        <h2 className="text-lg font-bold text-[var(--tx)] tracking-tight">Relative to the S&amp;P 500</h2>
+        <RelativeBand d={data} />
+      </section>
+
+      <section className="panel p-4">
+        <h2 className="text-lg font-bold text-[var(--tx)] tracking-tight">Core vs sleeve — P&amp;L</h2>
         <MandateBand d={data} />
       </section>
 
       <section className="panel p-4">
         <div className="flex items-baseline gap-3 flex-wrap">
-          <h2 className="text-lg font-bold text-[var(--tx)] tracking-tight">Biggest movers</h2>
+          <h2 className="text-lg font-bold text-[var(--tx)] tracking-tight">Biggest movers — P&amp;L</h2>
           <span className="text-xs text-[var(--tx-mut)]">
             by dollar contribution · {h.source === 'poll' ? clock(data.movers.as_of) : dayLabel(h.date)}
             {data.mandates.n_uncaptured ? ` · ${data.mandates.n_uncaptured} name(s) with uncaptured fills left out` : ''}

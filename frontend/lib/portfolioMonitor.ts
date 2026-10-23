@@ -273,6 +273,7 @@ export interface TodayData {
               n_long: number | null; n_short: number | null } | null;
     trading_rebalance_id: number | null;
   };
+  relative: TodayRelative;
   trade_day: boolean;
   status: {
     last_poll_ts: string | null; last_poll_status: string | null; last_poll_detail: string | null;
@@ -280,6 +281,32 @@ export interface TodayData {
     last_official_snapshot_ts: string | null; last_official_book_date: string | null;
     last_official_book_built_at: string | null;
   };
+}
+
+/** Relative to the S&P 500 (owner, 2026-10-23): an EXACT bridge by active weight. */
+export interface TodayRelativeMover {
+  conid: number; ticker: string | null; move: number | null; move_vs_index: number | null;
+  weight: number; weight_core: number; index_weight: number; active_weight: number | null;
+  contribution: number; contribution_bp: number;
+}
+
+export interface TodayRelative {
+  available: boolean;
+  note?: string;
+  as_of?: string;
+  index_name?: string;
+  index_move?: number;
+  book_return?: number;
+  active?: number;
+  active_bp?: number;
+  benchmark_pnl?: number;
+  core_weight?: number;
+  parts?: Record<'core_selection' | 'core_not_held' | 'core_invested' | 'sleeve_long'
+    | 'sleeve_short' | 'unattributed' | 'other', { usd: number; bp: number }>;
+  residual?: number;
+  benchmark_weights_asof?: string | null;
+  top?: TodayRelativeMover[];
+  bottom?: TodayRelativeMover[];
 }
 
 export interface TodayOrder {
@@ -316,3 +343,10 @@ export function pctSigned(v: number | null | undefined, d = 2): string {
   if (v == null || Number.isNaN(v)) return '—';
   return `${v < 0 ? MINUS : '+'}${(Math.abs(v) * 100).toFixed(d)}%`;
 }
+
+/** Basis points, always signed: "+12.3 bp". */
+export function bpSigned(v: number | null | undefined, d = 1): string {
+  if (v == null || Number.isNaN(v)) return '—';
+  return `${v < 0 ? MINUS : '+'}${Math.abs(v).toFixed(d)} bp`;
+}
+
