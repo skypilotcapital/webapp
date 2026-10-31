@@ -6,8 +6,10 @@
 // * TARGET is the frozen target of the governing rebalance — the LIVE book we traded — measured on
 //   the same risk-model data and benchmark as today's book, so Change is purely what the book did
 //   since the trade. Never the research book (owner, 2026-10-12).
-// * NO FLAGS. A band is a column beside the number; nothing is coloured by where the number sits.
-//   The risk rows reuse the paper page's renderer with `plain`, which drops its colour cues.
+// * NO FLAGS. A band is a column beside the number; nothing is coloured by where the number sits
+//   against it. The risk rows reuse the paper page's renderer with `plain`, which drops its colour
+//   cues. The tables DO shade each bet by sign and size for readability (owner, 2026-10-31) — a heat
+//   map, never a verdict; see ExposureTables.tsx.
 // * PER MANDATE, never one fund-level exposure table: the core is relative to the S&P 500 and the
 //   sleeve is absolute, so a blended row would add two different quantities. The fund appears only
 //   as the risk line, where the two do combine (live_book_exposure.md §8, §11.1).
@@ -15,7 +17,7 @@
 import { use } from 'react';
 import useSWR from 'swr';
 import { AsOfStrip } from '@/components/portfolio_monitor/AsOfStrip';
-import { ExposureTable, LegTable } from '@/components/portfolio_monitor/ExposureTables';
+import { ExposureTable, LegTable, ShadingKey } from '@/components/portfolio_monitor/ExposureTables';
 import { FundLine, RiskRow } from '@/components/portfolio/BookRisk';
 import { dayLabel, fetchMonitorExposures, pct } from '@/lib/portfolioMonitor';
 
@@ -81,7 +83,8 @@ export default function ExposuresPage({ params }: { params: Promise<{ env: strin
             <div className="mt-2">
               <RiskRow m={m} plain />
             </div>
-            <div className="grid grid-cols-1 xl:grid-cols-2 gap-4 mt-3">
+            <div className="mt-3"><ShadingKey /></div>
+            <div className="grid grid-cols-1 xl:grid-cols-2 gap-4 mt-1">
               <ExposureTable title="Sectors" rows={m.sectors}
                 benchmarkLabel={m.benchmark ? 'S&P 500 weight' : 'none (cash)'}
                 valueLabel={m.benchmark ? 'active weight' : 'net weight'} showBand />

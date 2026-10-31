@@ -1,5 +1,11 @@
-// The Exposures page's tables ([08-PMON]). Numbers only — no bars, no colour, no markers: the band
-// is a column, and how close a number sits to it is for the reader to see, not for the page to say.
+// The Exposures page's tables ([08-PMON]). The band is a column, and how close a number sits to it
+// is for the reader to see, not for the page to say — so nothing is coloured by band distance.
+//
+// SHADING (owner, 2026-10-31, for readability): each bet cell is tinted by its SIGN and SIZE only —
+// blue = positive, orange = negative, deeper = larger. It is a heat map, not a verdict: no green/red,
+// no thresholds. The scale is per UNIT within one table (a 5% sector weight and a 0.25σ style tilt
+// are not comparable), and Change gets its own scale because it is an order of magnitude smaller.
+// The benchmark's own level and the band stay unshaded.
 //
 // Units come from the ROW (`unit`), never from the factor name, and are formatted by the shared
 // module — sector rows are weights, style rows are standard deviations of tilt, market is a beta.
@@ -39,6 +45,47 @@ function band(r: ExposureRow): string {
   return `±${(r.band * 100).toFixed(1)}% ${r.band_kind ?? ''}`.trim();
 }
 
+const TINT_MAX = 34; // % opacity of the deepest cell
+
+// The scale never shrinks below these, so a group whose numbers are all near zero (the sleeve legs'
+// market beta, a quiet Change column) stays pale instead of stretching −0.000 to the deepest shade.
+// A floor on the SCALE, not a threshold: nothing switches on or off at it.
+const SCALE_FLOOR: Record<ExposureUnit, number> = { weight: 0.01, sigma: 0.10, beta: 0.05, raw: 0 };
+
+/** Largest |value| per unit over the given cells — the top of that unit's shading scale. */
+function scaleOf(cells: { v: number | null | undefined; unit: ExposureUnit }[]): Map<ExposureUnit, number> {
+  const m = new Map<ExposureUnit, number>(
+    (Object.entries(SCALE_FLOOR) as [ExposureUnit, number][]));
+  for (const { v, unit } of cells) {
+    if (v == null || Number.isNaN(v)) continue;
+    m.set(unit, Math.max(m.get(unit) ?? 0, Math.abs(v)));
+  }
+  return m;
+}
+
+/** Background tint for one cell: hue from the sign, depth from |v| / the unit's scale. */
+function tint(v: number | null | undefined, unit: ExposureUnit, scale: Map<ExposureUnit, number>) {
+  const top = scale.get(unit);
+  if (v == null || Number.isNaN(v) || !top || unit === 'raw') return undefined;
+  const pctOpacity = Math.round(TINT_MAX * Math.min(1, Math.abs(v) / top));
+  if (pctOpacity < 2) return undefined;
+  const hue = v >= 0 ? 'var(--cyan)' : 'var(--amber)';
+  return { backgroundColor: `color-mix(in srgb, ${hue} ${pctOpacity}%, transparent)` };
+}
+
+export function ShadingKey() {
+  const sw = (hue: string) => (
+    <span className="inline-block w-3 h-3 rounded-sm align-[-2px] mr-1"
+      style={{ backgroundColor: `color-mix(in srgb, ${hue} ${TINT_MAX}%, transparent)` }} />
+  );
+  return (
+    <span className="text-[11px] text-[var(--tx-dim)]">
+      {sw('var(--cyan)')}positive {sw('var(--amber)')}negative · deeper = larger, scaled within each
+      table (Change on its own scale)
+    </span>
+  );
+}
+
 /** Market first, then the fixed order shared with every other exposure panel. */
 export function ordered(rows: ExposureRow[]): ExposureRow[] {
   const mk = rows.filter((r) => r.kind === 'market');
@@ -53,6 +100,8 @@ export function ExposureTable({ title, rows, benchmarkLabel, valueLabel, showBan
   showBand?: boolean;
   footnote?: string;
 }) {
+  const level = scaleOf(rows.flatMap((r) => [{ v: r.target, unit: r.unit }, { v: r.today, unit: r.unit }]));
+  const delta = scaleOf(rows.map((r) => ({ v: r.change, unit: r.unit })));
   return (
     <div>
       <div className="flex items-baseline gap-2 mb-1">
@@ -77,9 +126,9 @@ export function ExposureTable({ title, rows, benchmarkLabel, valueLabel, showBan
             <tr key={r.factor}>
               <td>{factorName(r.factor)}</td>
               <td className="text-right">{absolute(r.benchmark, r.unit)}</td>
-              <td className="text-right">{fmtExposure(r.target, r.unit)}</td>
-              <td className="text-right">{fmtExposure(r.today, r.unit)}</td>
-              <td className="text-right">{change(r.change, r.unit)}</td>
+              <td className="text-right" style={tint(r.target, r.unit, level)}>{fmtExposure(r.target, r.unit)}</td>
+              <td className="text-right" style={tint(r.today, r.unit, level)}>{fmtExposure(r.today, r.unit)}</td>
+              <td className="text-right" style={tint(r.change, r.unit, delta)}>{change(r.change, r.unit)}</td>
               {showBand && <td className="text-right">{band(r)}</td>}
             </tr>
           ))}
@@ -100,6 +149,10 @@ export function LegTable({ legs }: { legs: ExposureLeg[] }) {
   // for each group, so a single sort interleaves Beta with Energy.
   const rows = [...ordered(long.factors.filter((f) => f.kind !== 'sector')),
                 ...ordered(long.factors.filter((f) => f.kind === 'sector'))];
+  const level = scaleOf(rows.flatMap((r) => {
+    const l = L.get(r.factor), s = S.get(r.factor);
+    return [l?.target, l?.today, s?.target, s?.today].map((v) => ({ v, unit: r.unit }));
+  }));
   return (
     <div className="mt-4">
       <div className="flex items-baseline gap-2 mb-1 flex-wrap">
@@ -127,10 +180,10 @@ export function LegTable({ legs }: { legs: ExposureLeg[] }) {
               <tr key={r.factor}>
                 <td>{factorName(r.factor)}</td>
                 <td className="text-right">{absolute(l?.benchmark, r.unit)}</td>
-                <td className="text-right">{fmtExposure(l?.target, r.unit)}</td>
-                <td className="text-right">{fmtExposure(l?.today, r.unit)}</td>
-                <td className="text-right">{fmtExposure(s?.target, r.unit)}</td>
-                <td className="text-right">{fmtExposure(s?.today, r.unit)}</td>
+                <td className="text-right" style={tint(l?.target, r.unit, level)}>{fmtExposure(l?.target, r.unit)}</td>
+                <td className="text-right" style={tint(l?.today, r.unit, level)}>{fmtExposure(l?.today, r.unit)}</td>
+                <td className="text-right" style={tint(s?.target, r.unit, level)}>{fmtExposure(s?.target, r.unit)}</td>
+                <td className="text-right" style={tint(s?.today, r.unit, level)}>{fmtExposure(s?.today, r.unit)}</td>
               </tr>
             );
           })}
