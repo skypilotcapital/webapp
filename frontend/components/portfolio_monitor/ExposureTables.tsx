@@ -5,7 +5,7 @@
 // blue = positive, orange = negative, deeper = larger. It is a heat map, not a verdict: no green/red,
 // no thresholds. The scale is per UNIT within one table (a 5% sector weight and a 0.25σ style tilt
 // are not comparable), and Change gets its own scale because it is an order of magnitude smaller.
-// The benchmark's own level and the band stay unshaded.
+// The benchmark's own level and the band stay unshaded. The rules live in `lib/shading.tsx`.
 //
 // Units come from the ROW (`unit`), never from the factor name, and are formatted by the shared
 // module — sector rows are weights, style rows are standard deviations of tilt, market is a beta.
@@ -14,6 +14,9 @@ import {
   fmtExposure, orderFactors, SECTOR_ORDER, type ExposureUnit,
 } from '@/lib/exposureUnits';
 import { change, type ExposureLeg, type ExposureRow } from '@/lib/portfolioMonitor';
+import { scaleOf, tint } from '@/lib/shading';
+
+export { ShadingKey } from '@/lib/shading';
 
 const SECTOR_NAME = new Map(SECTOR_ORDER.map((s) => [s.id, s.name]));
 const STYLE_NAME: Record<string, string> = {
@@ -43,47 +46,6 @@ function absolute(v: number | null | undefined, unit: ExposureUnit): string {
 function band(r: ExposureRow): string {
   if (r.band == null) return '—';
   return `±${(r.band * 100).toFixed(1)}% ${r.band_kind ?? ''}`.trim();
-}
-
-const TINT_MAX = 34; // % opacity of the deepest cell
-
-// The scale never shrinks below these, so a group whose numbers are all near zero (the sleeve legs'
-// market beta, a quiet Change column) stays pale instead of stretching −0.000 to the deepest shade.
-// A floor on the SCALE, not a threshold: nothing switches on or off at it.
-const SCALE_FLOOR: Record<ExposureUnit, number> = { weight: 0.01, sigma: 0.10, beta: 0.05, raw: 0 };
-
-/** Largest |value| per unit over the given cells — the top of that unit's shading scale. */
-function scaleOf(cells: { v: number | null | undefined; unit: ExposureUnit }[]): Map<ExposureUnit, number> {
-  const m = new Map<ExposureUnit, number>(
-    (Object.entries(SCALE_FLOOR) as [ExposureUnit, number][]));
-  for (const { v, unit } of cells) {
-    if (v == null || Number.isNaN(v)) continue;
-    m.set(unit, Math.max(m.get(unit) ?? 0, Math.abs(v)));
-  }
-  return m;
-}
-
-/** Background tint for one cell: hue from the sign, depth from |v| / the unit's scale. */
-function tint(v: number | null | undefined, unit: ExposureUnit, scale: Map<ExposureUnit, number>) {
-  const top = scale.get(unit);
-  if (v == null || Number.isNaN(v) || !top || unit === 'raw') return undefined;
-  const pctOpacity = Math.round(TINT_MAX * Math.min(1, Math.abs(v) / top));
-  if (pctOpacity < 2) return undefined;
-  const hue = v >= 0 ? 'var(--cyan)' : 'var(--amber)';
-  return { backgroundColor: `color-mix(in srgb, ${hue} ${pctOpacity}%, transparent)` };
-}
-
-export function ShadingKey() {
-  const sw = (hue: string) => (
-    <span className="inline-block w-3 h-3 rounded-sm align-[-2px] mr-1"
-      style={{ backgroundColor: `color-mix(in srgb, ${hue} ${TINT_MAX}%, transparent)` }} />
-  );
-  return (
-    <span className="text-[11px] text-[var(--tx-dim)]">
-      {sw('var(--cyan)')}positive {sw('var(--amber)')}negative · deeper = larger, scaled within each
-      table (Change on its own scale)
-    </span>
-  );
 }
 
 /** Market first, then the fixed order shared with every other exposure panel. */

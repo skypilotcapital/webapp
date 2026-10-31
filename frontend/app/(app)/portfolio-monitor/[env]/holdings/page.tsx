@@ -5,10 +5,21 @@
 //
 // Present the data, flag nothing (owner, 2026-10-12): no row is coloured by how far it has drifted,
 // and there is no threshold anywhere on this page. Sorting by drift is a sort, not a judgement.
+//
+// Colour, chosen column by column (owner, 2026-10-31) — only where it carries meaning:
+// * ACTIVE is a bet against the S&P 500, so it gets the Exposures page's sign-and-size shading
+//   (lib/shading.tsx), scaled over every core name in the book — not the filtered rows, so a filter
+//   never repaints a cell.
+// * DAY P&L and SINCE REBAL. are gains and losses, so their TEXT is green or red by sign, the house
+//   convention on every other performance page. Sign only — no depth, no threshold.
+// * Everything else stays plain. Market value, weight and target are sizes, not directions. DRIFT is
+//   left plain on purpose: it is exactly what the no-flags rule is about. Borrow fee is a tail
+//   statistic where any colour would read as an alarm.
 
 import { use, useMemo, useState } from 'react';
 import useSWR from 'swr';
 import { AsOfStrip } from '@/components/portfolio_monitor/AsOfStrip';
+import { scaleOf, ShadingKey, tint } from '@/lib/shading';
 import {
   dayLabel, fetchMonitorHoldings, holdingsCsvUrl, MANDATE_LABEL, pct, pp, shares, usd, usdSigned,
   type HoldingRow,
@@ -23,7 +34,15 @@ interface Col {
   right?: boolean;
   render: (r: HoldingRow) => React.ReactNode;
   value: (r: HoldingRow) => number | string | null;
+  /** Optional cell colour — see the header comment for which columns get one and why. */
+  style?: (r: HoldingRow, ctx: ShadeCtx) => React.CSSProperties | undefined;
 }
+
+interface ShadeCtx { active: ReturnType<typeof scaleOf> }
+
+/** Gains and losses: text colour by sign only. */
+const pnlStyle = (v: number | null | undefined): React.CSSProperties | undefined =>
+  (v == null || v === 0 ? undefined : { color: v > 0 ? 'var(--pos)' : 'var(--neg)' });
 
 const num = (v: number | null | undefined) => (v == null ? null : v);
 
@@ -67,16 +86,19 @@ const COLS: Col[] = [
   { key: 'drift_usd', label: 'Drift $', right: true,
     title: 'Market value − Target × today’s NAV. Not an order.',
     render: (r) => usdSigned(r.drift_usd), value: (r) => num(r.drift_usd) },
-  { key: 'pnl_d', label: 'Day P&L', right: true, render: (r) => usdSigned(r.pnl_d), value: (r) => num(r.pnl_d) },
+  { key: 'pnl_d', label: 'Day P&L', right: true, render: (r) => usdSigned(r.pnl_d), value: (r) => num(r.pnl_d),
+    style: (r) => pnlStyle(r.pnl_d) },
   { key: 'pnl_since_rebalance', label: 'Since rebal.', right: true,
     title: 'P&L since the close of the last rebalance’s trade day',
-    render: (r) => usdSigned(r.pnl_since_rebalance), value: (r) => num(r.pnl_since_rebalance) },
+    render: (r) => usdSigned(r.pnl_since_rebalance), value: (r) => num(r.pnl_since_rebalance),
+    style: (r) => pnlStyle(r.pnl_since_rebalance) },
   { key: 'bench_weight', label: 'Benchmark', right: true,
     title: 'S&P 500 month-end cap weight — core names only (the sleeve is measured against cash)',
     render: (r) => pct(r.bench_weight), value: (r) => num(r.bench_weight) },
   { key: 'active_weight', label: 'Active', right: true,
     title: 'The core’s weight in the name minus its benchmark weight — core names only',
-    render: (r) => pp(r.active_weight), value: (r) => num(r.active_weight) },
+    render: (r) => pp(r.active_weight), value: (r) => num(r.active_weight),
+    style: (r, ctx) => tint(r.active_weight, 'weight', ctx.active) },
   { key: 'borrow_fee_pct', label: 'Borrow fee', right: true,
     title: 'IBKR stock-loan fee, % per year — shorts only, latest file usable on the book date',
     render: (r) => (r.borrow_fee_pct == null ? '—' : `${r.borrow_fee_pct.toFixed(2)}%`),
@@ -135,6 +157,10 @@ export default function HoldingsPage({ params }: { params: Promise<{ env: string
       return sort.desc ? -c : c;
     });
   }, [data, side, mandate, sector, sort]);
+
+  const shade = useMemo<ShadeCtx>(() => ({
+    active: scaleOf((data?.rows ?? []).map((r) => ({ v: r.active_weight, unit: 'weight' as const }))),
+  }), [data]);
 
   const tot = useMemo(() => {
     const s = (fn: (r: HoldingRow) => number | null) => rows.reduce((a, r) => a + (fn(r) ?? 0), 0);
@@ -203,6 +229,7 @@ export default function HoldingsPage({ params }: { params: Promise<{ env: string
           <option value="">All sectors</option>
           {sectors.map((s) => <option key={s} value={s}>{s}</option>)}
         </select>
+        <ShadingKey scope="Active only, scaled over the core's names · P&L in green / red" />
         <a href={holdingsCsvUrl(env, { side, mandate, sector })}
           className="ml-auto px-3 py-1 rounded-md text-xs font-bold border"
           style={{ color: 'var(--teal)', borderColor: 'var(--teal)' }}>
@@ -230,8 +257,8 @@ export default function HoldingsPage({ params }: { params: Promise<{ env: string
               <td className="text-right">{pct(tot.target)}</td>
               <td className="text-right">{pp(tot.drift)}</td>
               <td className="text-right">{usdSigned(tot.driftUsd)}</td>
-              <td className="text-right">{usdSigned(tot.pnl)}</td>
-              <td className="text-right">{usdSigned(tot.since)}</td>
+              <td className="text-right" style={pnlStyle(tot.pnl)}>{usdSigned(tot.pnl)}</td>
+              <td className="text-right" style={pnlStyle(tot.since)}>{usdSigned(tot.since)}</td>
               <td /><td /><td /><td /><td />
             </tr>
           </thead>
@@ -239,7 +266,7 @@ export default function HoldingsPage({ params }: { params: Promise<{ env: string
             {rows.map((r) => (
               <tr key={`${r.conid}-${r.isin}`}>
                 {COLS.map((c) => (
-                  <td key={c.key} style={c.right ? undefined : TEXT_CELL}>
+                  <td key={c.key} style={c.right ? c.style?.(r, shade) : TEXT_CELL}>
                     {c.render(r)}
                   </td>
                 ))}

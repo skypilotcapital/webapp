@@ -273,9 +273,12 @@ portfolio_monitor_IA.md`. Two pages (owner: too much for tabs), `[env]` is a rou
   drift or band distance. The risk lines reuse `RiskRow`/`FundLine` from `BookRisk.tsx` with
   `plain` (drops their amber cues); the paper page is unchanged.
 - **Shading is allowed, flags are not** (owner, 2026-10-31): the Exposures tables tint each Target /
-  Today / Change cell by SIGN and SIZE only (blue +, orange −, deeper = larger; `ExposureTables.tsx`
-  `tint`/`scaleOf`). Scale per unit within one table, Change on its own, with a per-unit floor
-  (`SCALE_FLOOR`) so near-zero groups stay pale. Never green/red, never by band distance.
+  Today / Change cell by SIGN and SIZE only (blue +, orange −, deeper = larger). Rules in ONE place,
+  `lib/shading.tsx` (`tint`/`scaleOf`/`ShadingKey`). Scale per unit within one table, Change on its own,
+  with a per-unit floor (`SCALE_FLOOR`) so near-zero groups stay pale. Never green/red on a bet, never
+  by band distance. **Holdings** chooses per column: Active shaded (scale over ALL core rows, so a filter
+  never repaints); Day P&L / Since rebal. text green/red by sign only; Drift, market value, weight,
+  target, borrow stay plain (Drift is exactly what the no-flags rule is about).
 - Holdings rows = held ∪ target joined on `conid`; `target_positions` read with `mandate='composite'`
   for weights and `core`/`sleeve` only for a target-only name's mandate. Borrow = latest row with
   `available_date <= book date` (`DISTINCT ON (isin)`), never joined on `date`.
