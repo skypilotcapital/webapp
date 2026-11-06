@@ -71,7 +71,7 @@ export function ApproveControl({
             <span className="text-[var(--neg)]">{plan.summary.n_sell} sells</span>
             <span>~${Math.round(plan.summary.gross_notional).toLocaleString()} gross</span>
             {review.pct_margin != null && (
-              <span>{(Number(review.pct_margin) * 100).toFixed(0)}% projected margin</span>
+              <span title="IBKR single-order what-if extrapolated to the basket — indicative only, never a gate ([10-MWIF]); the margin check that can fail is measured excess liquidity">{(Number(review.pct_margin) * 100).toFixed(0)}% what-if margin (indicative)</span>
             )}
             <span className={review.worst_state === 'ok' ? 'text-[var(--pos)]' : 'text-[var(--amber)]'}>
               {review.checks.filter((c) => c.state === 'ok').length}/{review.checks.length} checks clear

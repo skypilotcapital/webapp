@@ -51,7 +51,7 @@ export function NextAction({ ledger, review }: { ledger: Ledger; review?: Review
     body = review
       ? <>You are approving <b>{r.strategy}</b> for signal {r.signal_date} —{' '}
           <b>{review.n_trades} trades</b>, ~${Math.round(Number(review.gross_notional ?? 0)).toLocaleString()} gross
-          {review.pct_margin != null && <>, {(Number(review.pct_margin) * 100).toFixed(0)}% projected margin</>}.
+          {review.pct_margin != null && <>, {(Number(review.pct_margin) * 100).toFixed(0)}% what-if margin (indicative, not a gate)</>}.
           {' '}Pre-trade checks: <b className={review.worst_state === 'ok' ? 'text-[var(--pos)]'
             : review.worst_state === 'warn' ? 'text-[var(--amber)]' : 'text-[var(--neg)]'}>
             {review.worst_state === 'ok' ? 'all passed'
