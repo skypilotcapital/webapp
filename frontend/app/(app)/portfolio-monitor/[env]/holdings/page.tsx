@@ -15,6 +15,13 @@
 // * Everything else stays plain. Market value, weight and target are sizes, not directions. DRIFT is
 //   left plain on purpose: it is exactly what the no-flags rule is about. Borrow fee is a tail
 //   statistic where any colour would read as an alarm.
+//
+// Columns are GROUPED (owner, 2026-11-23): a title row above the labels and a thin vertical line at
+// each group's left edge, read left to right as one story: what we hold, how far from target, how far
+// from the index, what it made, what it costs to borrow. P&L sits AFTER both weight comparisons so
+// Drift (vs target) and Active (vs index) stay side by side. A group whose cells are all empty for the
+// rows shown is hidden (Borrow on a longs-only filter, vs S&P 500 on the sleeve); the CSV keeps every
+// column.
 
 import { use, useMemo, useState } from 'react';
 import useSWR from 'swr';
@@ -36,6 +43,28 @@ interface Col {
   value: (r: HoldingRow) => number | string | null;
   /** Optional cell colour — see the header comment for which columns get one and why. */
   style?: (r: HoldingRow, ctx: ShadeCtx) => React.CSSProperties | undefined;
+  group: GroupId;
+  /** The total row's cell for this column (blank when absent). */
+  total?: (t: Totals) => React.ReactNode;
+  totalStyle?: (t: Totals) => React.CSSProperties | undefined;
+}
+
+type GroupId = 'name' | 'position' | 'target' | 'index' | 'pnl' | 'borrow' | 'fill';
+
+/** Column groups in display order. An empty title draws the line without a heading. */
+const GROUPS: { id: GroupId; title: string; tip?: string }[] = [
+  { id: 'name', title: '' },
+  { id: 'position', title: 'Position' },
+  { id: 'target', title: 'vs target', tip: 'Against the frozen target of the governing rebalance' },
+  { id: 'index', title: 'vs S&P 500', tip: 'Core names only. The sleeve is measured against cash' },
+  { id: 'pnl', title: 'P&L' },
+  { id: 'borrow', title: 'Borrow', tip: 'Shorts only' },
+  { id: 'fill', title: '' },
+];
+
+interface Totals {
+  n: number; net: number; gross: number; weight: number; target: number;
+  drift: number; driftUsd: number; pnl: number; since: number;
 }
 
 interface ShadeCtx { active: ReturnType<typeof scaleOf> }
@@ -49,15 +78,17 @@ const num = (v: number | null | undefined) => (v == null ? null : v);
 // `.dtable` right-aligns every cell in a monospace face (numbers). Words read left, in the text face.
 const TEXT_CELL: React.CSSProperties = { textAlign: 'left', fontFamily: 'inherit' };
 
+// Listed group by group, in GROUPS order — the title row spans consecutive columns, so a column out of
+// its group's run would misalign it.
 const COLS: Col[] = [
-  { key: 'ticker', label: 'Ticker', render: (r) => (
+  { key: 'ticker', label: 'Ticker', group: 'name', render: (r) => (
       <span title={r.isin ?? undefined}>
         <b className="text-[var(--tx)]">{r.ticker ?? '—'}</b>
         <span className="block text-[10px] text-[var(--tx-dim)] truncate max-w-[180px]">{r.name ?? ''}</span>
       </span>),
-    value: (r) => r.ticker ?? '' },
-  { key: 'side', label: 'Side', render: (r) => r.side, value: (r) => r.side },
-  { key: 'mandate', label: 'Mandate',
+    value: (r) => r.ticker ?? '', total: (t) => `Total · ${t.n} held` },
+  { key: 'side', label: 'Side', group: 'name', render: (r) => r.side, value: (r) => r.side },
+  { key: 'mandate', label: 'Mandate', group: 'name',
     title: 'Which engine the position belongs to, as the ledger recorded it. Split = held by both; '
       + 'unattributed = the ledger could not place it (reported, never re-allocated here).',
     render: (r) => (
@@ -66,48 +97,68 @@ const COLS: Col[] = [
         {MANDATE_LABEL[r.mandate] ?? r.mandate}{!r.held && ' (target only)'}
       </span>),
     value: (r) => r.mandate },
-  { key: 'sector', label: 'Sector', render: (r) => r.sector ?? '—', value: (r) => r.sector ?? '' },
-  { key: 'qty', label: 'Shares', right: true, render: (r) => shares(r.qty), value: (r) => num(r.qty) },
-  { key: 'price', label: 'Price', right: true,
+  { key: 'sector', label: 'Sector', group: 'name', render: (r) => r.sector ?? '—', value: (r) => r.sector ?? '' },
+
+  { key: 'qty', label: 'Shares', group: 'position', right: true, render: (r) => shares(r.qty),
+    value: (r) => num(r.qty) },
+  { key: 'price', label: 'Price', group: 'position', right: true,
     render: (r) => (
       <span title={r.price_source ? `price source: ${r.price_source}` : undefined}>
         {r.price == null ? '—' : r.price.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
       </span>),
     value: (r) => num(r.price) },
-  { key: 'mkt_value', label: 'Market value', right: true, render: (r) => usd(r.mkt_value),
-    value: (r) => r.mkt_value },
-  { key: 'weight', label: 'Weight', right: true, title: '% of NAV — the account’s own book',
-    render: (r) => pct(r.weight), value: (r) => num(r.weight) },
-  { key: 'target_weight', label: 'Target', right: true,
+  { key: 'mkt_value', label: 'Market value', group: 'position', right: true, render: (r) => usd(r.mkt_value),
+    value: (r) => r.mkt_value,
+    total: (t) => <span title={`gross ${usd(t.gross)}`}>{usd(t.net)}</span> },
+  { key: 'weight', label: 'Weight', group: 'position', right: true, title: '% of NAV — the account’s own book',
+    render: (r) => pct(r.weight), value: (r) => num(r.weight), total: (t) => pct(t.weight) },
+
+  { key: 'target_weight', label: 'Target', group: 'target', right: true,
     title: 'The frozen target of the governing rebalance (the live book we traded), % of NAV. 0 = not in the target.',
-    render: (r) => pct(r.target_weight), value: (r) => r.target_weight },
-  { key: 'abs_drift', label: 'Drift', right: true, title: 'Weight − Target, percentage points',
-    render: (r) => pp(r.drift_pp), value: (r) => (r.drift_pp == null ? null : Math.abs(r.drift_pp)) },
-  { key: 'drift_usd', label: 'Drift $', right: true,
+    render: (r) => pct(r.target_weight), value: (r) => r.target_weight, total: (t) => pct(t.target) },
+  { key: 'abs_drift', label: 'Drift', group: 'target', right: true, title: 'Weight − Target, percentage points',
+    render: (r) => pp(r.drift_pp), value: (r) => (r.drift_pp == null ? null : Math.abs(r.drift_pp)),
+    total: (t) => pp(t.drift) },
+  { key: 'drift_usd', label: 'Drift $', group: 'target', right: true,
     title: 'Market value − Target × today’s NAV. Not an order.',
-    render: (r) => usdSigned(r.drift_usd), value: (r) => num(r.drift_usd) },
-  { key: 'pnl_d', label: 'Day P&L', right: true, render: (r) => usdSigned(r.pnl_d), value: (r) => num(r.pnl_d),
-    style: (r) => pnlStyle(r.pnl_d) },
-  { key: 'pnl_since_rebalance', label: 'Since rebal.', right: true,
-    title: 'P&L since the close of the last rebalance’s trade day',
-    render: (r) => usdSigned(r.pnl_since_rebalance), value: (r) => num(r.pnl_since_rebalance),
-    style: (r) => pnlStyle(r.pnl_since_rebalance) },
-  { key: 'bench_weight', label: 'Benchmark', right: true,
+    render: (r) => usdSigned(r.drift_usd), value: (r) => num(r.drift_usd), total: (t) => usdSigned(t.driftUsd) },
+
+  { key: 'bench_weight', label: 'Benchmark', group: 'index', right: true,
     title: 'S&P 500 month-end cap weight — core names only (the sleeve is measured against cash)',
     render: (r) => pct(r.bench_weight), value: (r) => num(r.bench_weight) },
-  { key: 'active_weight', label: 'Active', right: true,
+  { key: 'active_weight', label: 'Active', group: 'index', right: true,
     title: 'The core’s weight in the name minus its benchmark weight — core names only',
     render: (r) => pp(r.active_weight), value: (r) => num(r.active_weight),
     style: (r, ctx) => tint(r.active_weight, 'weight', ctx.active) },
-  { key: 'borrow_fee_pct', label: 'Borrow fee', right: true,
+
+  { key: 'pnl_d', label: 'Day', group: 'pnl', right: true, title: 'P&L on the book date',
+    render: (r) => usdSigned(r.pnl_d), value: (r) => num(r.pnl_d),
+    style: (r) => pnlStyle(r.pnl_d), total: (t) => usdSigned(t.pnl), totalStyle: (t) => pnlStyle(t.pnl) },
+  { key: 'pnl_since_rebalance', label: 'Since rebal.', group: 'pnl', right: true,
+    title: 'P&L since the close of the last rebalance’s trade day',
+    render: (r) => usdSigned(r.pnl_since_rebalance), value: (r) => num(r.pnl_since_rebalance),
+    style: (r) => pnlStyle(r.pnl_since_rebalance),
+    total: (t) => usdSigned(t.since), totalStyle: (t) => pnlStyle(t.since) },
+
+  { key: 'borrow_fee_pct', label: 'Fee', group: 'borrow', right: true,
     title: 'IBKR stock-loan fee, % per year — shorts only, latest file usable on the book date',
     render: (r) => (r.borrow_fee_pct == null ? '—' : `${r.borrow_fee_pct.toFixed(2)}%`),
     value: (r) => num(r.borrow_fee_pct) },
-  { key: 'borrow_available', label: 'Available', right: true, title: 'Shares available to borrow',
+  { key: 'borrow_available', label: 'Available', group: 'borrow', right: true, title: 'Shares available to borrow',
     render: (r) => (r.borrow_available == null ? '—' : r.borrow_available.toLocaleString('en-US')),
     value: (r) => num(r.borrow_available) },
-  { key: 'last_fill', label: 'Last fill', render: (r) => r.last_fill ?? '—', value: (r) => r.last_fill ?? '' },
+
+  { key: 'last_fill', label: 'Last fill', group: 'fill', render: (r) => r.last_fill ?? '—',
+    value: (r) => r.last_fill ?? '' },
 ];
+
+/** A thin line at the left edge of every group but the first. */
+const GROUP_EDGE: React.CSSProperties = { borderLeft: '1px solid var(--border)' };
+
+// `.dtable th` is sticky at top:0 by itself; with two header rows that would stack them on top of each
+// other. The <thead> is the sticky element here, so its cells stay in flow.
+const TH_FLOW: React.CSSProperties = { position: 'static' };
+
 
 function Seg({ value, options, onChange }: {
   value: string; options: { v: string; label: string }[]; onChange: (v: string) => void;
@@ -162,7 +213,19 @@ export default function HoldingsPage({ params }: { params: Promise<{ env: string
     active: scaleOf((data?.rows ?? []).map((r) => ({ v: r.active_weight, unit: 'weight' as const }))),
   }), [data]);
 
-  const tot = useMemo(() => {
+  // Hide a group when every cell in it is empty for the rows shown (never the always-filled groups).
+  const cols = useMemo(() => {
+    const empty = (g: GroupId) => (g === 'borrow' || g === 'index')
+      && rows.every((r) => COLS.filter((c) => c.group === g).every((c) => c.value(r) == null));
+    return COLS.filter((c) => !empty(c.group));
+  }, [rows]);
+  const groups = GROUPS
+    .map((g) => ({ ...g, span: cols.filter((c) => c.group === g.id).length }))
+    .filter((g) => g.span > 0);
+  // The first visible column of each group after the first carries the dividing line.
+  const edge = (i: number) => (i > 0 && cols[i].group !== cols[i - 1].group ? GROUP_EDGE : undefined);
+
+  const tot = useMemo<Totals>(() => {
     const s = (fn: (r: HoldingRow) => number | null) => rows.reduce((a, r) => a + (fn(r) ?? 0), 0);
     return {
       n: rows.filter((r) => r.held).length,
@@ -241,32 +304,37 @@ export default function HoldingsPage({ params }: { params: Promise<{ env: string
         <table className="dtable w-full text-xs tabular-nums">
           <thead className="sticky top-0 z-10" style={{ background: 'var(--panel)' }}>
             <tr>
-              {COLS.map((c) => (
+              {groups.map((g, i) => (
+                <th key={g.id} colSpan={g.span} title={g.tip}
+                  style={{ ...TH_FLOW, textAlign: 'center', ...(i > 0 ? GROUP_EDGE : {}),
+                    borderBottom: g.title ? undefined : 0, color: 'var(--tx-mut)' }}>
+                  {g.title}
+                </th>
+              ))}
+            </tr>
+            <tr>
+              {cols.map((c, i) => (
                 <th key={c.key} title={c.title} onClick={() => clickSort(c.key)}
                   className="cursor-pointer select-none whitespace-nowrap"
-                  style={c.right ? undefined : TEXT_CELL}>
+                  style={{ ...TH_FLOW, ...(c.right ? {} : TEXT_CELL), ...edge(i) }}>
                   {c.label}{sort.key === c.key ? (sort.desc ? ' ↓' : ' ↑') : ''}
                 </th>
               ))}
             </tr>
             <tr className="font-semibold" style={{ background: 'var(--bg)' }}>
-              <td>Total · {tot.n} held</td>
-              <td /><td /><td /><td /><td />
-              <td className="text-right" title={`gross ${usd(tot.gross)}`}>{usd(tot.net)}</td>
-              <td className="text-right">{pct(tot.weight)}</td>
-              <td className="text-right">{pct(tot.target)}</td>
-              <td className="text-right">{pp(tot.drift)}</td>
-              <td className="text-right">{usdSigned(tot.driftUsd)}</td>
-              <td className="text-right" style={pnlStyle(tot.pnl)}>{usdSigned(tot.pnl)}</td>
-              <td className="text-right" style={pnlStyle(tot.since)}>{usdSigned(tot.since)}</td>
-              <td /><td /><td /><td /><td />
+              {cols.map((c, i) => (
+                <td key={c.key}
+                  style={{ ...(c.right ? {} : TEXT_CELL), ...c.totalStyle?.(tot), ...edge(i) }}>
+                  {c.total?.(tot)}
+                </td>
+              ))}
             </tr>
           </thead>
           <tbody>
             {rows.map((r) => (
               <tr key={`${r.conid}-${r.isin}`}>
-                {COLS.map((c) => (
-                  <td key={c.key} style={c.right ? c.style?.(r, shade) : TEXT_CELL}>
+                {cols.map((c, i) => (
+                  <td key={c.key} style={{ ...(c.right ? c.style?.(r, shade) : TEXT_CELL), ...edge(i) }}>
                     {c.render(r)}
                   </td>
                 ))}

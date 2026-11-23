@@ -279,6 +279,12 @@ portfolio_monitor_IA.md`. Two pages (owner: too much for tabs), `[env]` is a rou
   by band distance. **Holdings** chooses per column: Active shaded (scale over ALL core rows, so a filter
   never repaints); Day P&L / Since rebal. text green/red by sign only; Drift, market value, weight,
   target, borrow stay plain (Drift is exactly what the no-flags rule is about).
+- **Holdings columns are GROUPED** (owner, 2026-11-23): a title row (Position · vs target · vs S&P 500 ·
+  P&L · Borrow) above the labels and a thin `--border` line at each group's left edge. Every `Col` names
+  its `group` and its own `total` cell; list columns group by group in `GROUPS` order (the title row spans
+  consecutive columns). The Borrow and vs-S&P-500 groups hide when every cell is empty for the rows shown
+  (longs-only filter, sleeve filter); the CSV keeps every column. The three header rows sit in a sticky
+  `<thead>`, so the cells set `position: static` (`.dtable th` is sticky on its own and would stack them).
 - Holdings rows = held ∪ target joined on `conid`; `target_positions` read with `mandate='composite'`
   for weights and `core`/`sleeve` only for a target-only name's mandate. Borrow = latest row with
   `available_date <= book date` (`DISTINCT ON (isin)`), never joined on `date`.
