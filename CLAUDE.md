@@ -337,6 +337,18 @@ First item of the Portfolio group; also a tab beside Holdings/Exposures (`Monito
   over/underweights · S&P names we don't hold (implied, = NAV₀·Σ_held b(r − r_b)) · core invested level ·
   sleeve legs + cash/other at full P&L. Publishes `residual` (must be ~0). `b` = month-end
   `optimizer.benchmark_weights`, not drifted.
-- No colour flags; every block prints its data time (ET with UTC beside it, `clock()` in
-  `lib/portfolioMonitor.ts`). Auto-refreshes every 60 s only while `phase === 'open'`.
+- Every block prints its data time (ET with UTC beside it, `clock()` in `lib/portfolioMonitor.ts`).
+  Auto-refreshes every 60 s only while `phase === 'open'`.
+- **Layout (owner review, 2026-11-23):** four bands — Today so far (Dollars cluster | Returns cluster,
+  all returns in % of yesterday's NAV, no bp) · **Return by engine** (one table, Actual $/% beside
+  Excess vs S&P 500 $/%; Core (LO) with its three excess sub-rows, Sleeve (LS) legs, unattributed,
+  cash; replaces the old "Relative to the S&P 500" + "Core vs sleeve" bands) · **Movers** split by
+  mandate (Core ranked by excess OR actual — `relative.core_movers.by_excess|by_actual`; Sleeve once —
+  `relative.sleeve_movers`, its excess IS its P&L) · Exposure / Rebalance unchanged. "Excess vs S&P 500"
+  is the one name; "Core (LO)" / "Sleeve (LS)" everywhere. `relative.core_actual` /
+  `core_excess` (= the three core parts exactly) and `nav0` come from `_relative`; `data.movers` /
+  `data.mandates` remain only as the fallback when no index move exists.
+- **Colour = money made or lost** (`signColor` in `lib/shading.tsx`, shared with Holdings): P&L, book
+  return, excess ($ and %) green/red text by sign. NAV, the index's own move, every stock move and
+  weight stay plain (a short's rising price is a loss); exposure is never coloured (no-flags rule).
 

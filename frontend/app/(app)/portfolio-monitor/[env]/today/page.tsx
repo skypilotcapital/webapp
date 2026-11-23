@@ -1,21 +1,30 @@
 'use client';
 
 // Portfolio › Today ([08-TODAY]; design `08_website_and_tooling/today_page.md`). The book during the
-// trading day: P&L so far, core vs sleeve, movers, exposure now vs the frozen live target, and on a
-// trade day the orders as they were recorded.
+// trading day: P&L so far, where it came from by engine, movers, exposure now vs the frozen live
+// target, and on a trade day the orders as they were recorded.
 //
 // * ONE NUMBER PER DAY. The API's `phase` picks the headline — the latest poll while the market is
 //   open or the official book has not been built yet, the official day (book_daily) once it has. The
 //   page never shows both as headlines; the polls stay as the intraday path under an official day.
-// * NO FLAGS (Portfolio Monitor rule). Nothing is coloured by sign or size; states are words.
+// * ACTUAL AND EXCESS SIDE BY SIDE (owner, 2026-11-23). Every engine shows what it made and what it
+//   made over the S&P 500, in $ and in % of yesterday's NAV (no basis points). "Excess vs S&P 500" is
+//   the one name for the second number. The core (LO) carries the index; the sleeve (LS) counts in full
+//   (benchmark zero — interest lands in "cash and other").
+// * COLOUR = MONEY MADE OR LOST, nothing else (owner, 2026-11-23). P&L, return and excess return are
+//   green / red text by sign (`signColor`). NAV, the index's own move, every stock's price move and
+//   every weight stay plain: a short's rising price is a loss, and an underweight in a falling name
+//   helps, so the sign of a move says nothing about us. Exposure is never coloured (no-flags rule).
 // * EVERY BLOCK PRINTS THE TIME OF ITS DATA. Paper marks are delayed, and the broker re-marks its
 //   cached position list every few minutes, so a poll's numbers are older than the poll.
 
-import { use } from 'react';
+import { use, useState } from 'react';
 import useSWR from 'swr';
+import { signColor } from '@/lib/shading';
 import {
-  bpSigned, clock, dayLabel, fetchToday, fetchTodayOrders, pct, pctSigned, shares, usd, usdSigned,
-  type TodayData, type TodayMover, type TodayPhase, type TodayRelativeMover,
+  clock, dayLabel, fetchToday, fetchTodayOrders, pct, pctSigned, shares, usd, usdSigned,
+  type TodayCoreMover, type TodayData, type TodayMover, type TodayPhase, type TodaySleeveMover,
+  type TopBottom,
 } from '@/lib/portfolioMonitor';
 
 const PHASE_LABEL: Record<TodayPhase, string> = {
@@ -24,6 +33,11 @@ const PHASE_LABEL: Record<TodayPhase, string> = {
   closed_official: 'Today, official (closed)',
   preopen: 'Last trading day, official (closed)',
 };
+
+// `.dtable` right-aligns every cell in a monospace face (numbers). Words read left, in the text face.
+const TEXT: React.CSSProperties = { textAlign: 'left', fontFamily: 'inherit' };
+/** A thin line between column groups and between the core and sleeve blocks. */
+const EDGE = '1px solid var(--border)';
 
 function phaseNote(d: TodayData): string {
   const h = d.headline;
@@ -45,12 +59,24 @@ function phaseNote(d: TodayData): string {
   }
 }
 
-function Stat({ label, value, sub }: { label: string; value: React.ReactNode; sub?: React.ReactNode }) {
+function Stat({ label, value, sub, money }: {
+  label: string; value: React.ReactNode; sub?: React.ReactNode; money?: number | null;
+}) {
   return (
-    <div className="min-w-[150px]">
+    <div className="min-w-[130px]">
       <div className="text-[11px] uppercase tracking-wide text-[var(--tx-dim)]">{label}</div>
-      <div className="text-xl font-bold text-[var(--tx)] tabular-nums">{value}</div>
+      <div className="text-xl font-bold text-[var(--tx)] tabular-nums" style={signColor(money)}>{value}</div>
       {sub && <div className="text-[11px] text-[var(--tx-mut)] mt-0.5">{sub}</div>}
+    </div>
+  );
+}
+
+/** A labelled cluster of stats; the second and later clusters carry a thin line on their left. */
+function Cluster({ title, children, edge }: { title: string; children: React.ReactNode; edge?: boolean }) {
+  return (
+    <div className={edge ? 'pl-8' : ''} style={edge ? { borderLeft: EDGE } : undefined}>
+      <div className="text-[10px] font-bold uppercase tracking-wider text-[var(--tx-mut)] mb-1.5">{title}</div>
+      <div className="flex flex-wrap gap-x-8 gap-y-3">{children}</div>
     </div>
   );
 }
@@ -94,7 +120,7 @@ function PathChart({ ts, lines, fmt, caption }: {
   );
 }
 
-/** The day's path: the book against SPY, and the gap between them. */
+/** The day's path: the book against SPY, and the gap between them (the excess), both in %. */
 function PathCharts({ series }: { series: TodayData['series'] }) {
   const pts = series.filter((s) => s.pnl_pct != null);
   if (pts.length < 2) {
@@ -103,102 +129,178 @@ function PathCharts({ series }: { series: TodayData['series'] }) {
     </div>;
   }
   const ts = pts.map((p) => p.ts);
-  const gap = pts.map((p) => (p.index_move == null ? null : ((p.pnl_pct as number) - p.index_move) * 1e4));
+  const gap = pts.map((p) => (p.index_move == null ? null : (p.pnl_pct as number) - p.index_move));
   return (
-    <div className="flex flex-wrap gap-6 mt-3">
+    <div className="flex flex-wrap gap-6 mt-4">
       <PathChart ts={ts} fmt={(v) => pctSigned(v, 2)}
         lines={[{ values: pts.map((p) => p.index_move), dashed: true }, { values: pts.map((p) => p.pnl_pct) }]}
         caption="Solid: the book's return today (P&L ÷ yesterday's NAV). Dashed: SPY's price move." />
-      <PathChart ts={ts} fmt={(v) => bpSigned(v, 0)} lines={[{ values: gap }]}
-        caption="The gap: the book minus SPY, in basis points of yesterday's NAV." />
+      <PathChart ts={ts} fmt={(v) => pctSigned(v, 2)} lines={[{ values: gap }]}
+        caption="Excess vs SPY: the book's return minus SPY's move, % of yesterday's NAV." />
     </div>
   );
 }
 
-type RelPart = 'core_selection' | 'core_not_held' | 'core_invested' | 'sleeve_long' | 'sleeve_short'
-  | 'unattributed' | 'other';
+function HeadlineBand({ d }: { d: TodayData }) {
+  const h = d.headline, r = d.relative;
+  const excess = r.available && r.nav0 ? (r.active ?? 0) / r.nav0 : null;
+  const brokerGap = h.pnl_broker != null && h.pnl != null ? h.pnl - h.pnl_broker : null;
+  return (
+    <div className="flex flex-wrap gap-y-4 mt-3">
+      <Cluster title="Dollars">
+        <Stat label="NAV" value={usd(h.nav)} />
+        <Stat label="P&L" value={usdSigned(h.pnl)} money={h.pnl}
+          sub={h.source === 'poll' && h.pnl_broker != null
+            ? <span title={`IBKR's own count: its account value now minus its ${clock(h.broker_prev_ts)} snapshot, at its marks. `
+                + 'Ours starts from yesterday’s official book at our closing prices, so the two differ mainly by '
+                + 'that starting point. A check, never blended.'}>
+                broker&apos;s count {usdSigned(h.pnl_broker)} ({usdSigned(brokerGap)} apart) ⓘ
+              </span>
+            : 'since yesterday’s close'} />
+      </Cluster>
+      <div className="w-8" />
+      <Cluster title="Returns · % of yesterday's NAV" edge>
+        <Stat label="Book" value={pctSigned(h.pnl_pct, 2)} money={h.pnl_pct} />
+        <Stat label={h.index.name} value={pctSigned(h.index.move, 2)}
+          sub={h.index.as_of ? (h.source === 'poll' ? `quote ${clock(h.index.as_of)}` : dayLabel(h.index.as_of)) : undefined} />
+        <Stat label="Excess vs S&P 500" value={pctSigned(excess, 2)} money={excess}
+          sub={r.available ? `${usdSigned(r.active)} on the same NAV` : r.note} />
+      </Cluster>
+    </div>
+  );
+}
 
-const REL_ROWS: [RelPart, string, string][] = [
-  ['core_selection', 'Core — over/underweights of the names we hold',
-    'each held name: (our weight − its index weight) × (its move − the index move)'],
-  ['core_not_held', 'Core — S&P 500 names we do not hold',
-    'the rest of the index, implied from the index move (the account has no prices for them)'],
-  ['core_invested', 'Core — invested level',
-    'the core held this share of NAV against 100% in the index'],
-  ['sleeve_long', 'Sleeve — long leg', 'measured against cash, so its whole P&L'],
-  ['sleeve_short', 'Sleeve — short leg', 'measured against cash, so its whole P&L'],
-  ['unattributed', 'Unattributed', 'names no mandate claims'],
-  ['other', 'Cash and other', 'interest, commissions, fills not yet captured'],
-];
+type EngineRow = {
+  key: string; label: React.ReactNode; how: React.ReactNode;
+  actual: number | null | undefined; excess: number | null | undefined;
+  sub?: boolean; edge?: boolean; bold?: boolean;
+};
 
-function RelativeBand({ d }: { d: TodayData }) {
-  const r = d.relative;
-  if (!r.available || !r.parts) return <div className="text-sm text-[var(--tx-mut)]">{r.note}</div>;
-  const parts = r.parts;
-  const open = d.headline.source === 'poll';
+/** Actual and excess, by engine, in one table. Exact: the excess rows add to P&L − the S&P on NAV0. */
+function EngineBand({ d }: { d: TodayData }) {
+  const r = d.relative, m = d.mandates, h = d.headline;
+  const rel = r.available && r.parts && r.nav0;
+  const nav0 = rel ? (r.nav0 as number) : (h.nav != null && h.pnl != null ? h.nav - h.pnl : null);
+  const p = r.parts;
+  const uncaptured = m.n_uncaptured
+    ? `interest, commissions, and ${m.n_uncaptured} name(s) whose fills are not captured yet` : 'interest, commissions';
+
+  if (!rel && !m.available) return <div className="text-sm text-[var(--tx-mut)]">{m.note}</div>;
+
+  const rows: EngineRow[] = rel && p ? [
+    { key: 'core', label: <b>Core (LO)</b>, actual: r.core_actual, excess: r.core_excess, bold: true,
+      how: 'long-only S&P 500 book · excess = its P&L minus the S&P 500 on the whole NAV' },
+    { key: 'sel', label: 'held names, over/underweight', actual: null, excess: p.core_selection.usd, sub: true,
+      how: 'each held name: (our weight − index weight) × (its move − the index move)' },
+    { key: 'not', label: 'S&P 500 names we don’t hold', actual: null, excess: p.core_not_held.usd, sub: true,
+      how: 'the rest of the index, which we are fully underweight — implied from the index move' },
+    { key: 'inv', label: 'invested level', actual: null, excess: p.core_invested.usd, sub: true,
+      how: `the core held ${pct(r.core_weight, 1)} of NAV against 100% in the index` },
+    { key: 'sl', label: 'Sleeve (LS) — long leg', actual: p.sleeve_long.usd, excess: p.sleeve_long.usd, edge: true,
+      how: 'Russell 2500 longs · counts in full (the sleeve’s benchmark is zero)' },
+    { key: 'ss', label: 'Sleeve (LS) — short leg', actual: p.sleeve_short.usd, excess: p.sleeve_short.usd,
+      how: 'Russell 2500 shorts · counts in full' },
+    { key: 'un', label: 'Unattributed', actual: p.unattributed.usd, excess: p.unattributed.usd, edge: true,
+      how: 'names no mandate claims — shown, never re-allocated' },
+    { key: 'oth', label: 'Cash and other', actual: p.other.usd, excess: p.other.usd, how: uncaptured },
+  ] : [
+    { key: 'core', label: <b>Core (LO)</b>, actual: m.core, excess: null, bold: true, how: 'long-only S&P 500 book' },
+    { key: 'sl', label: 'Sleeve (LS) — long leg', actual: m.sleeve_long, excess: null, edge: true, how: 'Russell 2500 longs' },
+    { key: 'ss', label: 'Sleeve (LS) — short leg', actual: m.sleeve_short, excess: null, how: 'Russell 2500 shorts' },
+    { key: 'un', label: 'Unattributed', actual: m.unattributed, excess: null, edge: true,
+      how: 'names no mandate claims — shown, never re-allocated' },
+    { key: 'oth', label: 'Cash and other', actual: m.other, excess: null, how: uncaptured },
+  ];
+
+  const share = (v: number | null | undefined) => (v == null || !nav0 ? null : v / nav0);
+  const money = (v: number | null | undefined, d2 = 3, edge = false, bold = false) => {
+    const f = share(v);
+    return [
+      <td key="u" style={{ ...signColor(v), ...(edge ? { borderLeft: EDGE } : {}) }}>
+        {v == null ? '' : bold ? <b>{usdSigned(v)}</b> : usdSigned(v)}</td>,
+      <td key="p" style={signColor(f)}>{f == null ? '' : bold ? <b>{pctSigned(f, d2)}</b> : pctSigned(f, d2)}</td>,
+    ];
+  };
+
   return (
     <>
-      <div className="flex flex-wrap gap-x-8 gap-y-3 mt-2">
-        <Stat label="Book" value={pctSigned(r.book_return, 2)} sub={usdSigned(d.headline.pnl)} />
-        <Stat label={r.index_name ?? 'Index'} value={pctSigned(r.index_move, 2)}
-          sub={`${usdSigned(r.benchmark_pnl)} on yesterday's NAV`} />
-        <Stat label="Difference" value={bpSigned(r.active_bp)} sub={usdSigned(r.active)} />
-      </div>
-      <table className="dtable mt-3">
-        <thead><tr><th style={{ textAlign: 'left' }}>Where the difference came from</th><th>bp of NAV</th><th>$</th>
-          <th style={{ textAlign: 'left' }}>How it is measured</th></tr></thead>
+      <table className="dtable mt-2">
+        <thead>
+          <tr>
+            <th style={{ borderBottom: 0 }} />
+            <th colSpan={2} style={{ textAlign: 'center', borderLeft: EDGE, color: 'var(--tx-mut)' }}>Actual</th>
+            <th colSpan={2} style={{ textAlign: 'center', borderLeft: EDGE, color: 'var(--tx-mut)' }}>Excess vs S&amp;P 500</th>
+            <th style={{ borderBottom: 0, borderLeft: EDGE }} />
+          </tr>
+          <tr>
+            <th style={{ textAlign: 'left' }}>Engine</th>
+            <th style={{ borderLeft: EDGE }}>$</th><th>% of NAV</th>
+            <th style={{ borderLeft: EDGE }}>$</th><th>% of NAV</th>
+            <th style={{ textAlign: 'left', borderLeft: EDGE }}>How it is measured</th>
+          </tr>
+        </thead>
         <tbody>
-          {REL_ROWS.map(([k, label, how]) => (
-            <tr key={k}>
-              <td style={{ textAlign: 'left', fontFamily: 'inherit' }}>{label}</td>
-              <td>{bpSigned(parts[k].bp)}</td>
-              <td>{usdSigned(parts[k].usd)}</td>
-              <td style={{ textAlign: 'left', fontFamily: 'inherit' }} className="text-[var(--tx-mut)]">
-                {k === 'core_invested' ? `${how} (${pct(r.core_weight, 1)})` : how}
-              </td>
+          {rows.map((x) => (
+            <tr key={x.key} style={x.edge ? { borderTop: EDGE } : undefined}>
+              <td style={{ ...TEXT, paddingLeft: x.sub ? 24 : undefined }}
+                className={x.sub ? 'text-[var(--tx-mut)]' : undefined}>{x.label}</td>
+              {money(x.actual, 3, true)}
+              {money(x.excess, 3, true)}
+              <td style={{ ...TEXT, borderLeft: EDGE }} className="text-[var(--tx-mut)]">{x.how}</td>
             </tr>
           ))}
-          <tr>
-            <td style={{ textAlign: 'left', fontFamily: 'inherit' }}><b>Difference vs the index</b></td>
-            <td><b>{bpSigned(r.active_bp)}</b></td>
-            <td><b>{usdSigned(r.active)}</b></td>
-            <td />
+          <tr style={{ borderTop: EDGE }}>
+            <td style={TEXT}><b>Total</b></td>
+            {money(h.pnl, 3, true, true)}
+            {money(rel ? r.active : null, 3, true, true)}
+            <td style={{ ...TEXT, borderLeft: EDGE }} className="text-[var(--tx-mut)]">
+              {rel ? 'actual − excess = the S&P 500’s move on yesterday’s NAV' : ''}
+            </td>
           </tr>
         </tbody>
       </table>
-      <div className="flex flex-wrap gap-6 mt-4">
-        <RelMoverTable title="Helped most against the index" rows={r.top ?? []} />
-        <RelMoverTable title="Hurt most against the index" rows={r.bottom ?? []} />
-      </div>
       <div className="text-[11px] text-[var(--tx-mut)] mt-2">
-        Measured by ACTIVE weight: a name held at its index weight contributes nothing, and being underweight a
-        falling stock helps. Sleeve names count in full (the sleeve is measured against cash). Index weights are
-        the month-end S&amp;P 500 weights ({r.benchmark_weights_asof ?? '—'}), not moved with prices since
-        {open ? "; SPY's price move stands in for the index while the market is open" : ''}. The rows add up to
-        the difference exactly. As of {open ? clock(r.as_of) : dayLabel(r.as_of)}.
+        {rel ? (
+          <>
+            The S&amp;P 500 on yesterday&apos;s NAV: <b className="text-[var(--tx)]">{usdSigned(r.benchmark_pnl)}</b>{' '}
+            ({pctSigned(r.index_move, 2)}) — the gap between the two totals. Excess is measured by ACTIVE weight: a
+            name held at its index weight contributes nothing, and being underweight a falling stock helps. Index
+            weights are the month-end S&amp;P 500 weights ({r.benchmark_weights_asof ?? '—'}), not moved with prices
+            since{h.source === 'poll' ? "; SPY's price move stands in for the index while the market is open" : ''}.
+            The rows add up exactly. As of {h.source === 'poll' ? clock(r.as_of) : dayLabel(r.as_of)}.
+          </>
+        ) : (
+          <>Excess not computed: {r.note}. {m.source === 'poll'
+            ? `Each name's P&L split by the mandates' claims on ${dayLabel(m.shares_from)}. As of ${clock(m.as_of)}.`
+            : `From the official mandate split for ${dayLabel(m.as_of)}.`}</>
+        )}
       </div>
     </>
   );
 }
 
-function RelMoverTable({ title, rows }: { title: string; rows: TodayRelativeMover[] }) {
+function CoreMoverTable({ title, rows, rankBy }: {
+  title: string; rows: TodayCoreMover[]; rankBy: 'excess' | 'pnl';
+}) {
+  const mark = (k: 'excess' | 'pnl') => (rankBy === k ? ' ↓' : '');
   return (
-    <div className="min-w-[420px] flex-1">
+    <div className="min-w-[460px] flex-1">
       <div className="text-xs font-bold text-[var(--tx)] mb-1">{title}</div>
       {rows.length === 0 ? <div className="text-xs text-[var(--tx-dim)]">none</div> : (
         <table className="dtable">
           <thead><tr><th style={{ textAlign: 'left' }}>Name</th><th>Move</th><th>vs index</th>
-            <th>Our weight</th><th>Index weight</th><th>bp of NAV</th><th>$</th></tr></thead>
+            <th>Our wt</th><th>Index wt</th>
+            <th style={{ borderLeft: EDGE }}>Actual ${mark('pnl')}</th><th>Excess ${mark('excess')}</th></tr></thead>
           <tbody>
-            {rows.map((m) => (
-              <tr key={m.conid}>
-                <td style={{ textAlign: 'left', fontFamily: 'inherit' }}><b>{m.ticker ?? m.conid}</b></td>
-                <td>{pctSigned(m.move)}</td>
-                <td>{pctSigned(m.move_vs_index)}</td>
-                <td>{pct(m.weight)}</td>
-                <td>{m.index_weight ? pct(m.index_weight) : '—'}</td>
-                <td>{bpSigned(m.contribution_bp)}</td>
-                <td>{usdSigned(m.contribution)}</td>
+            {rows.map((x) => (
+              <tr key={x.conid}>
+                <td style={TEXT}><b>{x.ticker ?? x.conid}</b></td>
+                <td>{pctSigned(x.move)}</td>
+                <td>{pctSigned(x.move_vs_index)}</td>
+                <td>{x.weight ? pct(x.weight) : '—'}</td>
+                <td>{x.index_weight ? pct(x.index_weight) : '—'}</td>
+                <td style={{ ...signColor(x.pnl), borderLeft: EDGE }}>{usdSigned(x.pnl)}</td>
+                <td style={signColor(x.excess)}>{usdSigned(x.excess)}</td>
               </tr>
             ))}
           </tbody>
@@ -208,49 +310,32 @@ function RelMoverTable({ title, rows }: { title: string; rows: TodayRelativeMove
   );
 }
 
-function MandateBand({ d }: { d: TodayData }) {
-  const m = d.mandates;
-  if (!m.available) return <div className="text-sm text-[var(--tx-mut)]">{m.note}</div>;
-  const rows: [string, number | null | undefined, string][] = [
-    ['Core', m.core, 'long-only S&P 500 book'],
-    ['Sleeve — long leg', m.sleeve_long, 'Russell 2500 longs'],
-    ['Sleeve — short leg', m.sleeve_short, 'Russell 2500 shorts'],
-    ['Unattributed', m.unattributed, 'names no mandate claims — shown, never re-allocated'],
-    ['Cash and other', m.other,
-      m.n_uncaptured ? `interest, commissions, and ${m.n_uncaptured} name(s) whose fills are not captured yet`
-        : 'interest, commissions'],
-  ];
+function SleeveMoverTable({ title, rows }: { title: string; rows: TodaySleeveMover[] }) {
   return (
-    <>
-      <table className="dtable mt-2">
-        <thead><tr><th style={{ textAlign: 'left' }}>Engine</th><th>P&amp;L</th><th>% of NAV</th>
-          <th style={{ textAlign: 'left' }}>What it is</th></tr></thead>
-        <tbody>
-          {rows.map(([k, v, why]) => (
-            <tr key={k}>
-              <td style={{ textAlign: 'left', fontFamily: 'inherit' }}>{k}</td>
-              <td>{usdSigned(v)}</td>
-              <td>{d.headline.nav && v != null ? pctSigned(v / (d.headline.nav - (d.headline.pnl ?? 0)), 3) : '—'}</td>
-              <td style={{ textAlign: 'left', fontFamily: 'inherit' }} className="text-[var(--tx-mut)]">{why}</td>
-            </tr>
-          ))}
-          <tr>
-            <td style={{ textAlign: 'left', fontFamily: 'inherit' }}><b>Total</b></td>
-            <td><b>{usdSigned(d.headline.pnl)}</b></td>
-            <td><b>{pctSigned(d.headline.pnl_pct, 3)}</b></td>
-            <td />
-          </tr>
-        </tbody>
-      </table>
-      <div className="text-[11px] text-[var(--tx-mut)] mt-1">
-        {m.source === 'poll'
-          ? `Each name's P&L split by the mandates' claims on ${dayLabel(m.shares_from)} (the ledger). As of ${clock(m.as_of)}.`
-          : `From the official mandate split for ${dayLabel(m.as_of)}.`}
-      </div>
-    </>
+    <div className="min-w-[340px] flex-1">
+      <div className="text-xs font-bold text-[var(--tx)] mb-1">{title}</div>
+      {rows.length === 0 ? <div className="text-xs text-[var(--tx-dim)]">none</div> : (
+        <table className="dtable">
+          <thead><tr><th style={{ textAlign: 'left' }}>Name</th><th style={{ textAlign: 'left' }}>Leg</th>
+            <th>Move</th><th>Weight</th><th style={{ borderLeft: EDGE }}>P&amp;L $</th></tr></thead>
+          <tbody>
+            {rows.map((x) => (
+              <tr key={x.conid}>
+                <td style={TEXT}><b>{x.ticker ?? x.conid}</b></td>
+                <td style={TEXT}>{x.leg ?? '—'}</td>
+                <td>{pctSigned(x.move)}</td>
+                <td>{pct(x.weight)}</td>
+                <td style={{ ...signColor(x.pnl), borderLeft: EDGE }}>{usdSigned(x.pnl)}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      )}
+    </div>
   );
 }
 
+/** Fallback when no index move is available: whole-book movers by actual P&L only. */
 function MoverTable({ title, rows }: { title: string; rows: TodayMover[] }) {
   return (
     <div className="min-w-[320px] flex-1">
@@ -261,10 +346,10 @@ function MoverTable({ title, rows }: { title: string; rows: TodayMover[] }) {
           <tbody>
             {rows.map((r) => (
               <tr key={r.conid}>
-                <td style={{ textAlign: 'left', fontFamily: 'inherit' }}><b>{r.ticker ?? r.conid}</b></td>
+                <td style={TEXT}><b>{r.ticker ?? r.conid}</b></td>
                 <td>{pctSigned(r.move)}</td>
                 <td>{pct(r.weight)}</td>
-                <td>{usdSigned(r.pnl)}</td>
+                <td style={signColor(r.pnl)}>{usdSigned(r.pnl)}</td>
               </tr>
             ))}
           </tbody>
@@ -274,10 +359,73 @@ function MoverTable({ title, rows }: { title: string; rows: TodayMover[] }) {
   );
 }
 
+function Seg({ value, options, onChange }: {
+  value: string; options: { v: string; label: string }[]; onChange: (v: string) => void;
+}) {
+  return (
+    <div className="flex gap-1">
+      {options.map((o) => (
+        <button key={o.v} onClick={() => onChange(o.v)}
+          className="px-2.5 py-0.5 rounded-md text-[11px] font-semibold border"
+          style={value === o.v
+            ? { background: 'rgba(14,124,111,0.10)', color: 'var(--teal)', borderColor: 'var(--teal)' }
+            : { color: 'var(--tx-mut)', borderColor: 'var(--border-soft)' }}>
+          {o.label}
+        </button>
+      ))}
+    </div>
+  );
+}
+
+function MoversBand({ d }: { d: TodayData }) {
+  const [rankBy, setRankBy] = useState<'excess' | 'pnl'>('excess');
+  const r = d.relative;
+  if (!r.available || !r.core_movers || !r.sleeve_movers) {
+    return (
+      <>
+        <div className="text-xs text-[var(--tx-mut)] mt-1">Whole book by actual P&amp;L — {r.note}</div>
+        <div className="flex flex-wrap gap-6 mt-2">
+          <MoverTable title="Contributors" rows={d.movers.top} />
+          <MoverTable title="Detractors" rows={d.movers.bottom} />
+        </div>
+      </>
+    );
+  }
+  const core: TopBottom<TodayCoreMover> = rankBy === 'excess' ? r.core_movers.by_excess : r.core_movers.by_actual;
+  return (
+    <>
+      <div className="flex items-baseline gap-3 flex-wrap mt-2">
+        <h3 className="text-sm font-bold text-[var(--tx)]">Core (LO)</h3>
+        <span className="text-xs text-[var(--tx-mut)]">rank by</span>
+        <Seg value={rankBy} onChange={(v) => setRankBy(v as 'excess' | 'pnl')}
+          options={[{ v: 'excess', label: 'Excess vs S&P 500' }, { v: 'pnl', label: 'Actual P&L' }]} />
+      </div>
+      <div className="flex flex-wrap gap-6 mt-2">
+        <CoreMoverTable title="Best 5" rows={core.top} rankBy={rankBy} />
+        <CoreMoverTable title="Worst 5" rows={core.bottom} rankBy={rankBy} />
+      </div>
+      <div className="text-[11px] text-[var(--tx-mut)] mt-1">
+        The two rankings can disagree: an overweight name that falls less than the index loses money but helps
+        against it; an index name we are underweight that rallies costs excess without showing as a loss.
+      </div>
+      <div className="mt-4 pt-3" style={{ borderTop: EDGE }}>
+        <h3 className="text-sm font-bold text-[var(--tx)]">Sleeve (LS)</h3>
+        <div className="flex flex-wrap gap-6 mt-2">
+          <SleeveMoverTable title="Best 5" rows={r.sleeve_movers.top} />
+          <SleeveMoverTable title="Worst 5" rows={r.sleeve_movers.bottom} />
+        </div>
+        <div className="text-[11px] text-[var(--tx-mut)] mt-1">
+          One list: the sleeve&apos;s excess is its P&amp;L. A short whose price rises loses money.
+        </div>
+      </div>
+    </>
+  );
+}
+
 function ExposureBand({ d }: { d: TodayData }) {
   const e = d.exposure, t = e.target;
   const row = (k: string, now: React.ReactNode, tgt: React.ReactNode) => (
-    <tr key={k}><td style={{ textAlign: 'left', fontFamily: 'inherit' }}>{k}</td><td>{now}</td><td>{tgt}</td></tr>
+    <tr key={k}><td style={TEXT}>{k}</td><td>{now}</td><td>{tgt}</td></tr>
   );
   return (
     <>
@@ -324,9 +472,9 @@ function OrdersBand({ env, date }: { env: string; date: string }) {
               <tbody>
                 {(rows as typeof data.working).map((o) => (
                   <tr key={o.internal_order_id}>
-                    <td style={{ textAlign: 'left', fontFamily: 'inherit' }}><b>{o.ticker ?? o.conid}</b></td>
+                    <td style={TEXT}><b>{o.ticker ?? o.conid}</b></td>
                     <td>{o.side}</td><td>{shares(o.qty)}</td><td>{shares(o.filled_qty)}</td>
-                    <td style={{ textAlign: 'left', fontFamily: 'inherit' }} className="text-[var(--tx-mut)]">{o.last_event ?? '—'}</td>
+                    <td style={TEXT} className="text-[var(--tx-mut)]">{o.last_event ?? '—'}</td>
                   </tr>
                 ))}
               </tbody>
@@ -379,19 +527,7 @@ export default function TodayPage({ params }: { params: Promise<{ env: string }>
             {h.source === 'poll' ? ` · as of ${clock(h.as_of)}` : ` · snapshot ${clock(h.as_of)}`}
           </span>
         </div>
-        <div className="flex flex-wrap gap-x-8 gap-y-3 mt-3">
-          <Stat label="NAV" value={usd(h.nav)} />
-          <Stat label="P&L" value={usdSigned(h.pnl)} sub={pctSigned(h.pnl_pct, 3) + ' of the starting NAV'} />
-          <Stat label="vs S&P 500" value={bpSigned(data.relative.active_bp)}
-            sub={data.relative.available ? `${usdSigned(data.relative.active)} against the index on the same NAV`
-              : data.relative.note} />
-          <Stat label={h.index.name} value={pctSigned(h.index.move)}
-            sub={h.index.as_of ? (h.source === 'poll' ? `quote ${clock(h.index.as_of)}` : dayLabel(h.index.as_of)) : undefined} />
-          {h.source === 'poll' && (
-            <Stat label="Broker's figure" value={usdSigned(h.pnl_broker)}
-              sub={`NLV change since the ${clock(h.broker_prev_ts)} snapshot — a check, not blended`} />
-          )}
-        </div>
+        <HeadlineBand d={data} />
         {h.source === 'poll' && h.n_names != null && h.n_moved != null && h.n_moved < 0.05 * h.n_names && (
           <div className="text-xs mt-2 text-[var(--tx)]">
             Only {h.n_moved} of {h.n_names} prices have moved since yesterday&apos;s close — the market may be shut today.
@@ -401,27 +537,22 @@ export default function TodayPage({ params }: { params: Promise<{ env: string }>
       </section>
 
       <section className="panel p-4">
-        <h2 className="text-lg font-bold text-[var(--tx)] tracking-tight">Relative to the S&amp;P 500</h2>
-        <RelativeBand d={data} />
-      </section>
-
-      <section className="panel p-4">
-        <h2 className="text-lg font-bold text-[var(--tx)] tracking-tight">Core vs sleeve — P&amp;L</h2>
-        <MandateBand d={data} />
+        <div className="flex items-baseline gap-3 flex-wrap">
+          <h2 className="text-lg font-bold text-[var(--tx)] tracking-tight">Return by engine</h2>
+          <span className="text-xs text-[var(--tx-mut)]">actual, and excess vs the S&amp;P 500 · % of yesterday&apos;s NAV</span>
+        </div>
+        <EngineBand d={data} />
       </section>
 
       <section className="panel p-4">
         <div className="flex items-baseline gap-3 flex-wrap">
-          <h2 className="text-lg font-bold text-[var(--tx)] tracking-tight">Biggest movers — P&amp;L</h2>
+          <h2 className="text-lg font-bold text-[var(--tx)] tracking-tight">Movers</h2>
           <span className="text-xs text-[var(--tx-mut)]">
-            by dollar contribution · {h.source === 'poll' ? clock(data.movers.as_of) : dayLabel(h.date)}
+            {h.source === 'poll' ? clock(data.relative.as_of ?? data.movers.as_of) : dayLabel(h.date)}
             {data.mandates.n_uncaptured ? ` · ${data.mandates.n_uncaptured} name(s) with uncaptured fills left out` : ''}
           </span>
         </div>
-        <div className="flex flex-wrap gap-6 mt-2">
-          <MoverTable title="Contributors" rows={data.movers.top} />
-          <MoverTable title="Detractors" rows={data.movers.bottom} />
-        </div>
+        <MoversBand d={data} />
       </section>
 
       <section className="panel p-4">

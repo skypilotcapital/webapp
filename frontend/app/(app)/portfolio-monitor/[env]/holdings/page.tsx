@@ -26,7 +26,7 @@
 import { use, useMemo, useState } from 'react';
 import useSWR from 'swr';
 import { AsOfStrip } from '@/components/portfolio_monitor/AsOfStrip';
-import { scaleOf, ShadingKey, tint } from '@/lib/shading';
+import { scaleOf, ShadingKey, signColor, tint } from '@/lib/shading';
 import {
   dayLabel, fetchMonitorHoldings, holdingsCsvUrl, MANDATE_LABEL, pct, pp, shares, usd, usdSigned,
   type HoldingRow,
@@ -69,9 +69,8 @@ interface Totals {
 
 interface ShadeCtx { active: ReturnType<typeof scaleOf> }
 
-/** Gains and losses: text colour by sign only. */
-const pnlStyle = (v: number | null | undefined): React.CSSProperties | undefined =>
-  (v == null || v === 0 ? undefined : { color: v > 0 ? 'var(--pos)' : 'var(--neg)' });
+/** Gains and losses: text colour by sign only (shared with the Today page). */
+const pnlStyle = signColor;
 
 const num = (v: number | null | undefined) => (v == null ? null : v);
 

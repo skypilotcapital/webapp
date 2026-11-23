@@ -810,15 +810,22 @@ def _bench_weights(conn, d: dt.date) -> tuple:
 
 def _relative(names: list, nav0, pnl, r_b, other, bw: dict, bw_date) -> dict:
     """`names`: one dict per conid with conid, ticker, isin, ret (r_i or None), w0_core, w0 (held
-    weight at the start, signed, fraction of NAV0), core_pnl, sleeve_pnl, sleeve_leg,
-    unattr_pnl. Returns the bridge rows and per-name contributions, in $ and bp of NAV0."""
+    weight at the start, signed, fraction of NAV0), w0_sleeve, core_pnl, sleeve_pnl, sleeve_leg,
+    unattr_pnl. Returns the bridge rows and per-name contributions, in $ and bp of NAV0.
+
+    Movers are split BY MANDATE (owner, 2026-11-23). Core (LO) names carry both their actual P&L and
+    their excess over the index (active weight x move vs the index), ranked both ways — the two can
+    disagree (an overweight name that falls less than the index loses money but helps). Sleeve (LS)
+    names carry their P&L only: on this page the sleeve's excess IS its P&L (benchmark zero — the
+    fund's index exposure sits in the core; interest is in `other`)."""
     if not nav0 or r_b is None or pnl is None:
         return {"available": False,
                 "note": "no index move or starting NAV for this day — relative figures not computed"}
     sel_tot = not_held = 0.0
     sleeve_long = sleeve_short = unattr = 0.0
     w0_core_sum = 0.0
-    rows = []
+    rows, core_rows, sleeve_rows = [], [], []
+    core_actual = 0.0
     for n in names:
         b = bw.get(n["isin"], 0.0) if n.get("isin") else 0.0
         r = n["ret"]
@@ -830,7 +837,16 @@ def _relative(names: list, nav0, pnl, r_b, other, bw: dict, bw_date) -> dict:
             sel -= nav0 * b * (r - r_b)
             not_held += nav0 * b * (r - r_b)
         sel_tot += sel
+        core_actual += core_pnl
+        if w0c or core_pnl or (b and r is not None):
+            core_rows.append({"conid": n["conid"], "ticker": n["ticker"], "move": r,
+                              "move_vs_index": (r - r_b) if r is not None else None,
+                              "weight": w0c, "index_weight": b, "active_weight": w0c - b,
+                              "pnl": core_pnl, "excess": sel})
         sp = n["sleeve_pnl"] or 0.0
+        if sp or n.get("w0_sleeve"):
+            sleeve_rows.append({"conid": n["conid"], "ticker": n["ticker"], "leg": n["sleeve_leg"],
+                                "move": r, "weight": n.get("w0_sleeve"), "pnl": sp})
         if n["sleeve_leg"] == "short":
             sleeve_short += sp
         else:
@@ -855,14 +871,27 @@ def _relative(names: list, nav0, pnl, r_b, other, bw: dict, bw_date) -> dict:
     return {
         "available": True, "index_move": r_b, "book_return": pnl / nav0,
         "active": active, "active_bp": bp(active), "benchmark_pnl": nav0 * r_b,
-        "core_weight": w0_core_sum,
+        "core_weight": w0_core_sum, "nav0": nav0,
+        # Core (LO) actual P&L, and its excess = actual − the S&P 500 on the whole NAV0
+        # (= core_selection + core_not_held + core_invested, exactly).
+        "core_actual": core_actual, "core_excess": sel_tot + not_held + invest,
         "parts": {k: {"usd": v, "bp": bp(v)} for k, v in parts.items()},
         # Must be ~0 by construction; published so the page can show the bridge closes.
         "residual": residual,
         "benchmark_weights_asof": _iso(bw_date),
         "top": [x for x in reversed(rows[-_TOP:]) if x["contribution"] > 0],
         "bottom": [x for x in rows[:_TOP] if x["contribution"] < 0],
+        "core_movers": {"by_excess": _top_bottom(core_rows, "excess"),
+                        "by_actual": _top_bottom(core_rows, "pnl")},
+        "sleeve_movers": _top_bottom(sleeve_rows, "pnl"),
     }
+
+
+def _top_bottom(rows: list, key: str) -> dict:
+    """The _TOP largest positive and _TOP largest negative rows by `key`."""
+    rs = sorted((x for x in rows if x[key] is not None), key=lambda x: x[key])
+    return {"top": [x for x in reversed(rs[-_TOP:]) if x[key] > 0],
+            "bottom": [x for x in rs[:_TOP] if x[key] < 0]}
 
 
 def _names_poll(conn, poll_ts, prev_date, strat: str, nav0) -> list:
@@ -887,6 +916,7 @@ def _names_poll(conn, poll_ts, prev_date, strat: str, nav0) -> list:
         out.append({"conid": int(r["conid"]), "ticker": r["ticker"], "isin": r["isin"],
                     "ret": (px / prev - 1.0) if px and prev else None,
                     "w0": pmv / nav0, "w0_core": (sc or 0.0) * pmv / nav0,
+                    "w0_sleeve": (ss or 0.0) * pmv / nav0 if claimed else 0.0,
                     "core_pnl": pnl * sc if claimed else 0.0,
                     "sleeve_pnl": pnl * ss if claimed else 0.0, "sleeve_leg": r["sleeve_leg"],
                     "unattr_pnl": pnl * (1.0 - sc - ss) if claimed else pnl})
@@ -909,12 +939,13 @@ def _names_official(conn, strat: str, d: dt.date, nav0) -> list:
               AND pa.mandate = 'sleeve' AND m.mandate = 'sleeve'
         WHERE m.strategy = :s AND m.date = :d"""), {"s": strat, "d": d}).mappings():
         a = acc.setdefault(r["conid"], {"core_pnl": 0.0, "sleeve_pnl": 0.0, "unattr_pnl": 0.0,
-                                         "share_core": 0.0, "sleeve_leg": None})
+                                         "share_core": 0.0, "share_sleeve": 0.0, "sleeve_leg": None})
         if r["mandate"] == "core":
             a["core_pnl"] += _f(r["pnl"]) or 0.0
             a["share_core"] += _f(r["share"]) or 0.0
         elif r["mandate"] == "sleeve":
             a["sleeve_pnl"] += _f(r["pnl"]) or 0.0
+            a["share_sleeve"] += _f(r["share"]) or 0.0
             a["sleeve_leg"] = r["leg"]
         else:
             a["unattr_pnl"] += _f(r["pnl"]) or 0.0
@@ -926,5 +957,6 @@ def _names_official(conn, strat: str, d: dt.date, nav0) -> list:
         prev = (pmv / pq) if pq else None
         out.append({"conid": int(cid), "ticker": p.get("ticker"), "isin": p.get("isin"),
                     "ret": (px / prev - 1.0) if px and prev else None,
-                    "w0": pmv / nav0, "w0_core": a["share_core"] * pmv / nav0, **a})
+                    "w0": pmv / nav0, "w0_core": a["share_core"] * pmv / nav0,
+                    "w0_sleeve": a["share_sleeve"] * pmv / nav0, **a})
     return out

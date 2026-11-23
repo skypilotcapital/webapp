@@ -307,6 +307,26 @@ export interface TodayRelative {
   benchmark_weights_asof?: string | null;
   top?: TodayRelativeMover[];
   bottom?: TodayRelativeMover[];
+  /** Yesterday's NAV — the denominator of every % on the Today page. */
+  nav0?: number;
+  /** Core (LO) actual P&L, and its excess = actual − the S&P 500 on the whole NAV0. */
+  core_actual?: number;
+  core_excess?: number;
+  /** Movers split by mandate (owner, 2026-11-23). The core is ranked both ways; the sleeve once. */
+  core_movers?: { by_excess: TopBottom<TodayCoreMover>; by_actual: TopBottom<TodayCoreMover> };
+  sleeve_movers?: TopBottom<TodaySleeveMover>;
+}
+
+export interface TopBottom<T> { top: T[]; bottom: T[] }
+
+export interface TodayCoreMover {
+  conid: number; ticker: string | null; move: number | null; move_vs_index: number | null;
+  weight: number; index_weight: number; active_weight: number; pnl: number; excess: number;
+}
+
+export interface TodaySleeveMover {
+  conid: number; ticker: string | null; leg: 'long' | 'short' | null; move: number | null;
+  weight: number | null; pnl: number;
 }
 
 export interface TodayOrder {

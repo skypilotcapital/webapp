@@ -46,3 +46,9 @@ export function ShadingKey({ scope = 'scaled within each table (Change on its ow
     </span>
   );
 }
+
+/** Gains and losses: TEXT green or red by sign only — no depth, no threshold. For money the book made or
+ *  lost (P&L, return, excess return), never for a bet, a price move or a size. */
+export function signColor(v: number | null | undefined): { color: string } | undefined {
+  return v == null || Number.isNaN(v) || v === 0 ? undefined : { color: v > 0 ? 'var(--pos)' : 'var(--neg)' };
+}
