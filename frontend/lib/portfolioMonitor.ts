@@ -312,12 +312,18 @@ export interface TodayRelative {
   /** Core (LO) actual P&L, and its excess = actual − the S&P 500 on the whole NAV0. */
   core_actual?: number;
   core_excess?: number;
+  /** The core split by where the index's money sits: on each, actual − index_pnl = excess. */
+  held?: TodayCoreSlice;
+  not_held?: TodayCoreSlice;
+  sleeve_weight?: { long: number; short: number };
   /** Movers split by mandate (owner, 2026-11-23). The core is ranked both ways; the sleeve once. */
   core_movers?: { by_excess: TopBottom<TodayCoreMover>; by_actual: TopBottom<TodayCoreMover> };
   sleeve_movers?: TopBottom<TodaySleeveMover>;
 }
 
 export interface TopBottom<T> { top: T[]; bottom: T[] }
+
+export interface TodayCoreSlice { weight: number; index_weight: number; actual: number; index_pnl: number }
 
 export interface TodayCoreMover {
   conid: number; ticker: string | null; move: number | null; move_vs_index: number | null;

@@ -7,10 +7,11 @@
 // * ONE NUMBER PER DAY. The API's `phase` picks the headline — the latest poll while the market is
 //   open or the official book has not been built yet, the official day (book_daily) once it has. The
 //   page never shows both as headlines; the polls stay as the intraday path under an official day.
-// * ACTUAL AND EXCESS SIDE BY SIDE (owner, 2026-11-23). Every engine shows what it made and what it
-//   made over the S&P 500, in $ and in % of yesterday's NAV (no basis points). "Excess vs S&P 500" is
-//   the one name for the second number. The core (LO) carries the index; the sleeve (LS) counts in full
-//   (benchmark zero — interest lands in "cash and other").
+// * ACTUAL − S&P 500 = EXCESS ON EVERY ROW (owner, 2026-11-23). Every engine shows what it made, what
+//   the index made on the same money, and the difference, in $ and in % of yesterday's NAV (2 decimals,
+//   no basis points). "Excess vs S&P 500" is the one name for the difference. The core (LO) is split by
+//   whether it holds the name; the sleeve (LS) has benchmark zero (its whole P&L is excess — the fund's
+//   index exposure sits in the core; interest lands in "cash and other"). LO and LS are separate blocks.
 // * COLOUR = MONEY MADE OR LOST, nothing else (owner, 2026-11-23). P&L, return and excess return are
 //   green / red text by sign (`signColor`). NAV, the index's own move, every stock's price move and
 //   every weight stay plain: a short's rising price is a loss, and an underweight in a falling name
@@ -171,103 +172,137 @@ function HeadlineBand({ d }: { d: TodayData }) {
 }
 
 type EngineRow = {
-  key: string; label: React.ReactNode; how: React.ReactNode;
-  actual: number | null | undefined; excess: number | null | undefined;
-  sub?: boolean; edge?: boolean; bold?: boolean;
+  key: string; label: React.ReactNode; note?: React.ReactNode; weight?: React.ReactNode;
+  actual: number | null | undefined; index: number | null | undefined; excess: number | null | undefined;
+  sub?: boolean; bold?: boolean;
 };
+type EngineBlock = { key: string; title: React.ReactNode; rows: EngineRow[] };
 
-/** Actual and excess, by engine, in one table. Exact: the excess rows add to P&L − the S&P on NAV0. */
+/** Actual, the S&P 500, and the excess between them — by engine, in one table. On every row
+ *  actual − S&P 500 = excess, and the rows add to the totals exactly. */
 function EngineBand({ d }: { d: TodayData }) {
   const r = d.relative, m = d.mandates, h = d.headline;
-  const rel = r.available && r.parts && r.nav0;
+  const rel = !!(r.available && r.parts && r.nav0 && r.held && r.not_held);
   const nav0 = rel ? (r.nav0 as number) : (h.nav != null && h.pnl != null ? h.nav - h.pnl : null);
-  const p = r.parts;
-  const uncaptured = m.n_uncaptured
-    ? `interest, commissions, and ${m.n_uncaptured} name(s) whose fills are not captured yet` : 'interest, commissions';
-
   if (!rel && !m.available) return <div className="text-sm text-[var(--tx-mut)]">{m.note}</div>;
 
-  const rows: EngineRow[] = rel && p ? [
-    { key: 'core', label: <b>Core (LO)</b>, actual: r.core_actual, excess: r.core_excess, bold: true,
-      how: 'long-only S&P 500 book · excess = its P&L minus the S&P 500 on the whole NAV' },
-    { key: 'sel', label: 'held names, over/underweight', actual: null, excess: p.core_selection.usd, sub: true,
-      how: 'each held name: (our weight − index weight) × (its move − the index move)' },
-    { key: 'not', label: 'S&P 500 names we don’t hold', actual: null, excess: p.core_not_held.usd, sub: true,
-      how: 'the rest of the index, which we are fully underweight — implied from the index move' },
-    { key: 'inv', label: 'invested level', actual: null, excess: p.core_invested.usd, sub: true,
-      how: `the core held ${pct(r.core_weight, 1)} of NAV against 100% in the index` },
-    { key: 'sl', label: 'Sleeve (LS) — long leg', actual: p.sleeve_long.usd, excess: p.sleeve_long.usd, edge: true,
-      how: 'Russell 2500 longs · counts in full (the sleeve’s benchmark is zero)' },
-    { key: 'ss', label: 'Sleeve (LS) — short leg', actual: p.sleeve_short.usd, excess: p.sleeve_short.usd,
-      how: 'Russell 2500 shorts · counts in full' },
-    { key: 'un', label: 'Unattributed', actual: p.unattributed.usd, excess: p.unattributed.usd, edge: true,
-      how: 'names no mandate claims — shown, never re-allocated' },
-    { key: 'oth', label: 'Cash and other', actual: p.other.usd, excess: p.other.usd, how: uncaptured },
-  ] : [
-    { key: 'core', label: <b>Core (LO)</b>, actual: m.core, excess: null, bold: true, how: 'long-only S&P 500 book' },
-    { key: 'sl', label: 'Sleeve (LS) — long leg', actual: m.sleeve_long, excess: null, edge: true, how: 'Russell 2500 longs' },
-    { key: 'ss', label: 'Sleeve (LS) — short leg', actual: m.sleeve_short, excess: null, how: 'Russell 2500 shorts' },
-    { key: 'un', label: 'Unattributed', actual: m.unattributed, excess: null, edge: true,
-      how: 'names no mandate claims — shown, never re-allocated' },
-    { key: 'oth', label: 'Cash and other', actual: m.other, excess: null, how: uncaptured },
+  const p = r.parts;
+  const sl = rel ? p!.sleeve_long.usd : m.sleeve_long;
+  const ss = rel ? p!.sleeve_short.usd : m.sleeve_short;
+  const sw = r.sleeve_weight;
+  const uncaptured = m.n_uncaptured
+    ? `interest, commissions, and ${m.n_uncaptured} name(s) whose fills are not captured yet` : 'interest, commissions';
+  const ours = (w: number | null | undefined, b: number | null | undefined) =>
+    `${pct(w, 1)} / ${pct(b, 1)}`;
+  // The sleeve and cash carry no benchmark: their whole P&L is excess.
+  const zero = (v: number | null | undefined) => (rel ? v : null);
+
+  const blocks: EngineBlock[] = [
+    { key: 'lo', title: <>Long-only core (LO) <span className="font-normal">· measured against the S&amp;P 500</span></>,
+      rows: [
+        { key: 'core', label: 'Core (LO)', bold: true,
+          weight: rel ? ours(r.core_weight, 1) : undefined,
+          actual: rel ? r.core_actual : m.core, index: rel ? r.benchmark_pnl : null, excess: rel ? r.core_excess : null },
+        ...(rel ? [
+          { key: 'held', label: 'S&P 500 names we hold', sub: true,
+            note: 'our P&L on them vs the index’s P&L from the same names',
+            weight: ours(r.held!.weight, r.held!.index_weight),
+            actual: r.held!.actual, index: r.held!.index_pnl, excess: r.held!.actual - r.held!.index_pnl },
+          { key: 'not', label: 'S&P 500 names we don’t hold', sub: true,
+            note: 'we earn nothing on them; the index earns their move',
+            weight: ours(0, r.not_held!.index_weight),
+            actual: 0, index: r.not_held!.index_pnl, excess: -r.not_held!.index_pnl },
+        ] : []),
+      ] },
+    { key: 'ls', title: <>Long/short sleeve (LS) <span className="font-normal">· benchmark zero — its whole P&amp;L is excess</span></>,
+      rows: [
+        { key: 'sleeve', label: 'Sleeve (LS)', bold: true,
+          weight: sw ? `net ${pct(sw.long + sw.short, 1)}` : undefined,
+          actual: sl != null && ss != null ? sl + ss : null, index: null,
+          excess: zero(sl != null && ss != null ? sl + ss : null) },
+        { key: 'sl', label: 'long leg', sub: true, note: 'Russell 2500 longs',
+          weight: sw ? pct(sw.long, 1) : undefined, actual: sl, index: null, excess: zero(sl) },
+        { key: 'ss', label: 'short leg', sub: true, note: 'Russell 2500 shorts — a rising price is a loss',
+          weight: sw ? pct(sw.short, 1) : undefined, actual: ss, index: null, excess: zero(ss) },
+      ] },
+    { key: 'outside', title: 'Outside both engines',
+      rows: [
+        { key: 'un', label: 'Unattributed', note: 'names no mandate claims — shown, never re-allocated',
+          actual: rel ? p!.unattributed.usd : m.unattributed, index: null, excess: zero(rel ? p!.unattributed.usd : null) },
+        { key: 'cash', label: 'Cash and other', note: uncaptured,
+          actual: rel ? p!.other.usd : m.other, index: null, excess: zero(rel ? p!.other.usd : null) },
+      ] },
   ];
 
   const share = (v: number | null | undefined) => (v == null || !nav0 ? null : v / nav0);
-  const money = (v: number | null | undefined, d2 = 3, edge = false, bold = false) => {
+  // A money pair: $ then % of NAV, coloured by sign; `plain` for the S&P 500's own column.
+  const pair = (v: number | null | undefined, bold = false, plain = false) => {
     const f = share(v);
+    const wrap = (x: string) => (bold ? <b>{x}</b> : x);
     return [
-      <td key="u" style={{ ...signColor(v), ...(edge ? { borderLeft: EDGE } : {}) }}>
-        {v == null ? '' : bold ? <b>{usdSigned(v)}</b> : usdSigned(v)}</td>,
-      <td key="p" style={signColor(f)}>{f == null ? '' : bold ? <b>{pctSigned(f, d2)}</b> : pctSigned(f, d2)}</td>,
+      <td key="u" style={{ ...(plain ? {} : signColor(v)), borderLeft: EDGE }}>{v == null ? '—' : wrap(usdSigned(v))}</td>,
+      <td key="p" style={plain ? undefined : signColor(f)}>{f == null ? '' : wrap(pctSigned(f, 2))}</td>,
     ];
   };
+  const NCOL = 8;
 
   return (
     <>
       <table className="dtable mt-2">
         <thead>
           <tr>
-            <th style={{ borderBottom: 0 }} />
-            <th colSpan={2} style={{ textAlign: 'center', borderLeft: EDGE, color: 'var(--tx-mut)' }}>Actual</th>
-            <th colSpan={2} style={{ textAlign: 'center', borderLeft: EDGE, color: 'var(--tx-mut)' }}>Excess vs S&amp;P 500</th>
-            <th style={{ borderBottom: 0, borderLeft: EDGE }} />
+            <th style={{ borderBottom: 0 }} colSpan={2} />
+            {['Actual', 'S&P 500', 'Excess vs S&P 500'].map((t) => (
+              <th key={t} colSpan={2} style={{ textAlign: 'center', borderLeft: EDGE, color: 'var(--tx-mut)' }}>{t}</th>
+            ))}
           </tr>
           <tr>
             <th style={{ textAlign: 'left' }}>Engine</th>
-            <th style={{ borderLeft: EDGE }}>$</th><th>% of NAV</th>
-            <th style={{ borderLeft: EDGE }}>$</th><th>% of NAV</th>
-            <th style={{ textAlign: 'left', borderLeft: EDGE }}>How it is measured</th>
+            <th title="Starting weight, % of yesterday's NAV: ours / the S&P 500's">Weight · ours / S&amp;P</th>
+            {[0, 1, 2].map((i) => [
+              <th key={`u${i}`} style={{ borderLeft: EDGE }}>$</th>, <th key={`p${i}`}>% of NAV</th>,
+            ])}
           </tr>
         </thead>
         <tbody>
-          {rows.map((x) => (
-            <tr key={x.key} style={x.edge ? { borderTop: EDGE } : undefined}>
-              <td style={{ ...TEXT, paddingLeft: x.sub ? 24 : undefined }}
-                className={x.sub ? 'text-[var(--tx-mut)]' : undefined}>{x.label}</td>
-              {money(x.actual, 3, true)}
-              {money(x.excess, 3, true)}
-              <td style={{ ...TEXT, borderLeft: EDGE }} className="text-[var(--tx-mut)]">{x.how}</td>
-            </tr>
-          ))}
+          {blocks.map((blk) => [
+            <tr key={blk.key}>
+              <td colSpan={NCOL} style={{ ...TEXT, background: 'var(--bg)', borderTop: EDGE, paddingTop: 6, paddingBottom: 6 }}
+                className="text-[11px] font-bold uppercase tracking-wide text-[var(--tx-mut)]">{blk.title}</td>
+            </tr>,
+            ...blk.rows.map((x) => (
+              <tr key={x.key}>
+                <td style={{ ...TEXT, paddingLeft: x.sub ? 26 : undefined, whiteSpace: 'normal' }}>
+                  {x.bold ? <b>{x.label}</b> : <span className={x.sub ? 'text-[var(--tx-mut)]' : undefined}>{x.label}</span>}
+                  {x.note && <span className="block text-[10.5px] text-[var(--tx-dim)]">{x.note}</span>}
+                </td>
+                <td className="text-[var(--tx-mut)]">{x.weight ?? ''}</td>
+                {pair(x.actual, x.bold)}
+                {pair(x.index, x.bold, true)}
+                {pair(x.excess, x.bold)}
+              </tr>
+            )),
+          ])}
           <tr style={{ borderTop: EDGE }}>
-            <td style={TEXT}><b>Total</b></td>
-            {money(h.pnl, 3, true, true)}
-            {money(rel ? r.active : null, 3, true, true)}
-            <td style={{ ...TEXT, borderLeft: EDGE }} className="text-[var(--tx-mut)]">
-              {rel ? 'actual − excess = the S&P 500’s move on yesterday’s NAV' : ''}
-            </td>
+            <td style={{ ...TEXT, borderTop: EDGE }}><b>Total</b></td>
+            <td style={{ borderTop: EDGE }} />
+            {pair(h.pnl, true)}
+            {pair(rel ? r.benchmark_pnl : null, true, true)}
+            {pair(rel ? r.active : null, true)}
           </tr>
         </tbody>
       </table>
-      <div className="text-[11px] text-[var(--tx-mut)] mt-2">
+      <div className="text-[11px] text-[var(--tx-mut)] mt-2 leading-snug">
         {rel ? (
           <>
-            The S&amp;P 500 on yesterday&apos;s NAV: <b className="text-[var(--tx)]">{usdSigned(r.benchmark_pnl)}</b>{' '}
-            ({pctSigned(r.index_move, 2)}) — the gap between the two totals. Excess is measured by ACTIVE weight: a
-            name held at its index weight contributes nothing, and being underweight a falling stock helps. Index
-            weights are the month-end S&amp;P 500 weights ({r.benchmark_weights_asof ?? '—'}), not moved with prices
+            On every row <b className="text-[var(--tx)]">actual − S&amp;P 500 = excess</b>; the rows add up to the
+            totals exactly. The S&amp;P 500 column is what the index earned on yesterday&apos;s NAV
+            ({pctSigned(r.index_move, 2)}), split by whether the core holds the name. The two core rows can be large
+            and opposite on a big day: the core puts about {pct(r.held!.weight, 0)} of NAV into names that are only{' '}
+            {pct(r.held!.index_weight, 0)} of the index. Index weights are the month-end S&amp;P 500 weights
+            ({r.benchmark_weights_asof ?? '—'}), not moved with prices
             since{h.source === 'poll' ? "; SPY's price move stands in for the index while the market is open" : ''}.
-            The rows add up exactly. As of {h.source === 'poll' ? clock(r.as_of) : dayLabel(r.as_of)}.
+            As of {h.source === 'poll' ? clock(r.as_of) : dayLabel(r.as_of)}.
           </>
         ) : (
           <>Excess not computed: {r.note}. {m.source === 'poll'
@@ -405,8 +440,9 @@ function MoversBand({ d }: { d: TodayData }) {
         <CoreMoverTable title="Worst 5" rows={core.bottom} rankBy={rankBy} />
       </div>
       <div className="text-[11px] text-[var(--tx-mut)] mt-1">
-        The two rankings can disagree: an overweight name that falls less than the index loses money but helps
-        against it; an index name we are underweight that rallies costs excess without showing as a loss.
+        Excess per name = (our weight − its index weight) × (its move − the index move). The two rankings can
+        disagree: an overweight name that falls less than the index loses money but helps against it; an index
+        name we are underweight that rallies costs excess even while it makes us money.
       </div>
       <div className="mt-4 pt-3" style={{ borderTop: EDGE }}>
         <h3 className="text-sm font-bold text-[var(--tx)]">Sleeve (LS)</h3>

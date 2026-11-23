@@ -824,6 +824,8 @@ def _relative(names: list, nav0, pnl, r_b, other, bw: dict, bw_date) -> dict:
     sel_tot = not_held = 0.0
     sleeve_long = sleeve_short = unattr = 0.0
     w0_core_sum = 0.0
+    held_b = held_b_pnl = 0.0          # the index's weight in, and P&L from, the names the core holds
+    sl_w_long = sl_w_short = 0.0       # the sleeve legs' starting weights
     rows, core_rows, sleeve_rows = [], [], []
     core_actual = 0.0
     for n in names:
@@ -838,6 +840,15 @@ def _relative(names: list, nav0, pnl, r_b, other, bw: dict, bw_date) -> dict:
             not_held += nav0 * b * (r - r_b)
         sel_tot += sel
         core_actual += core_pnl
+        if w0c:
+            held_b += b
+            if r is not None:
+                held_b_pnl += nav0 * b * r
+        w0s = n.get("w0_sleeve") or 0.0
+        if n["sleeve_leg"] == "short":
+            sl_w_short += w0s
+        else:
+            sl_w_long += w0s
         if w0c or core_pnl or (b and r is not None):
             core_rows.append({"conid": n["conid"], "ticker": n["ticker"], "move": r,
                               "move_vs_index": (r - r_b) if r is not None else None,
@@ -875,6 +886,14 @@ def _relative(names: list, nav0, pnl, r_b, other, bw: dict, bw_date) -> dict:
         # Core (LO) actual P&L, and its excess = actual − the S&P 500 on the whole NAV0
         # (= core_selection + core_not_held + core_invested, exactly).
         "core_actual": core_actual, "core_excess": sel_tot + not_held + invest,
+        # The same core excess split by WHERE the index's money sits (owner, 2026-11-23): on every row
+        # actual − S&P 500 = excess. Names the core holds: our P&L vs the index's P&L from those same
+        # names; names it does not hold: 0 vs the rest of the index. Adds to core_excess exactly.
+        "held": {"weight": w0_core_sum, "index_weight": held_b,
+                 "actual": core_actual, "index_pnl": held_b_pnl},
+        "not_held": {"weight": 0.0, "index_weight": 1.0 - held_b,
+                     "actual": 0.0, "index_pnl": nav0 * r_b - held_b_pnl},
+        "sleeve_weight": {"long": sl_w_long, "short": sl_w_short},
         "parts": {k: {"usd": v, "bp": bp(v)} for k, v in parts.items()},
         # Must be ~0 by construction; published so the page can show the bridge closes.
         "residual": residual,

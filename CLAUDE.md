@@ -340,9 +340,12 @@ First item of the Portfolio group; also a tab beside Holdings/Exposures (`Monito
 - Every block prints its data time (ET with UTC beside it, `clock()` in `lib/portfolioMonitor.ts`).
   Auto-refreshes every 60 s only while `phase === 'open'`.
 - **Layout (owner review, 2026-11-23):** four bands — Today so far (Dollars cluster | Returns cluster,
-  all returns in % of yesterday's NAV, no bp) · **Return by engine** (one table, Actual $/% beside
-  Excess vs S&P 500 $/%; Core (LO) with its three excess sub-rows, Sleeve (LS) legs, unattributed,
-  cash; replaces the old "Relative to the S&P 500" + "Core vs sleeve" bands) · **Movers** split by
+  all returns in % of yesterday's NAV, 2 decimals, no bp) · **Return by engine** (one table, three
+  column pairs Actual | S&P 500 | Excess, so **actual − S&P 500 = excess on every row**; separate blocks
+  for Long-only core (LO: total + "S&P names we hold" / "we don't hold", from `relative.held` /
+  `relative.not_held`), Long/short sleeve (LS: total + legs, benchmark zero) and Outside both engines;
+  replaces the old "Relative to the S&P 500" + "Core vs sleeve" bands. The older active-weight split
+  `parts.core_selection|core_not_held|core_invested` is still in the payload, no longer displayed) · **Movers** split by
   mandate (Core ranked by excess OR actual — `relative.core_movers.by_excess|by_actual`; Sleeve once —
   `relative.sleeve_movers`, its excess IS its P&L) · Exposure / Rebalance unchanged. "Excess vs S&P 500"
   is the one name; "Core (LO)" / "Sleeve (LS)" everywhere. `relative.core_actual` /
