@@ -500,6 +500,42 @@ def _ratio(a, b):
     return (a / b - 1.0) if a and b else None
 
 
+def _poll_base(conn, prev_date, d: dt.date) -> dict:
+    """Does the poll's starting point sit on the PREVIOUS market session?
+
+    A poll prices the book against OUR closes at `prev_date` = the last official book. When a
+    session in between has no book (2026-11-23: the 22:15 snapshot ran during a 16-minute gateway
+    drop AND the vendor had not published that day's closes), the poll's P&L runs from the older
+    date, while SPY's own prior close is yesterday's: a two-day P&L set against a one-day index
+    move, and every "excess" on the page is wrong by the skipped session's market move. So the
+    index is chained across the skipped session(s) on the S&P 500 total-return level — the same
+    series the official day uses — and the page is told the base is stale. When a weekday in the
+    gap has no index level yet (late, or a holiday we cannot tell apart), the chain is None and
+    excess is not computed rather than guessed."""
+    if prev_date is None:
+        return {"stale": False, "chain": 1.0, "prev_date": None, "skipped": []}
+    lv = {r["date"]: _f(r["tr_level"]) for r in conn.execute(text("""
+        SELECT date, tr_level FROM clean.beta_sp500_daily WHERE date >= :p AND date < :d"""),
+        {"p": prev_date, "d": d}).mappings()}
+    skipped = sorted(x for x in lv if x > prev_date)
+    last_lv = max(lv) if lv else prev_date
+    unknown = [prev_date + dt.timedelta(days=i) for i in range(1, (d - prev_date).days)]
+    unknown = [x for x in unknown if x.weekday() < 5 and x > last_lv]
+    if not skipped and not unknown:
+        return {"stale": False, "chain": 1.0, "prev_date": prev_date.isoformat(), "skipped": []}
+    a, b = lv.get(prev_date), (lv.get(skipped[-1]) if skipped else None)
+    chain = (b / a) if (a and b and not unknown) else None
+    return {"stale": True, "chain": chain, "prev_date": prev_date.isoformat(),
+            "skipped": [x.isoformat() for x in skipped + unknown]}
+
+
+def _chained(move, base: dict):
+    """SPY's move since its own prior close, carried back to the poll's starting point."""
+    if not base["stale"]:
+        return move
+    return None if move is None or base["chain"] is None else base["chain"] * (1.0 + move) - 1.0
+
+
 def _today_mandates_official(conn, strat: str, d: dt.date, pnl_total) -> dict:
     """The official day's split, from `trading.mandate_pnl_daily` (the ledger's own application of
     position_attribution). The sleeve leg is the sign of the sleeve's claim that day."""
@@ -611,12 +647,20 @@ def _today(env: str, strategy: str | None) -> dict:
         else:
             phase, day = "preopen", latest_book
 
+        bases: dict = {}
+
+        def base_of(pd_):
+            if pd_ not in bases:
+                bases[pd_] = _poll_base(conn, pd_, day)
+            return bases[pd_]
+
         series = [{"ts": _iso(r["poll_ts"]), "nav": _f(r["nav"]), "pnl": _f(r["pnl"]),
                    "pnl_pct": (_f(r["pnl"]) / _f(r["prev_nav"]))
                    if r["pnl"] is not None and r["prev_nav"] else None,
-                   "index_move": _ratio(r["spy_last"], r["spy_prev_close"])}
+                   "index_move": _chained(_ratio(r["spy_last"], r["spy_prev_close"]),
+                                          base_of(r["prev_date"]))}
                   for r in conn.execute(text("""
-                      SELECT poll_ts, nav, pnl, prev_nav, spy_last, spy_prev_close
+                      SELECT poll_ts, nav, pnl, prev_nav, prev_date, spy_last, spy_prev_close
                       FROM trading.intraday_polls
                       WHERE strategy = :s AND ny_date = :d AND status = 'ok' ORDER BY poll_ts"""),
                       {"s": strat, "d": day}).mappings()]
@@ -628,15 +672,20 @@ def _today(env: str, strategy: str | None) -> dict:
                 ORDER BY poll_ts DESC LIMIT 1"""), {"s": strat, "d": d_ny}).mappings().first()
             nav, pnl, prev_nav = _f(p["nav"]), _f(p["pnl"]), _f(p["prev_nav"])
             as_of = _iso(p["poll_ts"])
+            base = base_of(p["prev_date"])
+            idx_move = _chained(_ratio(p["spy_last"], p["spy_prev_close"]), base)
             headline = {
                 "source": "poll", "as_of": as_of, "date": d_ny.isoformat(),
                 "prev_date": _iso(p["prev_date"]), "nav": nav, "pnl": pnl,
                 "pnl_pct": (pnl / prev_nav) if pnl is not None and prev_nav else None,
                 "pnl_broker": _f(p["pnl_broker"]), "broker_prev_ts": _iso(p["broker_prev_ts"]),
                 "n_moved": p["n_moved"], "n_names": p["n_names"],
-                "index": {"name": "SPY (price)", "move": _ratio(p["spy_last"], p["spy_prev_close"]),
+                "index": {"name": ("S&P 500 (TR to the last close, then SPY)" if base["stale"]
+                                   else "SPY (price)"),
+                          "move": idx_move,
                           "last": _f(p["spy_last"]), "as_of": _iso(p["spy_ts"]),
                           "availability": p["spy_avail"]},
+                "base": base,
             }
             mandates = {"available": True, "as_of": as_of, "source": "poll",
                         "shares_from": _iso(p["prev_date"]),
@@ -655,9 +704,8 @@ def _today(env: str, strategy: str | None) -> dict:
                         "trading_rebalance_id": p["trading_rebalance_id"]}
             bw_date, bw = _bench_weights(conn, d_ny)
             relative = _relative(_names_poll(conn, p["poll_ts"], p["prev_date"], strat, prev_nav),
-                                 prev_nav, pnl, _ratio(p["spy_last"], p["spy_prev_close"]),
-                                 _f(p["pnl_other"]), bw, bw_date)
-            relative.update(as_of=as_of, index_name="SPY (price)")
+                                 prev_nav, pnl, idx_move, _f(p["pnl_other"]), bw, bw_date)
+            relative.update(as_of=as_of, index_name=headline["index"]["name"])
         else:
             b = conn.execute(text("""
                 SELECT * FROM trading.book_daily WHERE strategy = :s AND date = :d"""),
@@ -676,6 +724,9 @@ def _today(env: str, strategy: str | None) -> dict:
                 "index": {"name": "S&P 500 (total return)",
                           "move": _ratio(lv.get(day), lv.get(b["prev_date"])),
                           "as_of": day.isoformat()},
+                # The official day measures both sides from the book's own prev_date, so a skipped
+                # session is already consistent here; the flag is for the label only.
+                "base": base_of(b["prev_date"]),
             }
             mandates = dict(_today_mandates_official(conn, strat, day, pnl),
                             as_of=day.isoformat(), source="official")

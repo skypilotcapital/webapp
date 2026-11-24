@@ -255,6 +255,9 @@ export interface TodayData {
     n_names?: number | null;
     index: { name: string; move: number | null; last?: number | null; as_of: string | null;
              availability?: string | null };
+    /** Stale = the starting point (prev_date) is older than the previous market session: a session
+     *  in between has no official book, so every figure spans more than one day. */
+    base?: { stale: boolean; chain: number | null; prev_date: string | null; skipped: string[] };
   };
   series: { ts: string; nav: number | null; pnl: number | null; pnl_pct: number | null;
             index_move: number | null }[];

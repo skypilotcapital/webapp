@@ -135,9 +135,9 @@ function PathCharts({ series }: { series: TodayData['series'] }) {
     <div className="flex flex-wrap gap-6 mt-4">
       <PathChart ts={ts} fmt={(v) => pctSigned(v, 2)}
         lines={[{ values: pts.map((p) => p.index_move), dashed: true }, { values: pts.map((p) => p.pnl_pct) }]}
-        caption="Solid: the book's return today (P&L ÷ yesterday's NAV). Dashed: SPY's price move." />
+        caption="Solid: the book's return today (P&L ÷ yesterday's NAV). Dashed: the index's move (SPY's price while the market is open)." />
       <PathChart ts={ts} fmt={(v) => pctSigned(v, 2)} lines={[{ values: gap }]}
-        caption="Excess vs SPY: the book's return minus SPY's move, % of yesterday's NAV." />
+        caption="Excess: the book's return minus the index's move, % of yesterday's NAV." />
     </div>
   );
 }
@@ -196,20 +196,31 @@ function EngineBand({ d }: { d: TodayData }) {
     `${pct(w, 1)} / ${pct(b, 1)}`;
   // The sleeve and cash carry no benchmark: their whole P&L is excess.
   const zero = (v: number | null | undefined) => (rel ? v : null);
+  // A group's OWN return: its P&L over the money in it. The table's % columns are shares of NAV,
+  // which add up; these do not, but they say how the names themselves did (owner, 2026-11-24).
+  const own = (pnl: number | null | undefined, w: number | null | undefined) =>
+    pnl == null || w == null || !nav0 || Math.abs(w) < 1e-9 ? null : pnl / (nav0 * w);
+  const ownLine = (ours: number | null, idx: number | null, idxLabel = 'index on these names') => (
+    <>
+      {ours != null && <>ours <b className="text-[var(--tx-mut)]">{pctSigned(ours, 1)}</b>{idx != null ? ' · ' : ''}</>}
+      {idx != null && <>{idxLabel} <b className="text-[var(--tx-mut)]">{pctSigned(idx, 1)}</b></>}
+    </>
+  );
 
   const blocks: EngineBlock[] = [
     { key: 'lo', title: <>Long-only core (LO) <span className="font-normal">· measured against the S&amp;P 500</span></>,
       rows: [
         { key: 'core', label: 'Core (LO)', bold: true,
+          note: rel ? ownLine(own(r.core_actual, r.core_weight), r.index_move ?? null, 'whole index') : undefined,
           weight: rel ? ours(r.core_weight, 1) : undefined,
           actual: rel ? r.core_actual : m.core, index: rel ? r.benchmark_pnl : null, excess: rel ? r.core_excess : null },
         ...(rel ? [
           { key: 'held', label: 'S&P 500 names we hold', sub: true,
-            note: 'our P&L on them vs the index’s P&L from the same names',
+            note: ownLine(own(r.held!.actual, r.held!.weight), own(r.held!.index_pnl, r.held!.index_weight)),
             weight: ours(r.held!.weight, r.held!.index_weight),
             actual: r.held!.actual, index: r.held!.index_pnl, excess: r.held!.actual - r.held!.index_pnl },
           { key: 'not', label: 'S&P 500 names we don’t hold', sub: true,
-            note: 'we earn nothing on them; the index earns their move',
+            note: <>we earn nothing on them · {ownLine(null, own(r.not_held!.index_pnl, r.not_held!.index_weight))}</>,
             weight: ours(0, r.not_held!.index_weight),
             actual: 0, index: r.not_held!.index_pnl, excess: -r.not_held!.index_pnl },
         ] : []),
@@ -296,7 +307,8 @@ function EngineBand({ d }: { d: TodayData }) {
         {rel ? (
           <>
             On every row <b className="text-[var(--tx)]">actual − S&amp;P 500 = excess</b>; the rows add up to the
-            totals exactly. The S&amp;P 500 column is what the index earned on yesterday&apos;s NAV
+            totals exactly. The small grey line under each core row is the names&apos; own return (P&amp;L over the
+            money in them) — ours and the index&apos;s; those do not add up, the % columns do. The S&amp;P 500 column is what the index earned on yesterday&apos;s NAV
             ({pctSigned(r.index_move, 2)}), split by whether the core holds the name. The two core rows can be large
             and opposite on a big day: the core puts about {pct(r.held!.weight, 0)} of NAV into names that are only{' '}
             {pct(r.held!.index_weight, 0)} of the index. Index weights are the month-end S&amp;P 500 weights
@@ -563,6 +575,16 @@ export default function TodayPage({ params }: { params: Promise<{ env: string }>
             {h.source === 'poll' ? ` · as of ${clock(h.as_of)}` : ` · snapshot ${clock(h.as_of)}`}
           </span>
         </div>
+        {h.base?.stale && (
+          <div className="text-xs mt-2 px-3 py-2 border border-[var(--border)] rounded bg-[var(--bg)] text-[var(--tx)] leading-snug">
+            <b>Not a one-day view.</b> {h.base.skipped.map(dayLabel).join(', ')} has no official book (its closing
+            snapshot or closing prices are missing), so everything below runs from {dayLabel(h.base.prev_date)}&apos;s
+            close: the P&amp;L, each stock&apos;s move, and the S&amp;P 500, which is carried across the missing
+            day(s) so the excess compares like with like.
+            {h.base.chain == null && ' The index level for the missing day is not in yet, so excess is not computed.'}
+            {' '}It returns to normal once the missing day&apos;s book is built.
+          </div>
+        )}
         <HeadlineBand d={data} />
         {h.source === 'poll' && h.n_names != null && h.n_moved != null && h.n_moved < 0.05 * h.n_names && (
           <div className="text-xs mt-2 text-[var(--tx)]">
