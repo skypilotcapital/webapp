@@ -354,4 +354,10 @@ First item of the Portfolio group; also a tab beside Holdings/Exposures (`Monito
 - **Colour = money made or lost** (`signColor` in `lib/shading.tsx`, shared with Holdings): P&L, book
   return, excess ($ and %) green/red text by sign. NAV, the index's own move, every stock move and
   weight stay plain (a short's rising price is a loss); exposure is never coloured (no-flags rule).
+- **Skipped-session base** (2026-11-24, `12c7db5`): a poll measures from the last `book_daily` row
+  (`prev_date`) but SPY's prior close is always the previous session. When a session has no book,
+  `_poll_base` chains the S&P 500 TR (`clean.beta_sp500_daily`) across the skipped day(s) and
+  `_chained` applies it (`headline.base`); no TR level for a skipped weekday → excess not computed. The
+  page shows "Not a one-day view". Each core row also carries a grey **own-return** line (P&L ÷ money in
+  the names, ours vs the index's) — these do not add up; the % of NAV columns do. today_page.md §4.6.
 
