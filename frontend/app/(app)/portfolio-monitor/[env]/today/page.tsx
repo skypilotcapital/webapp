@@ -37,6 +37,20 @@ const PHASE_LABEL: Record<TodayPhase, string> = {
 
 // `.dtable` right-aligns every cell in a monospace face (numbers). Words read left, in the text face.
 const TEXT: React.CSSProperties = { textAlign: 'left', fontFamily: 'inherit' };
+
+/** Ticker in bold with the short company name under it (owner, 2026-11-25). The API trims the legal
+ *  ending and share class and keeps the capitals; a long name is cut with an ellipsis and shown in
+ *  full on hover. */
+function NameCell({ ticker, name, conid }: { ticker: string | null; name?: string | null; conid: number | null }) {
+  return (
+    <td style={TEXT} title={name ?? undefined}>
+      <b className="text-[var(--tx)]">{ticker ?? conid ?? '—'}</b>
+      {name && (
+        <span className="block text-[10px] text-[var(--tx-dim)] truncate max-w-[170px]">{name}</span>
+      )}
+    </td>
+  );
+}
 /** A thin line between column groups and between the core and sleeve blocks. */
 const EDGE = '1px solid var(--border)';
 
@@ -341,7 +355,7 @@ function CoreMoverTable({ title, rows, rankBy }: {
           <tbody>
             {rows.map((x) => (
               <tr key={x.conid}>
-                <td style={TEXT}><b>{x.ticker ?? x.conid}</b></td>
+                <NameCell ticker={x.ticker} name={x.name} conid={x.conid} />
                 <td>{pctSigned(x.move)}</td>
                 <td>{pctSigned(x.move_vs_index)}</td>
                 <td>{x.weight ? pct(x.weight) : '—'}</td>
@@ -368,7 +382,7 @@ function SleeveMoverTable({ title, rows }: { title: string; rows: TodaySleeveMov
           <tbody>
             {rows.map((x) => (
               <tr key={x.conid}>
-                <td style={TEXT}><b>{x.ticker ?? x.conid}</b></td>
+                <NameCell ticker={x.ticker} name={x.name} conid={x.conid} />
                 <td style={TEXT}>{x.leg ?? '—'}</td>
                 <td>{pctSigned(x.move)}</td>
                 <td>{pct(x.weight)}</td>
@@ -393,7 +407,7 @@ function MoverTable({ title, rows }: { title: string; rows: TodayMover[] }) {
           <tbody>
             {rows.map((r) => (
               <tr key={r.conid}>
-                <td style={TEXT}><b>{r.ticker ?? r.conid}</b></td>
+                <NameCell ticker={r.ticker} name={r.name} conid={r.conid} />
                 <td>{pctSigned(r.move)}</td>
                 <td>{pct(r.weight)}</td>
                 <td style={signColor(r.pnl)}>{usdSigned(r.pnl)}</td>
@@ -520,7 +534,7 @@ function OrdersBand({ env, date }: { env: string; date: string }) {
               <tbody>
                 {(rows as typeof data.working).map((o) => (
                   <tr key={o.internal_order_id}>
-                    <td style={TEXT}><b>{o.ticker ?? o.conid}</b></td>
+                    <NameCell ticker={o.ticker} name={o.name} conid={o.conid} />
                     <td>{o.side}</td><td>{shares(o.qty)}</td><td>{shares(o.filled_qty)}</td>
                     <td style={TEXT} className="text-[var(--tx-mut)]">{o.last_event ?? '—'}</td>
                   </tr>

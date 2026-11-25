@@ -228,7 +228,7 @@ export const MANDATE_LABEL: Record<string, string> = {
 export type TodayPhase = 'open' | 'closed_preliminary' | 'closed_official' | 'preopen';
 
 export interface TodayMover {
-  conid: number; ticker: string | null; qty: number | null; price: number | null;
+  conid: number; ticker: string | null; name?: string | null; qty: number | null; price: number | null;
   prev_close: number | null; move: number | null; weight: number | null; pnl: number;
 }
 
@@ -329,18 +329,18 @@ export interface TopBottom<T> { top: T[]; bottom: T[] }
 export interface TodayCoreSlice { weight: number; index_weight: number; actual: number; index_pnl: number }
 
 export interface TodayCoreMover {
-  conid: number; ticker: string | null; move: number | null; move_vs_index: number | null;
+  conid: number; ticker: string | null; name?: string | null; move: number | null; move_vs_index: number | null;
   weight: number; index_weight: number; active_weight: number; pnl: number; excess: number;
 }
 
 export interface TodaySleeveMover {
-  conid: number; ticker: string | null; leg: 'long' | 'short' | null; move: number | null;
+  conid: number; ticker: string | null; name?: string | null; leg: 'long' | 'short' | null; move: number | null;
   weight: number | null; pnl: number;
 }
 
 export interface TodayOrder {
   internal_order_id: number; rebalance_id: number | null; conid: number | null;
-  ticker: string | null; side: string; qty: number | null; order_type: string | null;
+  ticker: string | null; name?: string | null; side: string; qty: number | null; order_type: string | null;
   limit_px: number | null; status: string; submitted_at: string | null;
   last_status_at: string | null; filled_qty: number; avg_px: number | null;
   last_event: string | null;
@@ -349,7 +349,7 @@ export interface TodayOrder {
 export interface TodayOrders {
   env: string; date: string; as_of: string | null; n_orders: number; n_filled: number;
   working: TodayOrder[]; cancelled: TodayOrder[];
-  fills: { exec_ts: string; conid: number; ticker: string | null; qty: number; price: number;
+  fills: { exec_ts: string; conid: number; ticker: string | null; name?: string | null; qty: number; price: number;
            commission: number | null; order_ref: string | null }[];
 }
 

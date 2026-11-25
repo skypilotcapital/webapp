@@ -39,6 +39,7 @@ travels with every payload so the page can say so.
 import csv
 import datetime as dt
 import io
+import re
 
 from fastapi import APIRouter, HTTPException, Query
 from fastapi.responses import Response
@@ -753,11 +754,81 @@ def _today(env: str, strategy: str | None) -> dict:
             WHERE (submitted_at AT TIME ZONE 'America/New_York')::date = :d"""),
             {"d": day}).scalar() or 0
         status = _today_status(conn, strat, account)
+        _name_rows(conn, movers, relative)
 
     return {"env": env, "strategy": strat, "phase": phase, "now": now.isoformat(),
             "date": day.isoformat() if day else None, "headline": headline, "series": series,
             "mandates": mandates, "movers": movers, "exposure": exposure, "relative": relative,
             "trade_day": n_orders > 0, "status": status}
+
+
+# ------------------------------------------------------------------------- today: names ----
+#
+# Owner, 2026-11-25: the tables showed only the ticker. Each row now also carries a SHORT company
+# name. Every source we have stores the legal name in capitals ("NVIDIA CORP", "COMFORT SYSTEMS USA
+# INC", "BERKSHIRE HATHAWAY INC-CL B"), so the short name is that name with the legal ending and any
+# share-class tag removed — capitals KEPT (owner's choice): re-casing gets acronyms wrong ("Msci",
+# "Pg&e"). Source: the security master's refreshed name via the pinned conid bridge, else the
+# broker's own contract description. Looked up once per request for every conid in the payload.
+
+_LEGAL = {"INC", "INCORPORATED", "CORP", "CORPORATION", "CO", "COMPANY", "COS", "LTD", "LIMITED",
+          "PLC", "LP", "LLC", "SA", "NV", "BV", "AG", "SE", "AB", "ASA", "OYJ", "SPA", "THE",
+          "PUBLIC"}                                       # 'CRH PUBLIC LTD CO' -> 'CRH'
+# A share-class tag at the end: "-CL B", " - A", "-CLASS A", " CLASS C SHARES", " - B".
+_CLASS = re.compile(r"(\s*-\s*(CL(ASS)?\s*)?[A-Z]|\s+CL(ASS)?\s+[A-Z])(\s+SHARES)?$")
+
+
+def short_name(raw: str | None) -> str | None:
+    """'NVIDIA CORP' -> 'NVIDIA'; 'TRAVELERS COS INC/THE' -> 'TRAVELERS'; 'BERKSHIRE HATHAWAY
+    INC-CL B' -> 'BERKSHIRE HATHAWAY'; 'JOHNSON & JOHNSON' unchanged. Falls back to the raw name
+    rather than ever returning an empty one."""
+    if not raw:
+        return None
+    n = " ".join(raw.upper().replace(",", " ").split())
+    n = re.sub(r"\s+A/S$", "", n)                         # Danish 'A/S' before the slash rule eats '/S'
+    n = re.sub(r"/[A-Z]{1,4}$", "", n)                    # vendor suffixes: '/THE', '/DE', '/NEW'
+    n = _CLASS.sub("", n)
+    words = n.replace(".", "").split()
+    if len(words) > 1 and words[0] == "THE":
+        words = words[1:]
+    while len(words) > 1 and words[-1] in _LEGAL:
+        words = words[:-1]
+    out = " ".join(words).strip(" -&")
+    return out or raw
+
+
+def _short_names(conn, conids) -> dict:
+    ids = sorted({int(c) for c in conids if c is not None})
+    if not ids:
+        return {}
+    rows = conn.execute(text("""
+        SELECT c.conid, COALESCE(s.name, k.raw->>'name', k.name) AS name
+        FROM unnest(CAST(:c AS bigint[])) AS c(conid)
+        LEFT JOIN LATERAL (SELECT isin FROM secmaster.ibkr_contracts b
+                           WHERE b.conid = c.conid ORDER BY b.last_seen DESC LIMIT 1) br ON true
+        LEFT JOIN secmaster.securities s ON s.isin = br.isin
+        LEFT JOIN ibkr.contracts k ON k.conid = c.conid"""), {"c": ids}).mappings().all()
+    return {int(r["conid"]): short_name(r["name"]) for r in rows}
+
+
+def _name_rows(conn, *blocks) -> None:
+    """Attach `name` to every dict carrying a conid anywhere inside `blocks` (lists/dicts)."""
+    found = []
+
+    def walk(x):
+        if isinstance(x, dict):
+            if "conid" in x and "ticker" in x:
+                found.append(x)
+            for v in x.values():
+                walk(v)
+        elif isinstance(x, list):
+            for v in x:
+                walk(v)
+    for b in blocks:
+        walk(b)
+    names = _short_names(conn, [x["conid"] for x in found])
+    for x in found:
+        x["name"] = names.get(int(x["conid"])) if x["conid"] is not None else None
 
 
 @router.get("/{env}/today")
@@ -798,8 +869,10 @@ def today_orders(env: str, date: str | None = None):
         captured = conn.execute(text("""
             SELECT max(last_status_at) FROM ibkr.orders
             WHERE (submitted_at AT TIME ZONE 'America/New_York')::date = :d"""), {"d": d}).scalar()
+        names = _short_names(conn, [o["conid"] for o in orders] + [f["conid"] for f in fills])
     rows = [{"internal_order_id": int(o["internal_order_id"]), "rebalance_id": o["rebalance_id"],
              "conid": int(o["conid"]) if o["conid"] is not None else None, "ticker": o["ticker"],
+             "name": names.get(int(o["conid"])) if o["conid"] is not None else None,
              "side": o["side"], "qty": _f(o["qty"]), "order_type": o["order_type"],
              "limit_px": _f(o["limit_px"]), "status": o["status"],
              "submitted_at": _iso(o["submitted_at"]), "last_status_at": _iso(o["last_status_at"]),
@@ -812,6 +885,7 @@ def today_orders(env: str, date: str | None = None):
         "working": [r for r in rows if r["status"] not in ended],
         "cancelled": [r for r in rows if r["status"] in ("cancelled", "rejected")],
         "fills": [{"exec_ts": _iso(f["exec_ts"]), "conid": int(f["conid"]), "ticker": f["ticker"],
+                   "name": names.get(int(f["conid"])),
                    "qty": _f(f["qty"]), "price": _f(f["price"]),
                    "commission": _f(f["commission"]), "order_ref": f["order_ref"]}
                   for f in fills],
