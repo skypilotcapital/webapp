@@ -337,6 +337,10 @@ First item of the Portfolio group; also a tab beside Holdings/Exposures (`Monito
   over/underweights · S&P names we don't hold (implied, = NAV₀·Σ_held b(r − r_b)) · core invested level ·
   sleeve legs + cash/other at full P&L. Publishes `residual` (must be ~0). `b` = month-end
   `optimizer.benchmark_weights`, not drifted.
+- **Names** (2026-11-25, `8c00717`): every row with a conid (movers, sleeve, orders, fills) carries a
+  short company `name` from `_short_names` (security master via the conid bridge, else the broker's
+  description); `short_name()` trims the legal ending / share class and KEEPS the capitals (owner).
+  Rendered by `NameCell` under the bold ticker.
 - Every block prints its data time (ET with UTC beside it, `clock()` in `lib/portfolioMonitor.ts`).
   Auto-refreshes every 60 s only while `phase === 'open'`.
 - **Layout (owner review, 2026-11-23):** four bands — Today so far (Dollars cluster | Returns cluster,
