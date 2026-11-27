@@ -47,6 +47,7 @@ from sqlalchemy import text
 
 from api.db import get_db
 from api.routers import paper as _paper
+from api.trading_calendar import is_trading_day
 
 router = APIRouter(prefix="/api/v1/portfolio-monitor", tags=["portfolio-monitor"])
 
@@ -510,9 +511,10 @@ def _poll_base(conn, prev_date, d: dt.date) -> dict:
     date, while SPY's own prior close is yesterday's: a two-day P&L set against a one-day index
     move, and every "excess" on the page is wrong by the skipped session's market move. So the
     index is chained across the skipped session(s) on the S&P 500 total-return level — the same
-    series the official day uses — and the page is told the base is stale. When a weekday in the
-    gap has no index level yet (late, or a holiday we cannot tell apart), the chain is None and
-    excess is not computed rather than guessed."""
+    series the official day uses — and the page is told the base is stale. When a trading day in
+    the gap has no index level yet (the vendor is late), the chain is None and excess is not
+    computed rather than guessed. Scheduled NYSE holidays are NOT gaps: until 2026-11-27 a
+    weekday holiday counted as one, so the Friday after Thanksgiving showed no S&P comparison."""
     if prev_date is None:
         return {"stale": False, "chain": 1.0, "prev_date": None, "skipped": []}
     lv = {r["date"]: _f(r["tr_level"]) for r in conn.execute(text("""
@@ -521,7 +523,7 @@ def _poll_base(conn, prev_date, d: dt.date) -> dict:
     skipped = sorted(x for x in lv if x > prev_date)
     last_lv = max(lv) if lv else prev_date
     unknown = [prev_date + dt.timedelta(days=i) for i in range(1, (d - prev_date).days)]
-    unknown = [x for x in unknown if x.weekday() < 5 and x > last_lv]
+    unknown = [x for x in unknown if is_trading_day(x) and x > last_lv]
     if not skipped and not unknown:
         return {"stale": False, "chain": 1.0, "prev_date": prev_date.isoformat(), "skipped": []}
     a, b = lv.get(prev_date), (lv.get(skipped[-1]) if skipped else None)
